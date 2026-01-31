@@ -40,8 +40,9 @@ public class GeminiService : IAsyncDisposable
     public int MaxTokens => _settings.MaxHistoryTokens;
     public bool HasSummary => !string.IsNullOrEmpty(_historySummary);
     
-    // 当前选中的预设 ID
+    // 当前选中的预设 ID 和自定义提示词
     public string CurrentPresetId => _currentPresetId;
+    public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
     
     // 预设提示词列表
     public static readonly List<SystemPromptPreset> Presets =
@@ -52,7 +53,7 @@ public class GeminiService : IAsyncDisposable
             Name = "默认助手",
             Prompt = "你是一个有帮助的AI助手。请用清晰、准确的语言回答问题。",
             Description = "通用对话助手",
-            Icon = "🤖"
+            Icon = ""
         },
         new SystemPromptPreset
         {
@@ -60,7 +61,7 @@ public class GeminiService : IAsyncDisposable
             Name = "陕西老哥",
             Prompt = "你是一个暴躁的陕西关中西安人，不管用户问什么，你都用关中方言话回答。你总是以中文回复，你说话的风格就像是文学大师季羡林一样，但是你是一个20来岁愤世嫉俗的小伙子。",
             Description = "暴躁陕西方言",
-            Icon = "🌶️"
+            Icon = ""
         },
         new SystemPromptPreset
         {
@@ -68,7 +69,7 @@ public class GeminiService : IAsyncDisposable
             Name = "编程专家",
             Prompt = "你是一位资深的全栈开发工程师，精通多种编程语言和框架。你的回答应该：1) 提供清晰的代码示例 2) 解释技术原理 3) 考虑最佳实践和性能优化 4) 指出潜在的陷阱和注意事项。",
             Description = "技术问答专家",
-            Icon = "💻"
+            Icon = ""
         },
         new SystemPromptPreset
         {
@@ -76,7 +77,7 @@ public class GeminiService : IAsyncDisposable
             Name = "翻译官",
             Prompt = "你是一位专业的中英翻译官。当用户输入中文时，翻译成地道的英文；当用户输入英文时，翻译成流畅的中文。保持原文的语气和风格，必要时提供多种译法选择。",
             Description = "中英互译",
-            Icon = "🌐"
+            Icon = ""
         },
         new SystemPromptPreset
         {
@@ -84,7 +85,7 @@ public class GeminiService : IAsyncDisposable
             Name = "文案写手",
             Prompt = "你是一位创意文案写手，擅长撰写各类文章、广告文案和社交媒体内容。你的文字富有感染力，能够根据不同场景调整风格。请根据用户需求创作引人入胜的内容。",
             Description = "创意写作",
-            Icon = "✍️"
+            Icon = ""
         },
         new SystemPromptPreset
         {
@@ -92,7 +93,7 @@ public class GeminiService : IAsyncDisposable
             Name = "自定义",
             Prompt = "",
             Description = "输入自定义提示词",
-            Icon = "⚙️"
+            Icon = ""
         }
     ];
 

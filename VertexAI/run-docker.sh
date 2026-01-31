@@ -10,25 +10,25 @@ PROJECT_ID="${PROJECT_ID:-copper-affinity-467409-k7}"
 
 # 检查 GCP 密钥
 if [ ! -f "$GCP_KEY_PATH" ]; then
-    echo "❌ 错误: 找不到 GCP 密钥文件: $GCP_KEY_PATH"
+    echo "[ERROR] 找不到 GCP 密钥文件: $GCP_KEY_PATH"
     exit 1
 fi
 
 # 停止并删除旧容器（如果存在）
 if [ "$(docker ps -aq -f name=gemini-chat)" ]; then
-    echo "🗑️  停止旧容器..."
+    echo "[INFO] 停止旧容器..."
     docker rm -f gemini-chat > /dev/null 2>&1
 fi
 
 # 是否跳过构建
 if [ "$1" != "--skip-build" ] && [ "$1" != "-s" ]; then
-    echo "🔨 构建 Docker 镜像..."
+    echo "[BUILD] 构建 Docker 镜像..."
     docker build -t gemini-chat .
     if [ $? -ne 0 ]; then
-        echo "❌ 构建失败"
+        echo "[ERROR] 构建失败"
         exit 1
     fi
-    echo "✅ 构建完成"
+    echo "[BUILD] 构建完成"
 fi
 
 # 构建可选参数
@@ -38,8 +38,8 @@ if [ -n "$SYSTEM_PROMPT" ]; then
 fi
 
 echo ""
-echo "🚀 启动 Gemini Chat..."
-echo "   访问: http://localhost:8880"
+echo "[RUN] 启动 Gemini Chat..."
+echo "      访问: http://localhost:8880"
 echo ""
 
 docker run -p 8880:8880 \
