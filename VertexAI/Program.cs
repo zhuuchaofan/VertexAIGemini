@@ -1,6 +1,5 @@
 ﻿using Google.GenAI;
 using Google.GenAI.Types;
-using Type = Google.GenAI.Types.Type;
 
 // --------------------------------------------------------------------------------------
 // 项目名称: Vertex AI Gemini 3 Pro Client
@@ -55,15 +54,19 @@ public static class Program
         // 4. 维护上下文历史
         var chatHistory = new List<Content>();
 
-        // 配置思考模式
+        // 各项配置
         var config = new GenerateContentConfig
         {
+            SystemInstruction = new Content
+            {
+              Parts  = [new Part { Text ="你是一个暴躁的陕西关中西安，不管用户问什么，你都用关中方言话回答。你总是以中文回复，你说话的风格就像是文学大师季羡林一样，但是你是一个20来岁愤世嫉俗的小伙子。"}]
+            },
             ThinkingConfig = new ThinkingConfig
             {
                 ThinkingLevel = ThinkingLevel.MEDIUM,
                 IncludeThoughts = true
             },
-            MaxOutputTokens = 1024,
+            MaxOutputTokens = 4096,
             Temperature = 1,
             TopP = 0.9,
             SafetySettings =
@@ -71,24 +74,24 @@ public static class Program
                 new SafetySetting
                 {
                     Category = HarmCategory.HARM_CATEGORY_HARASSMENT, // 骚扰
-                    Threshold = HarmBlockThreshold.OFF // 仅屏蔽高风险
+                    Threshold = HarmBlockThreshold.OFF // 不屏蔽
                 },
 
                 new SafetySetting
                 {
                     Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, // 仇恨言论
-                    Threshold = HarmBlockThreshold.OFF // 屏蔽中等及以上
+                    Threshold = HarmBlockThreshold.OFF // 不屏蔽
                 },
 
                 new SafetySetting
                 {
-                    Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, // 危险内容
                     Threshold = HarmBlockThreshold.OFF
                 },
                 
                 new SafetySetting
                 {
-                    Category = HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, // 涉黄
                     Threshold = HarmBlockThreshold.OFF
                 }
             ]
