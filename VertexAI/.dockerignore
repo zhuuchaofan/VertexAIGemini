@@ -1,0 +1,8 @@
+.git
+.gitignore
+bin/
+obj/
+*.md
+*.txt
+GCPKey/
+.DS_Store

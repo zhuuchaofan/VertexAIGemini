@@ -39,6 +39,6 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-Console.WriteLine("🚀 Gemini Chat 已启动！访问 http://localhost:5000 开始聊天。");
+Console.WriteLine("Gemini Chat 已启动 - http://localhost:5000");
 
 app.Run();
