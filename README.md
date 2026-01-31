@@ -96,3 +96,56 @@ VertexAI/
 ├── run-docker.sh          # 部署脚本
 └── appsettings.json       # 配置文件
 ```
+
+## 发展路线
+
+### Phase 1: 用户系统
+
+- 用户注册/登录 (JWT)
+- 对话历史持久化 (PostgreSQL)
+- 每用户独立会话
+
+### Phase 2: 多租户
+
+- 组织/团队管理
+- 角色权限控制 (Admin/User)
+- API 配额管理
+
+### Phase 3: 增强功能
+
+- 多模态输入 (图片/文件)
+- 自定义 AI 人设
+- 对话分享/导出
+- RAG 知识库接入
+
+### Phase 4: 企业级
+
+- SSO 集成
+- 审计日志
+- 多区域部署
+- 监控告警
+
+```mermaid
+graph LR
+    subgraph Phase1["Phase 1"]
+        Auth["用户认证"]
+        History["对话历史"]
+    end
+
+    subgraph Phase2["Phase 2"]
+        Org["组织管理"]
+        RBAC["权限控制"]
+    end
+
+    subgraph Phase3["Phase 3"]
+        Multi["多模态"]
+        RAG["知识库"]
+    end
+
+    subgraph Phase4["Phase 4"]
+        SSO["SSO"]
+        Monitor["监控"]
+    end
+
+    Phase1 --> Phase2 --> Phase3 --> Phase4
+```
