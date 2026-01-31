@@ -1,13 +1,31 @@
 # Gemini Chat - Blazor Web App
 
-基于 Vertex AI Gemini 的 Blazor Web 聊天应用，支持思考过程可视化。
+基于 Vertex AI Gemini 的 Blazor Web 聊天应用，支持思考过程可视化和对话历史管理。
 
 ## 功能
 
 - 流式 AI 回复
 - 思考过程可折叠显示
-- 可配置系统提示词
-- Docker 部署支持
+- **系统提示词预设选择**（5种内置人设 + 自定义）
+- **对话历史管理**（Token 计数、滑动窗口、自动摘要）
+- Docker 一键部署
+
+## 系统提示词预设
+
+| 预设     | 说明             |
+| -------- | ---------------- |
+| 默认助手 | 通用对话助手     |
+| 陕西老哥 | 暴躁陕西方言     |
+| 编程专家 | 技术问答专家     |
+| 翻译官   | 中英互译         |
+| 文案写手 | 创意写作         |
+| 自定义   | 输入自定义提示词 |
+
+## 对话历史管理
+
+- **Token 计数**：实时显示当前对话 Token 使用量
+- **滑动窗口**：自动保留最近 20 轮对话
+- **自动摘要**：超出阈值时自动压缩历史，保持上下文
 
 ## 架构
 
@@ -51,11 +69,11 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --urls "http://localhost:5000"
 ```bash
 cd VertexAI
 
-# 构建镜像
-docker build -t gemini-chat .
-
-# 运行
+# 一键构建并运行（默认）
 ./run-docker.sh
+
+# 跳过构建，直接运行
+./run-docker.sh -s
 ```
 
 访问 http://localhost:8880
@@ -71,12 +89,15 @@ SYSTEM_PROMPT="自定义提示词" \
 
 ## 配置说明
 
-| 配置项       | 说明           | 默认值                 |
-| ------------ | -------------- | ---------------------- |
-| ProjectId    | GCP 项目 ID    | -                      |
-| Location     | Vertex AI 区域 | global                 |
-| ModelName    | 模型名称       | gemini-3-flash-preview |
-| SystemPrompt | 系统提示词     | -                      |
+| 配置项           | 说明              | 默认值                 |
+| ---------------- | ----------------- | ---------------------- |
+| ProjectId        | GCP 项目 ID       | -                      |
+| Location         | Vertex AI 区域    | global                 |
+| ModelName        | 模型名称          | gemini-3-flash-preview |
+| SystemPrompt     | 系统提示词        | -                      |
+| MaxHistoryTokens | 最大历史 Token 数 | 100000                 |
+| MaxHistoryRounds | 最大对话轮数      | 20                     |
+| SummaryThreshold | 触发摘要阈值      | 80000                  |
 
 配置文件：`appsettings.json` / `appsettings.Production.json`
 
@@ -90,10 +111,10 @@ VertexAI/
 │   └── Pages/
 │       └── Chat.razor     # 聊天页面
 ├── Services/
-│   └── GeminiService.cs   # AI 服务封装
+│   └── GeminiService.cs   # AI 服务封装（含历史管理）
 ├── Program.cs             # 应用入口
 ├── Dockerfile             # Docker 构建
-├── run-docker.sh          # 部署脚本
+├── run-docker.sh          # 一键部署脚本
 └── appsettings.json       # 配置文件
 ```
 
@@ -114,7 +135,7 @@ VertexAI/
 ### Phase 3: 增强功能
 
 - 多模态输入 (图片/文件)
-- 自定义 AI 人设
+- ~~自定义 AI 人设~~ ✅ 已实现
 - 对话分享/导出
 - RAG 知识库接入
 
