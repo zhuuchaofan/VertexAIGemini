@@ -1,5 +1,6 @@
 ﻿using Google.GenAI;
 using Google.GenAI.Types;
+using Type = Google.GenAI.Types.Type;
 
 // --------------------------------------------------------------------------------------
 // 项目名称: Vertex AI Gemini 3 Pro Client
@@ -61,7 +62,36 @@ public static class Program
             {
                 ThinkingLevel = ThinkingLevel.MEDIUM,
                 IncludeThoughts = true
-            }
+            },
+            MaxOutputTokens = 1024,
+            Temperature = 1,
+            TopP = 0.9,
+            SafetySettings =
+            [
+                new SafetySetting
+                {
+                    Category = HarmCategory.HARM_CATEGORY_HARASSMENT, // 骚扰
+                    Threshold = HarmBlockThreshold.OFF // 仅屏蔽高风险
+                },
+
+                new SafetySetting
+                {
+                    Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, // 仇恨言论
+                    Threshold = HarmBlockThreshold.OFF // 屏蔽中等及以上
+                },
+
+                new SafetySetting
+                {
+                    Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    Threshold = HarmBlockThreshold.OFF
+                },
+                
+                new SafetySetting
+                {
+                    Category = HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    Threshold = HarmBlockThreshold.OFF
+                }
+            ]
         };
         
         while (true)
