@@ -135,7 +135,7 @@
         <div class="max-w-4xl mx-auto">
             <form @onsubmit="SendMessage" class="flex gap-2 sm:gap-3">
                 <input @bind="_inputMessage" 
-                       @bind:event="onchange"
+                       @bind:event="oninput"
                        @onkeydown="HandleKeyDown"
                        type="text"
                        inputmode="text"
