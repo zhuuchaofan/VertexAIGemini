@@ -1,48 +1,74 @@
-# Vertex AI Gemini .NET 练手项目
+# Gemini Chat - Blazor Web App
 
-这是一个基于 Google `Google.GenAI` SDK 构建的简易终端聊天程序，旨在学习和测试 Vertex AI 的 Gemini 模型。
+基于 Vertex AI Gemini 的 Blazor Web 聊天应用，支持思考过程可视化。
 
-## 🚀 快速开始
+## 功能
 
-### 1. 环境准备
-- 安装 .NET 9.0 或更高版本 SDK。
-- 拥有一个 Google Cloud 项目并启用了 Vertex AI API。
-- 下载服务账号 JSON 密钥文件。
+- 流式 AI 回复
+- 思考过程可折叠显示
+- 可配置系统提示词
+- Docker 部署支持
 
-### 2. 配置
-编辑 `VertexAI/appsettings.json` 文件，填入你的配置：
-```json
-{
-  "VertexAI": {
-    "ProjectId": "copper-affinity-467409-k7",
-    "Location": "global",
-    "ModelName": "gemini-3-flash-preview",
-    "CredentialsPath": "你的JSON密钥绝对路径"
-  }
-}
-```
+## 本地开发
 
-### 3. 运行
-在项目根目录下执行：
 ```bash
-dotnet run --project VertexAI/VertexAI.csproj
+# 设置环境变量
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+
+# 运行
+cd VertexAI
+ASPNETCORE_ENVIRONMENT=Development dotnet run --urls "http://localhost:5000"
 ```
 
-## 📂 目录结构说明
-- `VertexAI/`
-  - `Program.cs`: 主程序入口，包含聊天循环逻辑。
-  - `appsettings.json`: 配置文件（不建议上传到 Git）。
-  - `Properties/launchSettings.json`: 调试环境配置。
-  - `VertexAI.csproj`: 项目依赖管理。
+访问 http://localhost:5000
 
-## 🛠 核心功能
-- [x] 基于 Vertex AI 的流式对话 (Streaming)
-- [x] 自动读取本地配置
-- [x] 维护对话上下文（多轮对话）
-- [ ] 支持图片输入 (Multimodal) - *待实现*
-- [ ] 函数调用 (Function Calling) - *待实现*
+## Docker 部署
 
-## 📝 学习笔记
-- **环境变量**: SDK 默认查找 `GOOGLE_APPLICATION_CREDENTIALS`。
-- **模型选择**: Vertex AI 模式下，模型名称通常选择 `gemini-3-flash-preview` 等。
-- **流式处理**: 使用 `await foreach` 处理 `GenerateContentStreamAsync`。
+```bash
+cd VertexAI
+
+# 构建镜像
+docker build -t gemini-chat .
+
+# 运行
+./run-docker.sh
+```
+
+访问 http://localhost:8880
+
+### 自定义配置
+
+```bash
+GCP_KEY_PATH=/your/key.json \
+PROJECT_ID=your-project \
+SYSTEM_PROMPT="自定义提示词" \
+./run-docker.sh
+```
+
+## 配置说明
+
+| 配置项       | 说明           | 默认值                 |
+| ------------ | -------------- | ---------------------- |
+| ProjectId    | GCP 项目 ID    | -                      |
+| Location     | Vertex AI 区域 | global                 |
+| ModelName    | 模型名称       | gemini-3-flash-preview |
+| SystemPrompt | 系统提示词     | -                      |
+
+配置文件：`appsettings.json` / `appsettings.Production.json`
+
+## 目录结构
+
+```
+VertexAI/
+├── Components/
+│   ├── App.razor          # 根组件
+│   ├── Routes.razor       # 路由配置
+│   └── Pages/
+│       └── Chat.razor     # 聊天页面
+├── Services/
+│   └── GeminiService.cs   # AI 服务封装
+├── Program.cs             # 应用入口
+├── Dockerfile             # Docker 构建
+├── run-docker.sh          # 部署脚本
+└── appsettings.json       # 配置文件
+```
