@@ -9,10 +9,23 @@
             <div>
                 <h1 class="text-xl font-bold text-white">Gemini Chat</h1>
             </div>
-            <button @onclick="ClearChat" 
-                    class="px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                清空对话
-            </button>
+            <div class="flex items-center gap-4">
+                @* Token 使用量显示 *@
+                <div class="text-sm text-white/80 flex items-center gap-2">
+                    <span class="hidden sm:inline">Token:</span>
+                    <span class="font-mono">@FormatTokenCount(Gemini.CurrentTokenCount)</span>
+                    <span class="text-white/50">/</span>
+                    <span class="font-mono text-white/60">@FormatTokenCount(Gemini.MaxTokens)</span>
+                    @if (Gemini.HasSummary)
+                    {
+                        <span class="ml-1 px-1.5 py-0.5 bg-white/20 rounded text-xs" title="历史已摘要压缩">📝</span>
+                    }
+                </div>
+                <button @onclick="ClearChat" 
+                        class="px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                    清空对话
+                </button>
+            </div>
         </div>
     </header>
 
@@ -22,6 +35,16 @@
             {
                 <div class="text-center py-20">
                     <p class="text-amber-700">开始对话</p>
+                    <p class="text-sm text-amber-500 mt-2">最多保留 @Gemini.MaxTokens.ToString("N0") Token 的对话历史</p>
+                </div>
+            }
+
+            @if (_trimNotification != null)
+            {
+                <div class="bg-amber-100 border border-amber-300 rounded-lg px-4 py-2 text-sm text-amber-700 flex items-center gap-2">
+                    <span>📝</span>
+                    <span>@_trimNotification</span>
+                    <button @onclick="() => _trimNotification = null" class="ml-auto text-amber-500 hover:text-amber-700">✕</button>
                 </div>
             }
 
@@ -70,8 +93,8 @@
     <footer class="flex-shrink-0 bg-white border-t border-amber-200 px-4 py-4">
         <div class="max-w-4xl mx-auto">
             <form @onsubmit="SendMessage" class="flex gap-3">
-                <input @bind="_inputMessage" 
-                       @bind:event="oninput"
+                <input value="@_inputMessage" 
+                       @oninput="HandleInput"
                        type="text"
                        placeholder="输入消息..."
                        disabled="@_isLoading"
@@ -90,6 +113,8 @@
     private readonly List<ChatMessage> _messages = [];
     private string _inputMessage = string.Empty;
     private bool _isLoading;
+    private string? _trimNotification;
+    private bool _previousHasSummary;
 
     private async Task SendMessage()
     {
@@ -98,6 +123,7 @@
         var userMessage = _inputMessage.Trim();
         _inputMessage = string.Empty;
         _isLoading = true;
+        _previousHasSummary = Gemini.HasSummary;
 
         _messages.Add(new ChatMessage { IsUser = true, Content = userMessage });
         await ScrollToBottom();
@@ -127,6 +153,12 @@
                 StateHasChanged();
                 await ScrollToBottom();
             }
+
+            // 检查是否触发了历史修剪
+            if (!_previousHasSummary && Gemini.HasSummary)
+            {
+                _trimNotification = "对话历史已自动摘要压缩，以保持最佳性能。";
+            }
         }
         catch (Exception ex)
         {
@@ -144,11 +176,22 @@
     {
         _messages.Clear();
         Gemini.ClearHistory();
+        _trimNotification = null;
+    }
+
+    private void HandleInput(ChangeEventArgs e)
+    {
+        _inputMessage = e.Value?.ToString() ?? string.Empty;
     }
 
     private async Task ScrollToBottom()
     {
         await JS.InvokeVoidAsync("eval", "document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight");
+    }
+
+    private static string FormatTokenCount(int count)
+    {
+        return count >= 1000 ? $"{count / 1000}K" : count.ToString();
     }
 
     private class ChatMessage
