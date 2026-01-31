@@ -9,6 +9,30 @@
 - 可配置系统提示词
 - Docker 部署支持
 
+## 架构
+
+```mermaid
+graph TB
+    subgraph Browser["浏览器"]
+        UI["Chat.razor<br>聊天界面"]
+    end
+
+    subgraph Server["Blazor Server"]
+        SignalR["SignalR<br>实时通信"]
+        Service["GeminiService<br>AI 服务"]
+    end
+
+    subgraph Cloud["Google Cloud"]
+        VertexAI["Vertex AI<br>Gemini API"]
+    end
+
+    UI <-->|WebSocket| SignalR
+    SignalR --> Service
+    Service -->|Streaming| VertexAI
+```
+
+**数据流**：用户输入 → SignalR → GeminiService → Vertex AI → 流式返回 → UI 实时更新
+
 ## 本地开发
 
 ```bash
