@@ -1,0 +1,176 @@
+@page "/"
+@rendermode InteractiveServer
+@inject GeminiService Gemini
+@inject IJSRuntime JS
+
+<div class="h-screen flex flex-col">
+    <!-- Header -->
+    <header class="flex-shrink-0 bg-surface/80 backdrop-blur-lg border-b border-gray-700/50 px-6 py-4">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <span class="text-xl">🧠</span>
+                </div>
+                <div>
+                    <h1 class="text-lg font-semibold text-white">Gemini Chat</h1>
+                    <p class="text-xs text-gray-400">Thinking Mode Enabled</p>
+                </div>
+            </div>
+            <button @onclick="ClearChat" 
+                    class="px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-lg transition-colors">
+                清空对话
+            </button>
+        </div>
+    </header>
+
+    <!-- Messages Area -->
+    <main class="flex-1 overflow-y-auto px-4 py-6" id="messages-container">
+        <div class="max-w-4xl mx-auto space-y-6">
+            @if (_messages.Count == 0)
+            {
+                <div class="text-center py-20">
+                    <div class="text-6xl mb-4">💬</div>
+                    <p class="text-gray-400">开始和 Gemini 聊天吧！</p>
+                    <p class="text-sm text-gray-500 mt-2">支持查看 AI 的思考过程</p>
+                </div>
+            }
+
+            @foreach (var msg in _messages)
+            {
+                <div class="@(msg.IsUser ? "flex justify-end" : "flex justify-start")">
+                    <div class="max-w-[85%] @(msg.IsUser ? "bg-primary rounded-2xl rounded-br-md" : "bg-surface rounded-2xl rounded-bl-md") px-4 py-3">
+                        
+                        @if (!msg.IsUser && msg.ThinkingContent?.Length > 0)
+                        {
+                            <details class="mb-3 group">
+                                <summary class="cursor-pointer text-sm text-thinking flex items-center gap-2 hover:text-gray-300 transition-colors">
+                                    <span class="text-yellow-500">⚡</span>
+                                    <span>思考过程</span>
+                                    <span class="text-xs text-gray-500">(@msg.ThinkingContent.Length 字符)</span>
+                                </summary>
+                                <div class="mt-2 pl-6 text-sm text-gray-400 border-l-2 border-thinking whitespace-pre-wrap">
+                                    @msg.ThinkingContent
+                                </div>
+                            </details>
+                        }
+
+                        <div class="text-gray-100 whitespace-pre-wrap">
+                            @msg.Content
+                            @if (msg.IsStreaming)
+                            {
+                                <span class="inline-block w-2 h-4 bg-primary ml-1 cursor-blink"></span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (_isLoading && !_messages.Any(m => m.IsStreaming))
+            {
+                <div class="flex justify-start">
+                    <div class="bg-surface rounded-2xl rounded-bl-md px-4 py-3">
+                        <div class="flex items-center gap-2 text-gray-400">
+                            <span class="thinking-pulse">🤔</span>
+                            <span>正在思考...</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </main>
+
+    <!-- Input Area -->
+    <footer class="flex-shrink-0 bg-surface/80 backdrop-blur-lg border-t border-gray-700/50 px-4 py-4">
+        <div class="max-w-4xl mx-auto">
+            <form @onsubmit="SendMessage" class="flex gap-3">
+                <input @bind="_inputMessage" 
+                       @bind:event="oninput"
+                       type="text"
+                       placeholder="输入消息..."
+                       disabled="@_isLoading"
+                       class="flex-1 bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all disabled:opacity-50" />
+                <button type="submit" 
+                        disabled="@(string.IsNullOrWhiteSpace(_inputMessage) || _isLoading)"
+                        class="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium rounded-xl hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    发送
+                </button>
+            </form>
+        </div>
+    </footer>
+</div>
+
+@code {
+    private readonly List<ChatMessage> _messages = [];
+    private string _inputMessage = string.Empty;
+    private bool _isLoading;
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputMessage) || _isLoading) return;
+
+        var userMessage = _inputMessage.Trim();
+        _inputMessage = string.Empty;
+        _isLoading = true;
+
+        // 添加用户消息
+        _messages.Add(new ChatMessage { IsUser = true, Content = userMessage });
+        await ScrollToBottom();
+        StateHasChanged();
+
+        // 添加 AI 消息占位符
+        var aiMessage = new ChatMessage { IsUser = false, Content = "", IsStreaming = true };
+        _messages.Add(aiMessage);
+
+        try
+        {
+            var thinkingBuilder = new System.Text.StringBuilder();
+            var responseBuilder = new System.Text.StringBuilder();
+
+            await foreach (var chunk in Gemini.StreamChatAsync(userMessage))
+            {
+                if (chunk.IsThinking)
+                {
+                    thinkingBuilder.Append(chunk.Text);
+                    aiMessage.ThinkingContent = thinkingBuilder.ToString();
+                }
+                else
+                {
+                    responseBuilder.Append(chunk.Text);
+                    aiMessage.Content = responseBuilder.ToString();
+                }
+                
+                StateHasChanged();
+                await ScrollToBottom();
+            }
+        }
+        catch (Exception ex)
+        {
+            aiMessage.Content = $"❌ 错误: {ex.Message}";
+        }
+        finally
+        {
+            aiMessage.IsStreaming = false;
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearChat()
+    {
+        _messages.Clear();
+        Gemini.ClearHistory();
+    }
+
+    private async Task ScrollToBottom()
+    {
+        await JS.InvokeVoidAsync("eval", "document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight");
+    }
+
+    private class ChatMessage
+    {
+        public bool IsUser { get; init; }
+        public string Content { get; set; } = "";
+        public string? ThinkingContent { get; set; }
+        public bool IsStreaming { get; set; }
+    }
+}
