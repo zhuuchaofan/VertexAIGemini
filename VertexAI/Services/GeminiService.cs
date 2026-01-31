@@ -5,6 +5,18 @@ using Microsoft.Extensions.Options;
 namespace VertexAI.Services;
 
 /// <summary>
+/// 预设的系统提示词
+/// </summary>
+public class SystemPromptPreset
+{
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    public required string Prompt { get; init; }
+    public string? Description { get; init; }
+    public string? Icon { get; init; }
+}
+
+/// <summary>
 /// Gemini 聊天服务 - 封装与 Vertex AI 的交互
 /// 支持滑动窗口、Token 计数和自动摘要的对话历史管理
 /// </summary>
@@ -13,21 +25,82 @@ public class GeminiService : IAsyncDisposable
     private readonly Client _client;
     private readonly string _modelName;
     private readonly List<Content> _chatHistory = [];
-    private readonly GenerateContentConfig _config;
     private readonly GeminiSettings _settings;
+    private GenerateContentConfig _config;
     
     // 历史摘要（当历史被修剪时存储）
     private string? _historySummary;
+    
+    // 当前系统提示词
+    private string _currentSystemPrompt;
+    private string _currentPresetId = "default";
     
     // Token 使用量追踪
     public int CurrentTokenCount { get; private set; }
     public int MaxTokens => _settings.MaxHistoryTokens;
     public bool HasSummary => !string.IsNullOrEmpty(_historySummary);
+    
+    // 当前选中的预设 ID
+    public string CurrentPresetId => _currentPresetId;
+    
+    // 预设提示词列表
+    public static readonly List<SystemPromptPreset> Presets =
+    [
+        new SystemPromptPreset
+        {
+            Id = "default",
+            Name = "默认助手",
+            Prompt = "你是一个有帮助的AI助手。请用清晰、准确的语言回答问题。",
+            Description = "通用对话助手",
+            Icon = "🤖"
+        },
+        new SystemPromptPreset
+        {
+            Id = "shaanxi",
+            Name = "陕西老哥",
+            Prompt = "你是一个暴躁的陕西关中西安人，不管用户问什么，你都用关中方言话回答。你总是以中文回复，你说话的风格就像是文学大师季羡林一样，但是你是一个20来岁愤世嫉俗的小伙子。",
+            Description = "暴躁陕西方言",
+            Icon = "🌶️"
+        },
+        new SystemPromptPreset
+        {
+            Id = "programmer",
+            Name = "编程专家",
+            Prompt = "你是一位资深的全栈开发工程师，精通多种编程语言和框架。你的回答应该：1) 提供清晰的代码示例 2) 解释技术原理 3) 考虑最佳实践和性能优化 4) 指出潜在的陷阱和注意事项。",
+            Description = "技术问答专家",
+            Icon = "💻"
+        },
+        new SystemPromptPreset
+        {
+            Id = "translator",
+            Name = "翻译官",
+            Prompt = "你是一位专业的中英翻译官。当用户输入中文时，翻译成地道的英文；当用户输入英文时，翻译成流畅的中文。保持原文的语气和风格，必要时提供多种译法选择。",
+            Description = "中英互译",
+            Icon = "🌐"
+        },
+        new SystemPromptPreset
+        {
+            Id = "writer",
+            Name = "文案写手",
+            Prompt = "你是一位创意文案写手，擅长撰写各类文章、广告文案和社交媒体内容。你的文字富有感染力，能够根据不同场景调整风格。请根据用户需求创作引人入胜的内容。",
+            Description = "创意写作",
+            Icon = "✍️"
+        },
+        new SystemPromptPreset
+        {
+            Id = "custom",
+            Name = "自定义",
+            Prompt = "",
+            Description = "输入自定义提示词",
+            Icon = "⚙️"
+        }
+    ];
 
     public GeminiService(IOptions<GeminiSettings> settings)
     {
         _settings = settings.Value;
         _modelName = _settings.ModelName;
+        _currentSystemPrompt = _settings.SystemPrompt ?? Presets[0].Prompt;
         
         // 初始化 Google.GenAI 客户端 (Vertex AI 模式)
         _client = new Client(
@@ -37,11 +110,19 @@ public class GeminiService : IAsyncDisposable
         );
 
         // 配置生成参数
-        _config = new GenerateContentConfig
+        _config = BuildConfig(_currentSystemPrompt);
+    }
+
+    /// <summary>
+    /// 构建生成配置
+    /// </summary>
+    private static GenerateContentConfig BuildConfig(string systemPrompt)
+    {
+        return new GenerateContentConfig
         {
             SystemInstruction = new Content
             {
-                Parts = [new Part { Text = _settings.SystemPrompt ?? "你是一个有帮助的AI助手。" }]
+                Parts = [new Part { Text = systemPrompt }]
             },
             ThinkingConfig = new ThinkingConfig
             {
@@ -59,6 +140,30 @@ public class GeminiService : IAsyncDisposable
                 new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF }
             ]
         };
+    }
+
+    /// <summary>
+    /// 切换系统提示词
+    /// </summary>
+    public void SetSystemPrompt(string presetId, string? customPrompt = null)
+    {
+        _currentPresetId = presetId;
+        
+        if (presetId == "custom" && !string.IsNullOrWhiteSpace(customPrompt))
+        {
+            _currentSystemPrompt = customPrompt;
+        }
+        else
+        {
+            var preset = Presets.FirstOrDefault(p => p.Id == presetId) ?? Presets[0];
+            _currentSystemPrompt = preset.Prompt;
+        }
+        
+        // 重建配置
+        _config = BuildConfig(_currentSystemPrompt);
+        
+        // 清空历史（切换人设需要重新开始对话）
+        ClearHistory();
     }
 
     /// <summary>

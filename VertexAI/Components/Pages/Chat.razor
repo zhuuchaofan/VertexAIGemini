@@ -5,10 +5,54 @@
 
 <div class="h-screen flex flex-col">
     <header class="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 shadow-md">
-        <div class="max-w-4xl mx-auto flex items-center justify-between">
-            <div>
+        <div class="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
                 <h1 class="text-xl font-bold text-white">Gemini Chat</h1>
+                
+                @* 系统提示词选择器 *@
+                <div class="relative">
+                    <button @onclick="TogglePresetMenu" 
+                            class="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm transition-colors">
+                        <span>@GetCurrentPresetIcon()</span>
+                        <span class="hidden sm:inline">@GetCurrentPresetName()</span>
+                        <span class="text-xs">▼</span>
+                    </button>
+                    
+                    @if (_showPresetMenu)
+                    {
+                        <div class="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-amber-200 z-50 overflow-hidden">
+                            @foreach (var preset in GeminiService.Presets)
+                            {
+                                @if (preset.Id != "custom")
+                                {
+                                    <button @onclick="() => SelectPreset(preset.Id)"
+                                            class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left @(Gemini.CurrentPresetId == preset.Id ? "bg-amber-100" : "")">
+                                        <span class="text-xl">@preset.Icon</span>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="font-medium text-gray-800">@preset.Name</div>
+                                            <div class="text-xs text-gray-500 truncate">@preset.Description</div>
+                                        </div>
+                                        @if (Gemini.CurrentPresetId == preset.Id)
+                                        {
+                                            <span class="text-amber-600">✓</span>
+                                        }
+                                    </button>
+                                }
+                            }
+                            <hr class="border-amber-200" />
+                            <button @onclick="ShowCustomPromptDialog"
+                                    class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left @(Gemini.CurrentPresetId == "custom" ? "bg-amber-100" : "")">
+                                <span class="text-xl">⚙️</span>
+                                <div class="flex-1">
+                                    <div class="font-medium text-gray-800">自定义提示词</div>
+                                    <div class="text-xs text-gray-500">输入自定义人设</div>
+                                </div>
+                            </button>
+                        </div>
+                    }
+                </div>
             </div>
+            
             <div class="flex items-center gap-4">
                 @* Token 使用量显示 *@
                 <div class="text-sm text-white/80 flex items-center gap-2">
@@ -23,19 +67,20 @@
                 </div>
                 <button @onclick="ClearChat" 
                         class="px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                    清空对话
+                    清空
                 </button>
             </div>
         </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto px-4 py-6 bg-amber-50" id="messages-container">
+    <main class="flex-1 overflow-y-auto px-4 py-6 bg-amber-50" id="messages-container" @onclick="CloseMenus">
         <div class="max-w-4xl mx-auto space-y-6">
             @if (_messages.Count == 0)
             {
                 <div class="text-center py-20">
-                    <p class="text-amber-700">开始对话</p>
-                    <p class="text-sm text-amber-500 mt-2">最多保留 @Gemini.MaxTokens.ToString("N0") Token 的对话历史</p>
+                    <div class="text-4xl mb-4">@GetCurrentPresetIcon()</div>
+                    <p class="text-amber-700 font-medium">@GetCurrentPresetName()</p>
+                    <p class="text-sm text-amber-500 mt-2">开始对话吧</p>
                 </div>
             }
 
@@ -109,12 +154,47 @@
     </footer>
 </div>
 
+@* 自定义提示词对话框 *@
+@if (_showCustomDialog)
+{
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="CloseCustomDialog">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg" @onclick:stopPropagation>
+            <div class="px-6 py-4 border-b border-amber-200">
+                <h2 class="text-lg font-bold text-gray-800">自定义系统提示词</h2>
+            </div>
+            <div class="p-6">
+                <textarea @bind="_customPromptInput"
+                          rows="6"
+                          placeholder="输入自定义的 AI 人设提示词..."
+                          class="w-full bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-gray-800 placeholder-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"></textarea>
+                <p class="mt-2 text-xs text-gray-500">提示词将定义 AI 的行为和回复风格。切换后对话会被清空。</p>
+            </div>
+            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
+                <button @onclick="CloseCustomDialog"
+                        class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                    取消
+                </button>
+                <button @onclick="ApplyCustomPrompt"
+                        disabled="@string.IsNullOrWhiteSpace(_customPromptInput)"
+                        class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50">
+                    应用
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private readonly List<ChatMessage> _messages = [];
     private string _inputMessage = string.Empty;
     private bool _isLoading;
     private string? _trimNotification;
     private bool _previousHasSummary;
+    
+    // 预设菜单和自定义对话框状态
+    private bool _showPresetMenu;
+    private bool _showCustomDialog;
+    private string _customPromptInput = "";
 
     private async Task SendMessage()
     {
@@ -192,6 +272,60 @@
     private static string FormatTokenCount(int count)
     {
         return count >= 1000 ? $"{count / 1000}K" : count.ToString();
+    }
+
+    // 预设菜单相关方法
+    private void TogglePresetMenu()
+    {
+        _showPresetMenu = !_showPresetMenu;
+    }
+
+    private void CloseMenus()
+    {
+        _showPresetMenu = false;
+    }
+
+    private void SelectPreset(string presetId)
+    {
+        Gemini.SetSystemPrompt(presetId);
+        _messages.Clear();
+        _showPresetMenu = false;
+        _trimNotification = null;
+    }
+
+    private void ShowCustomPromptDialog()
+    {
+        _showPresetMenu = false;
+        _showCustomDialog = true;
+        _customPromptInput = "";
+    }
+
+    private void CloseCustomDialog()
+    {
+        _showCustomDialog = false;
+    }
+
+    private void ApplyCustomPrompt()
+    {
+        if (!string.IsNullOrWhiteSpace(_customPromptInput))
+        {
+            Gemini.SetSystemPrompt("custom", _customPromptInput);
+            _messages.Clear();
+            _showCustomDialog = false;
+            _trimNotification = null;
+        }
+    }
+
+    private string GetCurrentPresetName()
+    {
+        var preset = GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId);
+        return preset?.Name ?? "默认助手";
+    }
+
+    private string GetCurrentPresetIcon()
+    {
+        var preset = GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId);
+        return preset?.Icon ?? "🤖";
     }
 
     private class ChatMessage
