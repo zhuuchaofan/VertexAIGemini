@@ -42,11 +42,16 @@ echo "[RUN] 启动 Gemini Chat..."
 echo "      访问: http://localhost:8880"
 echo ""
 
-docker run -p 8880:8880 \
+docker run -d -p 8880:8880 \
     -v "$(realpath "$GCP_KEY_PATH")":/app/credentials.json \
     -e GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json \
     -e VertexAI__ProjectId="$PROJECT_ID" \
     $EXTRA_ARGS \
     --name gemini-chat \
-    --rm \
+    --restart unless-stopped \
     gemini-chat
+
+echo "[OK] 容器已在后台启动"
+echo ""
+echo "查看日志: docker logs -f gemini-chat"
+echo "停止容器: docker stop gemini-chat"
