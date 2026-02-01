@@ -212,17 +212,34 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        await Auth.InitializeAsync();
+        // 如果 AuthService 已经有登录状态（从 Login.razor 跳转过来），直接使用
+        // 否则尝试从 localStorage 恢复会话
+        if (!Auth.IsAuthenticated)
+        {
+            await Auth.InitializeAsync();
+        }
+
+        // 立即显示页面，不等待数据库
+        _initialized = true;
+
+        // 后台异步加载对话历史（不阻塞 UI）
         if (Auth.IsAuthenticated)
         {
-            await LoadConversationsAsync();
+            _ = LoadConversationsAsync().ContinueWith(_ => InvokeAsync(StateHasChanged));
         }
-        _initialized = true;
     }
 
     private async Task LoadConversationsAsync()
     {
-        _conversations = await ConversationSvc.GetUserConversationsAsync(Auth.CurrentUser.Id);
+        try
+        {
+            _conversations = await ConversationSvc.GetUserConversationsAsync(Auth.CurrentUser.Id);
+        }
+        catch
+        {
+            // 数据库不可用，保持空列表
+            _conversations = [];
+        }
     }
 
     private async Task CreateNewConversation()

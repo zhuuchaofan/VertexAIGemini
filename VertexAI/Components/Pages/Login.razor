@@ -106,7 +106,7 @@
                 var (success, error) = await Auth.SignInAsync(_email, _password);
                 if (success)
                 {
-                    Navigation.NavigateTo("/", forceLoad: true);
+                    Navigation.NavigateTo("/");
                 }
                 else
                 {

@@ -1,0 +1,40 @@
+services:
+  # === 数据库服务 (PostgreSQL) ===
+  db:
+    image: postgres:15-alpine
+    container_name: gemini-db
+    restart: always
+    environment:
+      POSTGRES_USER: gemini_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-GeminiChat2024!}
+      POSTGRES_DB: gemini_chat
+      TZ: Asia/Shanghai
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gemini_admin -d gemini_chat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5433:5432"
+
+  # === Gemini Chat 应用 ===
+  app:
+    build: .
+    container_name: gemini-chat
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - VertexAI__ProjectId=${PROJECT_ID:-copper-affinity-467409-k7}
+      - ConnectionStrings__Supabase=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
+    volumes:
+      - ${GCP_KEY_PATH:-./GCPKey/copper-affinity-467409-k7-9f51b539bf0f.json}:/app/credentials.json:ro
+    ports:
+      - "8880:8880"
+
+volumes:
+  pg_data:
