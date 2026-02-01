@@ -16,8 +16,8 @@ builder.Services.Configure<GeminiSettings>(
 builder.Services.Configure<SupabaseSettings>(
     builder.Configuration.GetSection("Supabase"));
 
-// 2. 数据库配置 (Supabase PostgreSQL)
-builder.Services.AddDbContext<AppDbContext>(options =>
+// 2. 数据库配置 (Supabase PostgreSQL) - 使用 Factory 避免并发问题
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Supabase")));
 
 // 3. 业务服务
@@ -35,8 +35,8 @@ var app = builder.Build();
 // 5. 尝试初始化数据库（失败时只打印警告，允许应用启动）
 try
 {
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+    await using var db = await dbFactory.CreateDbContextAsync();
     await db.Database.EnsureCreatedAsync();
     Console.WriteLine("数据库连接成功");
 }

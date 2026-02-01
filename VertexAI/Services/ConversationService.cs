@@ -6,15 +6,16 @@ namespace VertexAI.Services;
 
 /// <summary>
 /// 对话服务 - 管理用户对话和消息的持久化
+/// 使用 IDbContextFactory 避免 Blazor Server 中的并发问题
 /// </summary>
 public class ConversationService
 {
-    private readonly AppDbContext _db;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private bool _dbAvailable = true;
 
-    public ConversationService(AppDbContext db)
+    public ConversationService(IDbContextFactory<AppDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     /// <summary>
@@ -26,7 +27,8 @@ public class ConversationService
 
         try
         {
-            return await _db.Conversations
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.Conversations
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.UpdatedAt)
                 .AsNoTracking()
@@ -48,7 +50,8 @@ public class ConversationService
 
         try
         {
-            return await _db.Conversations
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.Conversations
                 .Include(c => c.Messages.OrderBy(m => m.CreatedAt))
                 .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
         }
@@ -68,6 +71,7 @@ public class ConversationService
 
         try
         {
+            await using var db = await _dbFactory.CreateDbContextAsync();
             var conversation = new Conversation
             {
                 UserId = userId,
@@ -75,8 +79,8 @@ public class ConversationService
                 CustomPrompt = customPrompt
             };
 
-            _db.Conversations.Add(conversation);
-            await _db.SaveChangesAsync();
+            db.Conversations.Add(conversation);
+            await db.SaveChangesAsync();
             return conversation;
         }
         catch
@@ -95,35 +99,13 @@ public class ConversationService
 
         try
         {
-            var conversation = await _db.Conversations.FindAsync(conversationId);
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversation = await db.Conversations.FindAsync(conversationId);
             if (conversation != null)
             {
                 conversation.Title = title;
                 conversation.UpdatedAt = DateTime.UtcNow;
-                await _db.SaveChangesAsync();
-            }
-        }
-        catch
-        {
-            _dbAvailable = false;
-        }
-    }
-
-    /// <summary>
-    /// 更新历史摘要
-    /// </summary>
-    public async Task UpdateSummaryAsync(Guid conversationId, string? summary)
-    {
-        if (!_dbAvailable) return;
-
-        try
-        {
-            var conversation = await _db.Conversations.FindAsync(conversationId);
-            if (conversation != null)
-            {
-                conversation.HistorySummary = summary;
-                conversation.UpdatedAt = DateTime.UtcNow;
-                await _db.SaveChangesAsync();
+                await db.SaveChangesAsync();
             }
         }
         catch
@@ -145,6 +127,7 @@ public class ConversationService
 
         try
         {
+            await using var db = await _dbFactory.CreateDbContextAsync();
             var message = new Message
             {
                 ConversationId = conversationId,
@@ -153,9 +136,9 @@ public class ConversationService
                 ThinkingContent = thinkingContent
             };
 
-            _db.Messages.Add(message);
+            db.Messages.Add(message);
 
-            var conversation = await _db.Conversations.FindAsync(conversationId);
+            var conversation = await db.Conversations.FindAsync(conversationId);
             if (conversation != null)
             {
                 conversation.UpdatedAt = DateTime.UtcNow;
@@ -166,7 +149,7 @@ public class ConversationService
                 }
             }
 
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
             return message;
         }
         catch
@@ -185,13 +168,14 @@ public class ConversationService
 
         try
         {
-            var conversation = await _db.Conversations
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversation = await db.Conversations
                 .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
 
             if (conversation != null)
             {
-                _db.Conversations.Remove(conversation);
-                await _db.SaveChangesAsync();
+                db.Conversations.Remove(conversation);
+                await db.SaveChangesAsync();
             }
         }
         catch
@@ -201,7 +185,7 @@ public class ConversationService
     }
 
     /// <summary>
-    /// 清空对话消息（保留对话本身）
+    /// 清空对话消息
     /// </summary>
     public async Task ClearMessagesAsync(Guid conversationId)
     {
@@ -209,20 +193,21 @@ public class ConversationService
 
         try
         {
-            var messages = await _db.Messages
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var messages = await db.Messages
                 .Where(m => m.ConversationId == conversationId)
                 .ToListAsync();
 
-            _db.Messages.RemoveRange(messages);
+            db.Messages.RemoveRange(messages);
 
-            var conversation = await _db.Conversations.FindAsync(conversationId);
+            var conversation = await db.Conversations.FindAsync(conversationId);
             if (conversation != null)
             {
                 conversation.HistorySummary = null;
                 conversation.UpdatedAt = DateTime.UtcNow;
             }
 
-            await _db.SaveChangesAsync();
+            await db.SaveChangesAsync();
         }
         catch
         {
