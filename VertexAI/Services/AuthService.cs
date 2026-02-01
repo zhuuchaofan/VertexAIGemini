@@ -1,31 +1,61 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.JSInterop;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
 
 namespace VertexAI.Services;
 
 /// <summary>
-/// 本地认证服务 - 基于 PostgreSQL + BCrypt 密码哈希
+/// 本地认证服务 - 基于 PostgreSQL + BCrypt 密码哈希 + 简单 Token 持久化
 /// </summary>
 public class AuthService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IJSRuntime _js;
     private CurrentUser _currentUser = new();
+    private const string SessionKey = "gemini_chat_session";
 
     public CurrentUser CurrentUser => _currentUser;
     public bool IsAuthenticated => _currentUser.IsAuthenticated;
 
     public event Action? OnAuthStateChanged;
 
-    public AuthService(IDbContextFactory<AppDbContext> dbFactory)
+    public AuthService(IDbContextFactory<AppDbContext> dbFactory, IJSRuntime js)
     {
         _dbFactory = dbFactory;
+        _js = js;
     }
 
     /// <summary>
-    /// 初始化（本地认证不需要特殊初始化）
+    /// 初始化：从 localStorage 恢复会话
     /// </summary>
-    public Task InitializeAsync() => Task.CompletedTask;
+    public async Task InitializeAsync()
+    {
+        try
+        {
+            var token = await _js.InvokeAsync<string?>("localStorage.getItem", SessionKey);
+            if (string.IsNullOrEmpty(token)) return;
+
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var session = await db.Sessions
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.Token == token && s.ExpiresAt > DateTime.UtcNow);
+
+            if (session != null && session.User != null)
+            {
+                SetCurrentUser(session.User);
+            }
+            else
+            {
+                // 会话无效，清除
+                await _js.InvokeVoidAsync("localStorage.removeItem", SessionKey);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"恢复会话失败: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// 用户注册
@@ -46,14 +76,11 @@ public class AuthService
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            // 检查邮箱是否已存在
-            var exists = await db.Users.AnyAsync(u => u.Email == email.ToLower());
-            if (exists)
+            if (await db.Users.AnyAsync(u => u.Email == email.ToLower()))
             {
                 return (false, "该邮箱已被注册");
             }
 
-            // 创建用户
             var user = new User
             {
                 Email = email.ToLower(),
@@ -63,8 +90,7 @@ public class AuthService
             db.Users.Add(user);
             await db.SaveChangesAsync();
 
-            // 自动登录
-            SetCurrentUser(user);
+            await CreateSessionAsync(db, user);
             return (true, null);
         }
         catch (Exception ex)
@@ -89,22 +115,15 @@ public class AuthService
             await using var db = await _dbFactory.CreateDbContextAsync();
 
             var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email.ToLower());
-            if (user == null)
+            if (user == null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             {
                 return (false, "邮箱或密码错误");
             }
 
-            // 验证密码
-            if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
-            {
-                return (false, "邮箱或密码错误");
-            }
-
-            // 更新最后登录时间
             user.LastLoginAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await CreateSessionAsync(db, user); // 创建并保存会话
+            await db.SaveChangesAsync(); // 提交最后登录时间更新
 
-            SetCurrentUser(user);
             return (true, null);
         }
         catch (Exception ex)
@@ -115,13 +134,41 @@ public class AuthService
     }
 
     /// <summary>
+    /// 创建新会话并保存到 localStorage
+    /// </summary>
+    private async Task CreateSessionAsync(AppDbContext db, User user)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        var session = new Session
+        {
+            UserId = user.Id,
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddDays(7) // 7天过期
+        };
+
+        db.Sessions.Add(session);
+        await db.SaveChangesAsync();
+
+        await _js.InvokeVoidAsync("localStorage.setItem", SessionKey, token);
+        SetCurrentUser(user);
+    }
+
+    /// <summary>
     /// 用户登出
     /// </summary>
-    public Task SignOutAsync()
+    public async Task SignOutAsync()
     {
-        _currentUser = new CurrentUser();
-        OnAuthStateChanged?.Invoke();
-        return Task.CompletedTask;
+        try
+        {
+            await _js.InvokeVoidAsync("localStorage.removeItem", SessionKey);
+            // 可选：同时删除数据库中的会话（如果需要更严格的安全控制）
+        }
+        catch { }
+        finally
+        {
+            _currentUser = new CurrentUser();
+            OnAuthStateChanged?.Invoke();
+        }
     }
 
     private void SetCurrentUser(User user)
