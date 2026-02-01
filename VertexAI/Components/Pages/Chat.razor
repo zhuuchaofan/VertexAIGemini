@@ -24,16 +24,34 @@ else if (!Auth.IsAuthenticated)
 }
 else
 {
-    <div class="h-dvh flex">
-        @* 侧边栏 - 对话列表 *@
-        <aside class="@(_showSidebar ? "w-64" : "w-0") flex-shrink-0 bg-amber-100 border-r border-amber-200 flex flex-col transition-all duration-300 overflow-hidden">
+    <div class="h-dvh flex relative overflow-hidden">
+        @* 移动端背景遮罩 *@
+        @if (_showSidebar)
+        {
+            <div class="md:hidden absolute inset-0 bg-black/50 z-30 transition-opacity"
+                 @onclick="ToggleSidebar"></div>
+        }
+
+        @* 侧边栏 - 响应式设计 *@
+        <aside class="@(_showSidebar ? "translate-x-0" : "-translate-x-full md:w-0 md:border-r-0")
+                      absolute md:static inset-y-0 left-0 z-40 w-64 md:w-64 flex-shrink-0
+                      bg-amber-100 border-r border-amber-200 flex flex-col
+                      transition-all duration-300 ease-in-out">
             <div class="p-3 border-b border-amber-200 flex items-center justify-between">
                 <span class="font-bold text-amber-800">对话历史</span>
-                <button @onclick="CreateNewConversation" class="p-1 hover:bg-amber-200 rounded" title="新对话">
-                    <svg class="w-5 h-5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                    </svg>
-                </button>
+                <div class="flex items-center gap-1">
+                    <button @onclick="CreateNewConversation" class="p-1 hover:bg-amber-200 rounded" title="新对话">
+                        <svg class="w-5 h-5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                    </button>
+                    @* 移动端关闭按钮 *@
+                    <button @onclick="ToggleSidebar" class="md:hidden p-1 hover:bg-amber-200 rounded" title="关闭">
+                        <svg class="w-5 h-5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="flex-1 overflow-y-auto">
                 @foreach (var conv in _conversations)
@@ -45,8 +63,11 @@ else
                 }
             </div>
             <div class="p-3 border-t border-amber-200">
-                <button @onclick="SignOut" class="w-full text-left text-sm text-amber-700 hover:text-amber-900">
-                    退出登录 (@Auth.CurrentUser.Email)
+                <button @onclick="SignOut" class="w-full text-left text-sm text-amber-700 hover:text-amber-900 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                    <span class="truncate">退出 (@Auth.CurrentUser.Email)</span>
                 </button>
             </div>
         </aside>
