@@ -1,134 +1,76 @@
-using Microsoft.Extensions.Options;
-using Microsoft.JSInterop;
-using Supabase;
-using Supabase.Gotrue;
-using Client = Supabase.Client;
+using Microsoft.EntityFrameworkCore;
+using VertexAI.Data;
+using VertexAI.Data.Entities;
 
 namespace VertexAI.Services;
 
 /// <summary>
-/// 认证服务 - 封装 Supabase Auth 操作，支持会话持久化
+/// 本地认证服务 - 基于 PostgreSQL + BCrypt 密码哈希
 /// </summary>
-public class AuthService : IAsyncDisposable
+public class AuthService
 {
-    private readonly Client _supabase;
-    private readonly IJSRuntime _js;
+    private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private CurrentUser _currentUser = new();
-    private bool _initialized;
-    private const string SessionKey = "supabase_session";
 
     public CurrentUser CurrentUser => _currentUser;
     public bool IsAuthenticated => _currentUser.IsAuthenticated;
 
     public event Action? OnAuthStateChanged;
 
-    public AuthService(IOptions<SupabaseSettings> settings, IJSRuntime js)
+    public AuthService(IDbContextFactory<AppDbContext> dbFactory)
     {
-        var config = settings.Value;
-        _supabase = new Client(config.Url, config.Key);
-        _js = js;
+        _dbFactory = dbFactory;
     }
 
     /// <summary>
-    /// 初始化 Supabase 客户端并恢复会话
+    /// 初始化（本地认证不需要特殊初始化）
     /// </summary>
-    public async Task InitializeAsync()
-    {
-        if (_initialized) return;
-
-        try
-        {
-            // 5 秒超时
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await _supabase.InitializeAsync().WaitAsync(cts.Token);
-
-            // 尝试从 localStorage 恢复会话
-            await RestoreSessionAsync();
-
-            _initialized = true;
-        }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("警告: Supabase 初始化超时，以离线模式运行");
-            _initialized = true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"警告: Supabase 初始化失败 - {ex.Message}");
-            _initialized = true;
-        }
-    }
-
-    /// <summary>
-    /// 从 localStorage 恢复会话
-    /// </summary>
-    private async Task RestoreSessionAsync()
-    {
-        try
-        {
-            var sessionJson = await _js.InvokeAsync<string?>("localStorage.getItem", SessionKey);
-            if (!string.IsNullOrEmpty(sessionJson))
-            {
-                var session = System.Text.Json.JsonSerializer.Deserialize<StoredSession>(sessionJson);
-                if (session != null && !string.IsNullOrEmpty(session.AccessToken))
-                {
-                    // 使用 refresh token 恢复会话
-                    var restored = await _supabase.Auth.SetSession(session.AccessToken, session.RefreshToken ?? "");
-                    if (restored?.User != null)
-                    {
-                        UpdateCurrentUser(restored.User);
-                        // 保存刷新后的 token
-                        await SaveSessionAsync(restored);
-                        return;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"恢复会话失败: {ex.Message}");
-            // 清除无效的会话
-            try { await _js.InvokeVoidAsync("localStorage.removeItem", SessionKey); } catch { }
-        }
-    }
-
-    /// <summary>
-    /// 保存会话到 localStorage
-    /// </summary>
-    private async Task SaveSessionAsync(Session session)
-    {
-        try
-        {
-            var stored = new StoredSession
-            {
-                AccessToken = session.AccessToken,
-                RefreshToken = session.RefreshToken,
-                ExpiresAt = session.ExpiresAt()
-            };
-            var json = System.Text.Json.JsonSerializer.Serialize(stored);
-            await _js.InvokeVoidAsync("localStorage.setItem", SessionKey, json);
-        }
-        catch { }
-    }
+    public Task InitializeAsync() => Task.CompletedTask;
 
     /// <summary>
     /// 用户注册
     /// </summary>
     public async Task<(bool Success, string? Error)> SignUpAsync(string email, string password)
     {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        {
+            return (false, "邮箱和密码不能为空");
+        }
+
+        if (password.Length < 6)
+        {
+            return (false, "密码长度至少 6 个字符");
+        }
+
         try
         {
-            var response = await _supabase.Auth.SignUp(email, password);
-            if (response?.User != null)
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            // 检查邮箱是否已存在
+            var exists = await db.Users.AnyAsync(u => u.Email == email.ToLower());
+            if (exists)
             {
-                UpdateCurrentUser(response.User);
-                return (true, null);
+                return (false, "该邮箱已被注册");
             }
-            return (false, "注册失败，请稍后重试");
+
+            // 创建用户
+            var user = new User
+            {
+                Email = email.ToLower(),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password)
+            };
+
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+
+            // 自动登录
+            SetCurrentUser(user);
+            return (true, null);
         }
         catch (Exception ex)
         {
-            return (false, ex.Message);
+            Console.WriteLine($"注册失败: {ex.Message}");
+            return (false, "注册失败，请稍后重试");
         }
     }
 
@@ -137,67 +79,69 @@ public class AuthService : IAsyncDisposable
     /// </summary>
     public async Task<(bool Success, string? Error)> SignInAsync(string email, string password)
     {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        {
+            return (false, "邮箱和密码不能为空");
+        }
+
         try
         {
-            var response = await _supabase.Auth.SignIn(email, password);
-            if (response?.User != null)
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email.ToLower());
+            if (user == null)
             {
-                UpdateCurrentUser(response.User);
-                // 保存会话
-                var session = _supabase.Auth.CurrentSession;
-                if (session != null)
-                {
-                    await SaveSessionAsync(session);
-                }
-                return (true, null);
+                return (false, "邮箱或密码错误");
             }
-            return (false, "登录失败，邮箱或密码错误");
+
+            // 验证密码
+            if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+            {
+                return (false, "邮箱或密码错误");
+            }
+
+            // 更新最后登录时间
+            user.LastLoginAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            SetCurrentUser(user);
+            return (true, null);
         }
         catch (Exception ex)
         {
-            return (false, ex.Message);
+            Console.WriteLine($"登录失败: {ex.Message}");
+            return (false, "登录失败，请稍后重试");
         }
     }
 
     /// <summary>
     /// 用户登出
     /// </summary>
-    public async Task SignOutAsync()
+    public Task SignOutAsync()
     {
-        try
-        {
-            await _supabase.Auth.SignOut();
-            // 清除 localStorage
-            await _js.InvokeVoidAsync("localStorage.removeItem", SessionKey);
-        }
-        catch { }
-        finally
-        {
-            _currentUser = new CurrentUser();
-            OnAuthStateChanged?.Invoke();
-        }
+        _currentUser = new CurrentUser();
+        OnAuthStateChanged?.Invoke();
+        return Task.CompletedTask;
     }
 
-    private void UpdateCurrentUser(User user)
+    private void SetCurrentUser(User user)
     {
         _currentUser = new CurrentUser
         {
-            Id = Guid.Parse(user.Id!),
-            Email = user.Email ?? "",
+            Id = user.Id,
+            Email = user.Email,
             IsAuthenticated = true
         };
         OnAuthStateChanged?.Invoke();
     }
+}
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-
-    /// <summary>
-    /// 存储的会话信息
-    /// </summary>
-    private class StoredSession
-    {
-        public string? AccessToken { get; set; }
-        public string? RefreshToken { get; set; }
-        public DateTime? ExpiresAt { get; set; }
-    }
+/// <summary>
+/// 当前用户信息
+/// </summary>
+public class CurrentUser
+{
+    public Guid Id { get; set; }
+    public string Email { get; set; } = "";
+    public bool IsAuthenticated { get; set; }
 }

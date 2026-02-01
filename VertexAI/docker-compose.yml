@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "5433:5432"
+      - "5454:5432"
 
   # === Gemini Chat 应用 ===
   app:
@@ -30,7 +30,7 @@ services:
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
       - VertexAI__ProjectId=${PROJECT_ID:-copper-affinity-467409-k7}
-      - ConnectionStrings__Supabase=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
     volumes:
       - ${GCP_KEY_PATH:-./GCPKey/copper-affinity-467409-k7-9f51b539bf0f.json}:/app/credentials.json:ro
     ports:

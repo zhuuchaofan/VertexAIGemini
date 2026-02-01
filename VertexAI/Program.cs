@@ -13,12 +13,10 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. 配置服务
 builder.Services.Configure<GeminiSettings>(
     builder.Configuration.GetSection("VertexAI"));
-builder.Services.Configure<SupabaseSettings>(
-    builder.Configuration.GetSection("Supabase"));
 
-// 2. 数据库配置 (Supabase PostgreSQL) - 使用 Factory 避免并发问题
+// 2. 数据库配置 (本地 PostgreSQL) - 使用 Factory 避免并发问题
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Supabase")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
 // 3. 业务服务
 builder.Services.AddScoped<GeminiService>();       // AI 聊天
@@ -32,7 +30,7 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
-// 5. 尝试初始化数据库（失败时只打印警告，允许应用启动）
+// 5. 初始化数据库
 try
 {
     var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
