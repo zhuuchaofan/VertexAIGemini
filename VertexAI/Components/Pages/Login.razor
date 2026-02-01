@@ -1,0 +1,146 @@
+@page "/login"
+@rendermode InteractiveServer
+@inject AuthService Auth
+@inject NavigationManager Navigation
+
+<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100 px-4">
+    <div class="w-full max-w-md">
+        <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-amber-600">Gemini Chat</h1>
+                <p class="text-gray-500 mt-2">@(_isLogin ? "登录您的账户" : "创建新账户")</p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                    @_error
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_success))
+            {
+                <div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                    @_success
+                </div>
+            }
+
+            <form @onsubmit="HandleSubmit" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                    <input type="email"
+                           @bind="_email"
+                           required
+                           placeholder="your@email.com"
+                           class="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 text-gray-800" />
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                    <input type="password"
+                           @bind="_password"
+                           required
+                           minlength="6"
+                           placeholder="至少 6 个字符"
+                           class="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 text-gray-800" />
+                </div>
+
+                <button type="submit"
+                        disabled="@_isLoading"
+                        class="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-50">
+                    @if (_isLoading)
+                    {
+                        <span>处理中...</span>
+                    }
+                    else
+                    {
+                        <span>@(_isLogin ? "登录" : "注册")</span>
+                    }
+                </button>
+            </form>
+
+            <div class="mt-6 text-center">
+                <button @onclick="ToggleMode"
+                        class="text-amber-600 hover:text-amber-700 text-sm">
+                    @(_isLogin ? "没有账户？立即注册" : "已有账户？立即登录")
+                </button>
+            </div>
+        </div>
+
+        <p class="mt-6 text-center text-gray-400 text-sm">
+            基于 Vertex AI Gemini 构建
+        </p>
+    </div>
+</div>
+
+@code {
+    private string _email = "";
+    private string _password = "";
+    private bool _isLogin = true;
+    private bool _isLoading;
+    private string? _error;
+    private string? _success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Auth.InitializeAsync();
+
+        // 如果已登录，跳转到聊天页面
+        if (Auth.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        _error = null;
+        _success = null;
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            if (_isLogin)
+            {
+                var (success, error) = await Auth.SignInAsync(_email, _password);
+                if (success)
+                {
+                    Navigation.NavigateTo("/");
+                }
+                else
+                {
+                    _error = error;
+                }
+            }
+            else
+            {
+                var (success, error) = await Auth.SignUpAsync(_email, _password);
+                if (success)
+                {
+                    _success = "注册成功！请查看邮箱确认链接后登录。";
+                    _isLogin = true;
+                }
+                else
+                {
+                    _error = error;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ToggleMode()
+    {
+        _isLogin = !_isLogin;
+        _error = null;
+        _success = null;
+    }
+}
