@@ -15,6 +15,9 @@ builder.Services.Configure<GeminiSettings>(
 // 使用 Scoped 生命周期，每个用户会话一个实例
 builder.Services.AddScoped<GeminiService>();
 
+// Markdown 渲染服务（无状态，单例）
+builder.Services.AddSingleton<MarkdownService>();
+
 // 2. 添加 Blazor 服务
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

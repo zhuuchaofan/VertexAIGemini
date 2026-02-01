@@ -1,6 +1,7 @@
 @page "/"
 @rendermode InteractiveServer
 @inject GeminiService Gemini
+@inject MarkdownService Markdown
 @inject IJSRuntime JS
 
 <div class="h-dvh flex flex-col">
@@ -107,13 +108,22 @@
                             </details>
                         }
 
-                        <div class="whitespace-pre-wrap break-words text-sm sm:text-base">
-                            @msg.Content
-                            @if (msg.IsStreaming)
-                            {
-                                <span class="inline-block w-2 h-4 bg-amber-600 ml-1 cursor-blink"></span>
-                            }
-                        </div>
+                        @if (msg.IsUser)
+                        {
+                            <div class="whitespace-pre-wrap break-words text-sm sm:text-base">
+                                @msg.Content
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="markdown-body text-sm sm:text-base">
+                                @((MarkupString)Markdown.ToHtml(msg.Content))
+                                @if (msg.IsStreaming)
+                                {
+                                    <span class="inline-block w-2 h-4 bg-amber-600 ml-1 cursor-blink"></span>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             }

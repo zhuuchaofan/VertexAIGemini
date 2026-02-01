@@ -1,0 +1,85 @@
+# EditorConfig - VertexAI Gemini Chat 代码规范
+# https://editorconfig.org
+
+root = true
+
+# 适用于所有文件
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# C# 代码
+[*.cs]
+indent_size = 4
+max_line_length = 120
+
+# 命名规范
+dotnet_naming_rule.private_fields_should_be_camelCase.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camelCase.style = camelCase
+dotnet_naming_rule.private_fields_should_be_camelCase.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.camelCase.capitalization = camel_case
+dotnet_naming_style.camelCase.required_prefix = _
+
+# 使用 var 关键字
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# 表达式体成员
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+
+# 空间格式
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_between_parentheses = false
+
+# 新行规则
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+# 使用 using 声明而非 using 块
+csharp_prefer_simple_using_statement = true:suggestion
+
+# 优先使用 file-scoped namespace
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Razor/Blazor 文件
+[*.razor]
+indent_size = 4
+max_line_length = 150
+
+# HTML 文件
+[*.html]
+indent_size = 2
+
+# CSS 文件
+[*.css]
+indent_size = 2
+
+# JSON 配置文件
+[*.json]
+indent_size = 2
+
+# Shell 脚本
+[*.sh]
+end_of_line = lf
+indent_size = 4
+
+# XML / csproj 文件
+[*.{xml,csproj,props,targets}]
+indent_size = 2
+
+# Markdown 文件
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 120

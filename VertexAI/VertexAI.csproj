@@ -9,6 +9,7 @@
 
     <ItemGroup>
       <PackageReference Include="Google.GenAI" Version="0.14.0" />
+      <PackageReference Include="Markdig" Version="0.37.0" />
     </ItemGroup>
 
 </Project>
