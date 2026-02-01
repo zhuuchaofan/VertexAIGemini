@@ -10,6 +10,7 @@ namespace VertexAI.Services;
 public class ConversationService
 {
     private readonly AppDbContext _db;
+    private bool _dbAvailable = true;
 
     public ConversationService(AppDbContext db)
     {
@@ -21,11 +22,21 @@ public class ConversationService
     /// </summary>
     public async Task<List<Conversation>> GetUserConversationsAsync(Guid userId)
     {
-        return await _db.Conversations
-            .Where(c => c.UserId == userId)
-            .OrderByDescending(c => c.UpdatedAt)
-            .AsNoTracking()
-            .ToListAsync();
+        if (!_dbAvailable) return [];
+
+        try
+        {
+            return await _db.Conversations
+                .Where(c => c.UserId == userId)
+                .OrderByDescending(c => c.UpdatedAt)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+        catch
+        {
+            _dbAvailable = false;
+            return [];
+        }
     }
 
     /// <summary>
@@ -33,26 +44,46 @@ public class ConversationService
     /// </summary>
     public async Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId)
     {
-        return await _db.Conversations
-            .Include(c => c.Messages.OrderBy(m => m.CreatedAt))
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+        if (!_dbAvailable) return null;
+
+        try
+        {
+            return await _db.Conversations
+                .Include(c => c.Messages.OrderBy(m => m.CreatedAt))
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+        }
+        catch
+        {
+            _dbAvailable = false;
+            return null;
+        }
     }
 
     /// <summary>
     /// 创建新对话
     /// </summary>
-    public async Task<Conversation> CreateConversationAsync(Guid userId, string presetId, string? customPrompt = null)
+    public async Task<Conversation?> CreateConversationAsync(Guid userId, string presetId, string? customPrompt = null)
     {
-        var conversation = new Conversation
-        {
-            UserId = userId,
-            PresetId = presetId,
-            CustomPrompt = customPrompt
-        };
+        if (!_dbAvailable) return null;
 
-        _db.Conversations.Add(conversation);
-        await _db.SaveChangesAsync();
-        return conversation;
+        try
+        {
+            var conversation = new Conversation
+            {
+                UserId = userId,
+                PresetId = presetId,
+                CustomPrompt = customPrompt
+            };
+
+            _db.Conversations.Add(conversation);
+            await _db.SaveChangesAsync();
+            return conversation;
+        }
+        catch
+        {
+            _dbAvailable = false;
+            return null;
+        }
     }
 
     /// <summary>
@@ -60,12 +91,21 @@ public class ConversationService
     /// </summary>
     public async Task UpdateTitleAsync(Guid conversationId, string title)
     {
-        var conversation = await _db.Conversations.FindAsync(conversationId);
-        if (conversation != null)
+        if (!_dbAvailable) return;
+
+        try
         {
-            conversation.Title = title;
-            conversation.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
+            var conversation = await _db.Conversations.FindAsync(conversationId);
+            if (conversation != null)
+            {
+                conversation.Title = title;
+                conversation.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            _dbAvailable = false;
         }
     }
 
@@ -74,49 +114,66 @@ public class ConversationService
     /// </summary>
     public async Task UpdateSummaryAsync(Guid conversationId, string? summary)
     {
-        var conversation = await _db.Conversations.FindAsync(conversationId);
-        if (conversation != null)
+        if (!_dbAvailable) return;
+
+        try
         {
-            conversation.HistorySummary = summary;
-            conversation.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
+            var conversation = await _db.Conversations.FindAsync(conversationId);
+            if (conversation != null)
+            {
+                conversation.HistorySummary = summary;
+                conversation.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            _dbAvailable = false;
         }
     }
 
     /// <summary>
     /// 添加消息到对话
     /// </summary>
-    public async Task<Message> AddMessageAsync(
+    public async Task<Message?> AddMessageAsync(
         Guid conversationId,
         string role,
         string content,
         string? thinkingContent = null)
     {
-        var message = new Message
+        if (!_dbAvailable) return null;
+
+        try
         {
-            ConversationId = conversationId,
-            Role = role,
-            Content = content,
-            ThinkingContent = thinkingContent
-        };
-
-        _db.Messages.Add(message);
-
-        // 同时更新对话的更新时间
-        var conversation = await _db.Conversations.FindAsync(conversationId);
-        if (conversation != null)
-        {
-            conversation.UpdatedAt = DateTime.UtcNow;
-
-            // 如果没有标题，用第一条用户消息生成
-            if (string.IsNullOrEmpty(conversation.Title) && role == "user")
+            var message = new Message
             {
-                conversation.Title = content.Length > 50 ? content[..50] + "..." : content;
-            }
-        }
+                ConversationId = conversationId,
+                Role = role,
+                Content = content,
+                ThinkingContent = thinkingContent
+            };
 
-        await _db.SaveChangesAsync();
-        return message;
+            _db.Messages.Add(message);
+
+            var conversation = await _db.Conversations.FindAsync(conversationId);
+            if (conversation != null)
+            {
+                conversation.UpdatedAt = DateTime.UtcNow;
+
+                if (string.IsNullOrEmpty(conversation.Title) && role == "user")
+                {
+                    conversation.Title = content.Length > 50 ? content[..50] + "..." : content;
+                }
+            }
+
+            await _db.SaveChangesAsync();
+            return message;
+        }
+        catch
+        {
+            _dbAvailable = false;
+            return null;
+        }
     }
 
     /// <summary>
@@ -124,13 +181,22 @@ public class ConversationService
     /// </summary>
     public async Task DeleteConversationAsync(Guid conversationId, Guid userId)
     {
-        var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+        if (!_dbAvailable) return;
 
-        if (conversation != null)
+        try
         {
-            _db.Conversations.Remove(conversation);
-            await _db.SaveChangesAsync();
+            var conversation = await _db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+
+            if (conversation != null)
+            {
+                _db.Conversations.Remove(conversation);
+                await _db.SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            _dbAvailable = false;
         }
     }
 
@@ -139,19 +205,28 @@ public class ConversationService
     /// </summary>
     public async Task ClearMessagesAsync(Guid conversationId)
     {
-        var messages = await _db.Messages
-            .Where(m => m.ConversationId == conversationId)
-            .ToListAsync();
+        if (!_dbAvailable) return;
 
-        _db.Messages.RemoveRange(messages);
-
-        var conversation = await _db.Conversations.FindAsync(conversationId);
-        if (conversation != null)
+        try
         {
-            conversation.HistorySummary = null;
-            conversation.UpdatedAt = DateTime.UtcNow;
-        }
+            var messages = await _db.Messages
+                .Where(m => m.ConversationId == conversationId)
+                .ToListAsync();
 
-        await _db.SaveChangesAsync();
+            _db.Messages.RemoveRange(messages);
+
+            var conversation = await _db.Conversations.FindAsync(conversationId);
+            if (conversation != null)
+            {
+                conversation.HistorySummary = null;
+                conversation.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync();
+        }
+        catch
+        {
+            _dbAvailable = false;
+        }
     }
 }

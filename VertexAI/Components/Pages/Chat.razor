@@ -229,7 +229,7 @@ else
     {
         var conv = await ConversationSvc.CreateConversationAsync(
             Auth.CurrentUser.Id, Gemini.CurrentPresetId, Gemini.CurrentCustomPrompt);
-        _currentConversationId = conv.Id;
+        _currentConversationId = conv?.Id; // 可能为 null（离线模式）
         _messages.Clear();
         Gemini.ClearHistory();
         await LoadConversationsAsync();
@@ -274,8 +274,11 @@ else
         await ScrollToBottom();
         StateHasChanged();
 
-        // 持久化用户消息
-        await ConversationSvc.AddMessageAsync(_currentConversationId!.Value, "user", userMessage);
+        // 持久化用户消息（如果有对话 ID）
+        if (_currentConversationId.HasValue)
+        {
+            await ConversationSvc.AddMessageAsync(_currentConversationId.Value, "user", userMessage);
+        }
 
         var aiMessage = new ChatMessage { IsUser = false, Content = "", IsStreaming = true };
         _messages.Add(aiMessage);
@@ -301,9 +304,12 @@ else
                 await ScrollToBottom();
             }
 
-            // 持久化 AI 回复
-            await ConversationSvc.AddMessageAsync(
-                _currentConversationId!.Value, "model", aiMessage.Content, aiMessage.ThinkingContent);
+            // 持久化 AI 回复（如果有对话 ID）
+            if (_currentConversationId.HasValue)
+            {
+                await ConversationSvc.AddMessageAsync(
+                    _currentConversationId.Value, "model", aiMessage.Content, aiMessage.ThinkingContent);
+            }
         }
         catch (Exception ex)
         {
