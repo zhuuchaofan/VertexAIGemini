@@ -12,6 +12,7 @@ public class AuthService : IAsyncDisposable
 {
     private readonly Client _supabase;
     private CurrentUser _currentUser = new();
+    private bool _initialized;
 
     public CurrentUser CurrentUser => _currentUser;
     public bool IsAuthenticated => _currentUser.IsAuthenticated;
@@ -25,11 +26,29 @@ public class AuthService : IAsyncDisposable
     }
 
     /// <summary>
-    /// 初始化 Supabase 客户端
+    /// 初始化 Supabase 客户端（带超时）
     /// </summary>
     public async Task InitializeAsync()
     {
-        await _supabase.InitializeAsync();
+        if (_initialized) return;
+
+        try
+        {
+            // 5 秒超时，避免页面卡死
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await _supabase.InitializeAsync().WaitAsync(cts.Token);
+            _initialized = true;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("警告: Supabase 初始化超时，以离线模式运行");
+            _initialized = true; // 标记为完成，避免重复初始化
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"警告: Supabase 初始化失败 - {ex.Message}");
+            _initialized = true;
+        }
     }
 
     /// <summary>
