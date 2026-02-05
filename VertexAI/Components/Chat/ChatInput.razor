@@ -1,15 +1,40 @@
-@* 聊天输入区域组件 *@
+@* 聊天输入区域组件 - 增强版 *@
 
-<footer class="flex-shrink-0 bg-white border-t border-amber-200 px-3 py-3 safe-area-bottom">
-    <form @onsubmit="OnSend" @onsubmit:preventDefault class="max-w-4xl mx-auto flex gap-2 items-end">
-        <textarea @bind="InputValue" @bind:event="oninput" @onkeydown="HandleKeyDown"
-                  rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@IsLoading"
-                  class="flex-1 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none min-h-[40px] max-h-[200px]"
-                  style="field-sizing: content;" />
-        <button type="submit" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
-                class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 h-[40px]">
-            发送
-        </button>
+<footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-3 py-3 safe-area-bottom">
+    <form @onsubmit="OnSend" @onsubmit:preventDefault class="max-w-4xl mx-auto">
+        <div class="flex gap-2 items-end">
+            <div class="flex-1 relative">
+                <textarea @bind="InputValue" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                          rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@IsLoading"
+                          class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-4 py-3 pr-16 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[48px] max-h-[200px] transition-all"
+                          style="field-sizing: content;" />
+                @* 字符计数 *@
+                <div class="absolute right-3 bottom-3 text-xs @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-600" : "text-gray-400")">
+                    @CharCount
+                </div>
+            </div>
+            <button type="submit" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
+                    class="px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 active:scale-95 transition-all h-[48px] flex items-center gap-2">
+                @if (IsLoading)
+                {
+                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                }
+                else
+                {
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
+                }
+                <span class="hidden sm:inline">发送</span>
+            </button>
+        </div>
+        @if (CharCount > 4000)
+        {
+            <p class="text-xs text-red-500 mt-1 ml-1">消息过长，建议精简内容</p>
+        }
     </form>
 </footer>
 
@@ -18,6 +43,8 @@
     [Parameter] public EventCallback<string> InputValueChanged { get; set; }
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public EventCallback OnSendMessage { get; set; }
+
+    private int CharCount => InputValue?.Length ?? 0;
 
     private async Task OnSend()
     {

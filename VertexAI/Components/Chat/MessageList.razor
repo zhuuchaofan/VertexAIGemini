@@ -1,13 +1,30 @@
 @* 消息列表组件 *@
 @inject MarkdownService Markdown
 
-<main class="flex-1 overflow-y-auto px-3 py-4 bg-amber-50" id="messages-container" @onclick="OnAreaClicked">
+<main class="flex-1 overflow-y-auto px-3 py-4 bg-gradient-to-b from-amber-50 to-orange-50/30" id="messages-container" @onclick="OnAreaClicked">
     <div class="max-w-4xl mx-auto space-y-4">
         @if (Messages.Count == 0)
         {
-            <div class="text-center py-16">
-                <p class="text-amber-700 font-medium">@PresetName</p>
-                <p class="text-sm text-amber-500 mt-2">开始对话吧</p>
+            @* 精致的空状态 *@
+            <div class="flex flex-col items-center justify-center py-20 text-center">
+                <div class="w-20 h-20 mb-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                    <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                </div>
+                <h2 class="text-xl font-bold text-amber-800 mb-2">@PresetName</h2>
+                <p class="text-amber-600 mb-6">开始一段新对话吧</p>
+                <div class="flex flex-wrap gap-2 justify-center max-w-md">
+                    <span class="px-3 py-1.5 bg-white/80 border border-amber-200 rounded-full text-xs text-amber-700 shadow-sm">
+                        💡 试试问我任何问题
+                    </span>
+                    <span class="px-3 py-1.5 bg-white/80 border border-amber-200 rounded-full text-xs text-amber-700 shadow-sm">
+                        🧠 支持深度思考模式
+                    </span>
+                    <span class="px-3 py-1.5 bg-white/80 border border-amber-200 rounded-full text-xs text-amber-700 shadow-sm">
+                        📝 上下文记忆对话
+                    </span>
+                </div>
             </div>
         }
 
@@ -23,9 +40,18 @@
 
         @if (IsLoading && !Messages.Any(m => m.IsStreaming))
         {
+            @* 骨架屏加载态 *@
             <div class="flex justify-start">
-                <div class="bg-white border border-amber-200 rounded-2xl px-3 py-2 shadow-sm">
-                    <span class="text-amber-700 text-sm thinking-pulse">思考中...</span>
+                <div class="bg-white border border-amber-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm max-w-[70%]">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
+                        <span class="text-amber-700 text-sm font-medium">正在思考...</span>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="h-3 bg-amber-100 rounded w-full animate-pulse"></div>
+                        <div class="h-3 bg-amber-100 rounded w-4/5 animate-pulse" style="animation-delay: 0.1s"></div>
+                        <div class="h-3 bg-amber-100 rounded w-3/5 animate-pulse" style="animation-delay: 0.2s"></div>
+                    </div>
                 </div>
             </div>
         }
@@ -38,4 +64,3 @@
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public EventCallback OnAreaClicked { get; set; }
 }
-

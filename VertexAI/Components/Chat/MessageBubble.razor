@@ -1,34 +1,52 @@
-@* 单条消息气泡组件 *@
+@* 单条消息气泡组件 - 增强版 *@
 
-<div class="@(IsUser ? "flex justify-end" : "flex justify-start")">
-    <div class="max-w-[90%] @(IsUser
-        ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl rounded-br-md"
-        : "bg-white border border-amber-200 text-gray-800 rounded-2xl rounded-bl-md shadow-sm") px-3 py-2">
+<div class="@(IsUser ? "flex justify-end" : "flex justify-start") animate-fadeIn">
+    <div class="max-w-[85%] @(IsUser
+        ? "bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-2xl rounded-br-sm shadow-md"
+        : "bg-white border border-amber-100 text-gray-800 rounded-2xl rounded-bl-sm shadow-sm") px-4 py-3 transition-all hover:shadow-lg">
 
         @if (!IsUser && ThinkingContent?.Length > 0)
         {
-            <details class="mb-2 group">
-                <summary class="cursor-pointer text-xs text-amber-700">思考过程 (@ThinkingContent.Length 字符)</summary>
-                <div class="mt-2 pl-3 text-xs text-amber-800 border-l-2 border-amber-300 whitespace-pre-wrap">@ThinkingContent</div>
+            <details class="mb-3 group">
+                <summary class="cursor-pointer text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1.5 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                    </svg>
+                    <span>思考过程</span>
+                    <span class="text-amber-400">(@ThinkingContent.Length 字符)</span>
+                </summary>
+                <div class="mt-2 pl-3 text-xs text-amber-800 border-l-2 border-amber-300 whitespace-pre-wrap bg-amber-50/50 rounded-r py-2 pr-2">
+                    @ThinkingContent
+                </div>
             </details>
         }
 
         @if (IsUser)
         {
-            <div class="whitespace-pre-wrap break-words text-sm">@Content</div>
+            <div class="whitespace-pre-wrap break-words text-sm leading-relaxed">@Content</div>
         }
         else
         {
-            <div class="markdown-body text-sm">
+            <div class="markdown-body text-sm leading-relaxed">
                 @((MarkupString)MarkdownHtml)
                 @if (IsStreaming)
                 {
-                    <span class="inline-block w-2 h-4 bg-amber-600 ml-1 cursor-blink"></span>
+                    <span class="inline-block w-2 h-5 bg-amber-500 ml-1 rounded-sm cursor-blink"></span>
                 }
             </div>
         }
     </div>
 </div>
+
+<style>
+    .animate-fadeIn {
+        animation: fadeIn 0.3s ease-out;
+    }
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
 
 @code {
     [Parameter] public bool IsUser { get; set; }
