@@ -4,8 +4,9 @@
     <form @onsubmit="OnSend" @onsubmit:preventDefault class="max-w-4xl mx-auto">
         <div class="flex gap-2 items-end">
             <div class="flex-1 relative">
-                <textarea @bind="InputValue" @bind:event="oninput" @onkeydown="HandleKeyDown"
-                          rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@IsLoading"
+                <textarea @bind="InputValue" @bind:event="oninput"
+                          @onkeydown="HandleKeyDown" @onkeydown:preventDefault="@_shouldPreventDefault"
+                          rows="1" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" disabled="@IsLoading"
                           class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-4 py-3 pr-16 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[48px] max-h-[200px] transition-all"
                           style="field-sizing: content;" />
                 @* 字符计数 *@
@@ -45,6 +46,7 @@
     [Parameter] public EventCallback OnSendMessage { get; set; }
 
     private int CharCount => InputValue?.Length ?? 0;
+    private bool _shouldPreventDefault;
 
     private async Task OnSend()
     {
@@ -56,7 +58,11 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey)
+        // Enter 不带 Shift = 发送（阻止换行）
+        // Enter + Shift = 换行（不阻止）
+        _shouldPreventDefault = e.Key == "Enter" && !e.ShiftKey;
+
+        if (_shouldPreventDefault)
         {
             await OnSend();
         }
