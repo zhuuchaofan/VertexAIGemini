@@ -132,6 +132,29 @@ else
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // 从 localStorage 恢复思考模式设置
+            await RestoreThinkingLevelAsync();
+        }
+    }
+
+    private async Task RestoreThinkingLevelAsync()
+    {
+        try
+        {
+            var savedLevel = await JS.InvokeAsync<string?>("localStorage.getItem", "thinkingLevel");
+            if (!string.IsNullOrEmpty(savedLevel) && Enum.TryParse<Google.GenAI.Types.ThinkingLevel>(savedLevel, out var level))
+            {
+                Gemini.SetThinkingLevel(level);
+                StateHasChanged();
+            }
+        }
+        catch { /* 忽略 localStorage 不可用的情况 */ }
+    }
+
     private async Task LoadConversationsAsync()
     {
         try
@@ -330,9 +353,15 @@ else
         _currentConversationId = null;
     }
 
-    private void SelectThinkingLevel(Google.GenAI.Types.ThinkingLevel level)
+    private async Task SelectThinkingLevel(Google.GenAI.Types.ThinkingLevel level)
     {
         Gemini.SetThinkingLevel(level);
+        // 持久化到 localStorage
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "thinkingLevel", level.ToString());
+        }
+        catch { /* 忽略 localStorage 不可用的情况 */ }
     }
 
     private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";

@@ -1,26 +1,26 @@
 @* 顶部栏组件 - 预设/思考选择器 *@
 @using Google.GenAI.Types
 
-<header class="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 shadow-md safe-area-top">
-    <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2 min-w-0">
-            <button @onclick="OnToggleSidebar" class="p-1 text-white hover:bg-white/20 rounded">
+<header class="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 px-2 sm:px-4 py-2 sm:py-3 shadow-md safe-area-top">
+    <div class="flex items-center justify-between gap-1 sm:gap-2">
+        <div class="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
+            <button @onclick="OnToggleSidebar" class="p-1 text-white hover:bg-white/20 rounded flex-shrink-0">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
-            <h1 class="text-lg font-bold text-white">Gemini</h1>
+            <h1 class="text-base sm:text-lg font-bold text-white flex-shrink-0 hidden sm:block">Gemini</h1>
 
             @* 预设选择器 *@
-            <div class="relative">
+            <div class="relative flex-shrink-0">
                 <button @onclick="TogglePresetMenu"
-                        class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
-                    <span class="truncate max-w-[80px]">@CurrentPresetName</span>
-                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        class="flex items-center gap-1 px-2 py-1 sm:py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
+                    <span class="truncate max-w-[60px] sm:max-w-[80px]">@CurrentPresetName</span>
+                    <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
                 @if (_showPresetMenu)
                 {
-                    <div class="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
+                    <div class="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-amber-200 z-50 max-h-[60vh] overflow-y-auto">
                         @foreach (var preset in Presets.Where(p => p.Id != "custom"))
                         {
                             <button @onclick="() => SelectPreset(preset.Id)"
@@ -43,11 +43,11 @@
             </div>
 
             @* 思考模式选择器 *@
-            <div class="relative">
+            <div class="relative flex-shrink-0">
                 <button @onclick="ToggleThinkingMenu"
-                        class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
-                    <span class="truncate max-w-[60px]">@GetThinkingLevelName()</span>
-                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        class="flex items-center gap-1 px-2 py-1 sm:py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
+                    <span class="truncate max-w-[50px] sm:max-w-[60px]">@GetThinkingLevelName()</span>
+                    <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
                 @if (_showThinkingMenu)
                 {
@@ -64,17 +64,19 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
-            <span class="text-xs text-white/80 font-mono">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
-            <button @onclick="OnNewChat" class="px-2 py-1 text-xs text-white/80 hover:bg-white/10 rounded flex items-center gap-1">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            @* Token 统计 - 移动端隐藏 *@
+            <span class="text-xs text-white/80 font-mono hidden sm:inline">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
+            <button @onclick="OnNewChat" class="p-1.5 sm:px-2 sm:py-1 text-white/80 hover:bg-white/10 rounded flex items-center gap-1" title="新对话">
+                <svg class="w-4 h-4 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
-                新对话
+                <span class="hidden sm:inline text-xs">新对话</span>
             </button>
         </div>
     </div>
 </header>
+
 
 @code {
     [Parameter] public string CurrentPresetId { get; set; } = "default";

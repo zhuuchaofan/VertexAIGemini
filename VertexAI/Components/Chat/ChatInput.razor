@@ -1,27 +1,27 @@
 @* 聊天输入区域组件 *@
 @inject IJSRuntime JS
 
-<footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-3 py-3 safe-area-bottom">
+<footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-2 sm:px-3 py-2 sm:py-3 safe-area-bottom">
     <div class="max-w-4xl mx-auto">
-        <div class="flex gap-2 items-end">
-            <div class="flex-1 relative">
+        <div class="flex gap-1.5 sm:gap-2 items-end">
+            <div class="flex-1 relative min-w-0">
                 <textarea @ref="_textareaRef"
-                          value="@InputValue"
-                          @oninput="OnInput"
+                          @bind="BoundValue"
+                          @bind:event="oninput"
                           @onkeydown="HandleKeyDown"
-                          @onkeydown:preventDefault="_preventEnter"
+                          @onkeydown:preventDefault="_shouldPreventDefault"
                           rows="1"
-                          placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+                          placeholder="输入消息..."
                           disabled="@IsLoading"
-                          class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-4 py-3 pr-16 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[48px] max-h-[200px] transition-all"
+                          class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 pr-10 sm:pr-16 text-gray-800 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[44px] sm:min-h-[48px] max-h-[200px] transition-all"
                           style="field-sizing: content;" />
-                @* 字符计数 *@
-                <div class="absolute right-3 bottom-3 text-xs @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-600" : "text-gray-400")">
+                @* 字符计数 - 移动端隐藏 *@
+                <div class="absolute right-2 sm:right-3 bottom-2 sm:bottom-3 text-xs hidden sm:block @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-600" : "text-gray-400")">
                     @CharCount
                 </div>
             </div>
             <button type="button" @onclick="OnSend" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
-                    class="px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 active:scale-95 transition-all h-[48px] flex items-center gap-2">
+                    class="px-3 sm:px-5 py-2.5 sm:py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 active:scale-95 transition-all h-[44px] sm:h-[48px] flex items-center justify-center gap-2 flex-shrink-0">
                 @if (IsLoading)
                 {
                     <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -31,7 +31,7 @@
                 }
                 else
                 {
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
                 }
@@ -53,12 +53,16 @@
 
     private ElementReference _textareaRef;
     private int CharCount => InputValue?.Length ?? 0;
-    private bool _preventEnter;
 
-    private async Task OnInput(ChangeEventArgs e)
+    // 用于阻止 Enter 键默认行为（换行）
+    // 这个值在每次按键后更新，用于下一次按键判断
+    private bool _shouldPreventDefault;
+
+    // 用于双向绑定的属性
+    private string BoundValue
     {
-        var value = e.Value?.ToString() ?? "";
-        await InputValueChanged.InvokeAsync(value);
+        get => InputValue;
+        set => InputValueChanged.InvokeAsync(value);
     }
 
     private async Task OnSend()
@@ -71,13 +75,39 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        // Enter 不带 Shift = 发送（阻止默认换行）
-        // Enter + Shift = 换行（不阻止）
-        _preventEnter = e.Key == "Enter" && !e.ShiftKey;
-
-        if (_preventEnter)
+        // 只处理 Enter 键
+        if (e.Key == "Enter")
         {
-            await OnSend();
+            if (e.ShiftKey)
+            {
+                // Shift+Enter: 允许换行（不阻止默认行为）
+                // 但由于 _shouldPreventDefault 的初始值，需要用 JS 插入
+                await InsertNewlineAsync();
+            }
+            else
+            {
+                // 单独 Enter: 发送消息
+                await OnSend();
+            }
         }
+
+        // 更新下次按键的 preventDefault 状态
+        // Enter 键始终阻止默认行为，其他键不阻止
+        _shouldPreventDefault = e.Key == "Enter";
+    }
+
+    private async Task InsertNewlineAsync()
+    {
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                const ta = document.activeElement;
+                if (ta?.tagName === 'TEXTAREA') {
+                    const s = ta.selectionStart, e = ta.selectionEnd;
+                    ta.value = ta.value.substring(0, s) + '\n' + ta.value.substring(e);
+                    ta.selectionStart = ta.selectionEnd = s + 1;
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            })()
+        ");
     }
 }
