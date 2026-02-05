@@ -1,7 +1,7 @@
 @* 侧边栏组件 - 对话历史列表 *@
 
-<aside class="@(IsOpen ? "translate-x-0" : "-translate-x-full md:w-0 md:border-r-0")
-              absolute md:static inset-y-0 left-0 z-40 w-64 md:w-64 flex-shrink-0
+<aside class="@(IsOpen ? "translate-x-0 w-64" : "-translate-x-full w-0 overflow-hidden")
+              absolute md:static inset-y-0 left-0 z-40 flex-shrink-0
               bg-amber-100 border-r border-amber-200 flex flex-col
               transition-all duration-300 ease-in-out">
     <div class="p-3 border-b border-amber-200 flex items-center justify-between">
