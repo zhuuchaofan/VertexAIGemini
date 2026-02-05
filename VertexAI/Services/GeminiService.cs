@@ -1,6 +1,8 @@
 using Google.GenAI;
 using Google.GenAI.Types;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 
 namespace VertexAI.Services;
 
@@ -12,6 +14,7 @@ public class GeminiService : IAsyncDisposable
     private readonly Client _client;
     private readonly string _modelName;
     private readonly ChatHistoryManager _historyManager;
+    private readonly ILogger<GeminiService> _logger;
     private GenerateContentConfig _config;
 
     // 当前系统提示词状态
@@ -32,8 +35,9 @@ public class GeminiService : IAsyncDisposable
     // 预设列表（向后兼容）
     public static List<SystemPromptPreset> Presets => SystemPromptPresets.All;
 
-    public GeminiService(IOptions<GeminiSettings> settings)
+    public GeminiService(IOptions<GeminiSettings> settings, ILogger<GeminiService> logger)
     {
+        _logger = logger;
         var config = settings.Value;
         _modelName = config.ModelName;
         _currentSystemPrompt = config.SystemPrompt ?? SystemPromptPresets.All[0].Prompt;
@@ -50,6 +54,9 @@ public class GeminiService : IAsyncDisposable
 
         // 配置生成参数
         _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
+
+        _logger.LogInformation("GeminiService 初始化完成, Model={Model}, Project={Project}",
+            _modelName, config.ProjectId);
     }
 
     /// <summary>
@@ -81,6 +88,14 @@ public class GeminiService : IAsyncDisposable
     /// </summary>
     public async IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var thinkingBudget = _config.ThinkingConfig?.ThinkingBudget;
+        var thinkingLevel = _config.ThinkingConfig?.ThinkingLevel;
+
+        _logger.LogInformation(
+            "Chat 请求开始, MessageLength={Length}, ThinkingBudget={Budget}, ThinkingLevel={Level}, PresetId={Preset}",
+            userMessage.Length, thinkingBudget, thinkingLevel, _currentPresetId);
+
         // 添加用户消息
         _historyManager.AddUserMessage(userMessage);
 
@@ -129,6 +144,11 @@ public class GeminiService : IAsyncDisposable
 
         // 更新 Token 计数
         await _historyManager.UpdateTokenCountAsync();
+
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Chat 请求完成, Duration={Duration}ms, TokenCount={Tokens}, HasThinking={HasThinking}",
+            stopwatch.ElapsedMilliseconds, _historyManager.CurrentTokenCount, thinkingLevel != null && thinkingBudget != 0);
     }
 
     /// <summary>

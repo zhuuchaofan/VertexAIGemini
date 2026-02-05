@@ -1,4 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Events;
 using VertexAI.Components;
 using VertexAI.Data;
 using VertexAI.Services;
@@ -8,7 +10,24 @@ using VertexAI.Services;
 // 描述: 使用 Google.GenAI SDK 调用 Gemini，可视化展示"思考过程"的聊天界面。
 // --------------------------------------------------------------------------------------
 
+// Serilog 配置
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.File(
+        path: "logs/gemini-chat-.json",
+        rollingInterval: RollingInterval.Day,
+        formatter: new Serilog.Formatting.Compact.CompactJsonFormatter())
+    .CreateLogger();
+
+try
+{
+
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog();
 
 // 1. 配置服务
 builder.Services.Configure<GeminiSettings>(
@@ -62,6 +81,16 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-Console.WriteLine("Gemini Chat 已启动 - http://localhost:5000");
+Log.Information("Gemini Chat 已启动 - http://localhost:5000");
 
 app.Run();
+
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "应用程序启动失败");
+}
+finally
+{
+    Log.CloseAndFlush();
+}

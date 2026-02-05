@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
@@ -12,6 +13,7 @@ public class AuthService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IJSRuntime _js;
+    private readonly ILogger<AuthService> _logger;
     private CurrentUser _currentUser = new();
     private const string SessionKey = "gemini_chat_session";
 
@@ -20,10 +22,11 @@ public class AuthService
 
     public event Action? OnAuthStateChanged;
 
-    public AuthService(IDbContextFactory<AppDbContext> dbFactory, IJSRuntime js)
+    public AuthService(IDbContextFactory<AppDbContext> dbFactory, IJSRuntime js, ILogger<AuthService> logger)
     {
         _dbFactory = dbFactory;
         _js = js;
+        _logger = logger;
     }
 
     /// <summary>
@@ -44,6 +47,8 @@ public class AuthService
             if (session != null && session.User != null)
             {
                 SetCurrentUser(session.User);
+                _logger.LogInformation("会话恢复成功, UserId={UserId}, Email={Email}",
+                    session.User.Id, session.User.Email);
             }
             else
             {
@@ -53,7 +58,7 @@ public class AuthService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"恢复会话失败: {ex.Message}");
+            _logger.LogWarning(ex, "恢复会话失败");
         }
     }
 
@@ -90,12 +95,15 @@ public class AuthService
             db.Users.Add(user);
             await db.SaveChangesAsync();
 
+            _logger.LogInformation("用户注册成功, UserId={UserId}, Email={Email}",
+                user.Id, user.Email);
+
             await CreateSessionAsync(db, user);
             return (true, null);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"注册失败: {ex.Message}");
+            _logger.LogError(ex, "注册失败, Email={Email}", email);
             return (false, "注册失败，请稍后重试");
         }
     }
@@ -121,14 +129,17 @@ public class AuthService
             }
 
             user.LastLoginAt = DateTime.UtcNow;
-            await CreateSessionAsync(db, user); // 创建并保存会话
-            await db.SaveChangesAsync(); // 提交最后登录时间更新
+            await CreateSessionAsync(db, user);
+            await db.SaveChangesAsync();
+
+            _logger.LogInformation("用户登录成功, UserId={UserId}, Email={Email}",
+                user.Id, user.Email);
 
             return (true, null);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"登录失败: {ex.Message}");
+            _logger.LogWarning(ex, "登录失败, Email={Email}", email);
             return (false, "登录失败，请稍后重试");
         }
     }

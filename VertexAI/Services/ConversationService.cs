@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
 
@@ -11,11 +12,13 @@ namespace VertexAI.Services;
 public class ConversationService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ILogger<ConversationService> _logger;
     private bool _dbAvailable = true;
 
-    public ConversationService(IDbContextFactory<AppDbContext> dbFactory)
+    public ConversationService(IDbContextFactory<AppDbContext> dbFactory, ILogger<ConversationService> logger)
     {
         _dbFactory = dbFactory;
+        _logger = logger;
     }
 
     /// <summary>
@@ -81,10 +84,15 @@ public class ConversationService
 
             db.Conversations.Add(conversation);
             await db.SaveChangesAsync();
+
+            _logger.LogInformation("创建对话, ConversationId={ConversationId}, UserId={UserId}, PresetId={PresetId}",
+                conversation.Id, userId, presetId);
+
             return conversation;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "创建对话失败, UserId={UserId}", userId);
             _dbAvailable = false;
             return null;
         }
@@ -176,10 +184,14 @@ public class ConversationService
             {
                 db.Conversations.Remove(conversation);
                 await db.SaveChangesAsync();
+
+                _logger.LogInformation("删除对话, ConversationId={ConversationId}, UserId={UserId}",
+                    conversationId, userId);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "删除对话失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
         }
     }
