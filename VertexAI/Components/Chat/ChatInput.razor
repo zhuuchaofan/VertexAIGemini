@@ -1,12 +1,16 @@
-@* 聊天输入区域组件 - 增强版 *@
+@* 聊天输入区域组件 *@
 
 <footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-3 py-3 safe-area-bottom">
-    <form @onsubmit="OnSend" @onsubmit:preventDefault class="max-w-4xl mx-auto">
+    <div class="max-w-4xl mx-auto">
         <div class="flex gap-2 items-end">
             <div class="flex-1 relative">
-                <textarea @bind="InputValue" @bind:event="oninput"
-                          @onkeydown="HandleKeyDown" @onkeydown:preventDefault="@_shouldPreventDefault"
-                          rows="1" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" disabled="@IsLoading"
+                <textarea @ref="_textareaRef"
+                          value="@InputValue"
+                          @oninput="OnInput"
+                          @onkeydown="HandleKeyDown"
+                          rows="1"
+                          placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+                          disabled="@IsLoading"
                           class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-4 py-3 pr-16 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[48px] max-h-[200px] transition-all"
                           style="field-sizing: content;" />
                 @* 字符计数 *@
@@ -14,7 +18,7 @@
                     @CharCount
                 </div>
             </div>
-            <button type="submit" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
+            <button type="button" @onclick="OnSend" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
                     class="px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 active:scale-95 transition-all h-[48px] flex items-center gap-2">
                 @if (IsLoading)
                 {
@@ -36,7 +40,7 @@
         {
             <p class="text-xs text-red-500 mt-1 ml-1">消息过长，建议精简内容</p>
         }
-    </form>
+    </div>
 </footer>
 
 @code {
@@ -45,8 +49,14 @@
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public EventCallback OnSendMessage { get; set; }
 
+    private ElementReference _textareaRef;
     private int CharCount => InputValue?.Length ?? 0;
-    private bool _shouldPreventDefault;
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? "";
+        await InputValueChanged.InvokeAsync(value);
+    }
 
     private async Task OnSend()
     {
@@ -58,12 +68,9 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        // Enter 不带 Shift = 发送（阻止换行）
-        // Enter + Shift = 换行（不阻止）
-        _shouldPreventDefault = e.Key == "Enter" && !e.ShiftKey;
-
-        if (_shouldPreventDefault)
+        if (e.Key == "Enter" && !e.ShiftKey)
         {
+            // 阻止默认换行需要用 JS，这里只触发发送
             await OnSend();
         }
     }
