@@ -66,7 +66,12 @@
 
         <div class="flex items-center gap-2">
             <span class="text-xs text-white/80 font-mono">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
-            <button @onclick="OnClearChat" class="px-2 py-1 text-xs text-white/80 hover:bg-white/10 rounded">清空</button>
+            <button @onclick="OnNewChat" class="px-2 py-1 text-xs text-white/80 hover:bg-white/10 rounded flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                新对话
+            </button>
         </div>
     </div>
 </header>
@@ -82,7 +87,7 @@
     [Parameter] public EventCallback<string> OnSelectPreset { get; set; }
     [Parameter] public EventCallback OnShowCustomPrompt { get; set; }
     [Parameter] public EventCallback<ThinkingLevel> OnSelectThinkingLevel { get; set; }
-    [Parameter] public EventCallback OnClearChat { get; set; }
+    [Parameter] public EventCallback OnNewChat { get; set; }
 
     private bool _showPresetMenu;
     private bool _showThinkingMenu;
