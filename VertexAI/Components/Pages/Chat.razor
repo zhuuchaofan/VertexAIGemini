@@ -38,7 +38,7 @@ else
             CurrentConversationId="@_currentConversationId"
             UserEmail="@Auth.CurrentUser.Email"
             OnToggle="ToggleSidebar"
-            OnNewConversation="CreateNewConversation"
+            OnNewConversation="StartNewChat"
             OnSelectConversation="LoadConversation"
             OnDeleteConversation="DeleteConversation"
             OnSignOut="SignOut" />
@@ -56,7 +56,7 @@ else
                 OnSelectPreset="SelectPreset"
                 OnShowCustomPrompt="ShowCustomPromptDialog"
                 OnSelectThinkingLevel="SelectThinkingLevel"
-                OnNewChat="CreateNewConversation" />
+                OnNewChat="StartNewChat" />
 
             <MessageList
                 Messages="@_messages"
@@ -145,14 +145,28 @@ else
         }
     }
 
-    private async Task CreateNewConversation()
+    /// <summary>
+    /// 开始新对话（只清空 UI，不创建数据库记录）
+    /// </summary>
+    private void StartNewChat()
     {
+        _currentConversationId = null;
+        _messages.Clear();
+        Gemini.ClearHistory();
+    }
+
+    /// <summary>
+    /// 创建数据库对话记录（仅在发送第一条消息时调用）
+    /// </summary>
+    private async Task<Guid?> EnsureConversationAsync()
+    {
+        if (_currentConversationId.HasValue) return _currentConversationId;
+
         var conv = await ConversationSvc.CreateConversationAsync(
             Auth.CurrentUser.Id, Gemini.CurrentPresetId, Gemini.CurrentCustomPrompt);
         _currentConversationId = conv?.Id;
-        _messages.Clear();
-        Gemini.ClearHistory();
         await LoadConversationsAsync();
+        return _currentConversationId;
     }
 
     private async Task LoadConversation(Guid conversationId)
@@ -182,7 +196,7 @@ else
 
         if (_currentConversationId == null)
         {
-            await CreateNewConversation();
+            await EnsureConversationAsync();
         }
 
         var userMessage = _inputMessage.Trim();
