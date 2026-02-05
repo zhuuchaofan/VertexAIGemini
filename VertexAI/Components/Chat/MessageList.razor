@@ -1,0 +1,41 @@
+@* 消息列表组件 *@
+@inject MarkdownService Markdown
+
+<main class="flex-1 overflow-y-auto px-3 py-4 bg-amber-50" id="messages-container" @onclick="OnAreaClicked">
+    <div class="max-w-4xl mx-auto space-y-4">
+        @if (Messages.Count == 0)
+        {
+            <div class="text-center py-16">
+                <p class="text-amber-700 font-medium">@PresetName</p>
+                <p class="text-sm text-amber-500 mt-2">开始对话吧</p>
+            </div>
+        }
+
+        @foreach (var msg in Messages)
+        {
+            <MessageBubble
+                IsUser="@msg.IsUser"
+                Content="@msg.Content"
+                ThinkingContent="@msg.ThinkingContent"
+                IsStreaming="@msg.IsStreaming"
+                MarkdownHtml="@(msg.IsUser ? "" : Markdown.ToHtml(msg.Content))" />
+        }
+
+        @if (IsLoading && !Messages.Any(m => m.IsStreaming))
+        {
+            <div class="flex justify-start">
+                <div class="bg-white border border-amber-200 rounded-2xl px-3 py-2 shadow-sm">
+                    <span class="text-amber-700 text-sm thinking-pulse">思考中...</span>
+                </div>
+            </div>
+        }
+    </div>
+</main>
+
+@code {
+    [Parameter] public List<ChatMessageModel> Messages { get; set; } = [];
+    [Parameter] public string PresetName { get; set; } = "默认助手";
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnAreaClicked { get; set; }
+}
+

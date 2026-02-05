@@ -1,0 +1,28 @@
+@* 删除确认对话框 *@
+
+@if (IsOpen)
+{
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="OnCancel">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm" @onclick:stopPropagation>
+            <div class="px-6 py-4 border-b border-amber-200">
+                <h2 class="text-lg font-bold text-gray-800">确认删除</h2>
+            </div>
+            <div class="p-6 text-gray-600">
+                确定要删除这个对话吗？此操作不可恢复。
+            </div>
+            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
+                <button @onclick="OnCancel" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
+                <button @onclick="OnConfirm"
+                        class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg">
+                    删除
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+}

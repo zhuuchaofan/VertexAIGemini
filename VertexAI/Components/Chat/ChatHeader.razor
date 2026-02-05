@@ -1,0 +1,118 @@
+@* 顶部栏组件 - 预设/思考选择器 *@
+@using Google.GenAI.Types
+
+<header class="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 shadow-md safe-area-top">
+    <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+            <button @onclick="OnToggleSidebar" class="p-1 text-white hover:bg-white/20 rounded">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+            <h1 class="text-lg font-bold text-white">Gemini</h1>
+
+            @* 预设选择器 *@
+            <div class="relative">
+                <button @onclick="TogglePresetMenu"
+                        class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
+                    <span class="truncate max-w-[80px]">@CurrentPresetName</span>
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </button>
+                @if (_showPresetMenu)
+                {
+                    <div class="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
+                        @foreach (var preset in Presets.Where(p => p.Id != "custom"))
+                        {
+                            <button @onclick="() => SelectPreset(preset.Id)"
+                                    class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 text-left @(CurrentPresetId == preset.Id ? "bg-amber-100" : "")">
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-medium text-gray-800">@preset.Name</div>
+                                    <div class="text-xs text-gray-500 truncate">@preset.Description</div>
+                                </div>
+                            </button>
+                        }
+                        <hr class="border-amber-200" />
+                        <button @onclick="OnShowCustomPrompt"
+                                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 text-left">
+                            <div class="flex-1">
+                                <div class="font-medium text-gray-800">自定义提示词</div>
+                            </div>
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @* 思考模式选择器 *@
+            <div class="relative">
+                <button @onclick="ToggleThinkingMenu"
+                        class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
+                    <span class="truncate max-w-[60px]">@GetThinkingLevelName()</span>
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </button>
+                @if (_showThinkingMenu)
+                {
+                    <div class="absolute top-full left-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
+                        @foreach (var level in ThinkingLevels)
+                        {
+                            <button @onclick="() => SelectThinkingLevel(level.Value)"
+                                    class="w-full px-4 py-2 text-left hover:bg-amber-50 text-sm @(CurrentThinkingLevel == level.Value ? "bg-amber-100 font-medium" : "")">
+                                @level.Name
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <span class="text-xs text-white/80 font-mono">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
+            <button @onclick="OnClearChat" class="px-2 py-1 text-xs text-white/80 hover:bg-white/10 rounded">清空</button>
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter] public string CurrentPresetId { get; set; } = "default";
+    [Parameter] public string CurrentPresetName { get; set; } = "默认助手";
+    [Parameter] public List<PresetItem> Presets { get; set; } = [];
+    [Parameter] public ThinkingLevel CurrentThinkingLevel { get; set; }
+    [Parameter] public int TokenCount { get; set; }
+    [Parameter] public int MaxTokens { get; set; }
+    [Parameter] public EventCallback OnToggleSidebar { get; set; }
+    [Parameter] public EventCallback<string> OnSelectPreset { get; set; }
+    [Parameter] public EventCallback OnShowCustomPrompt { get; set; }
+    [Parameter] public EventCallback<ThinkingLevel> OnSelectThinkingLevel { get; set; }
+    [Parameter] public EventCallback OnClearChat { get; set; }
+
+    private bool _showPresetMenu;
+    private bool _showThinkingMenu;
+
+    private static readonly (string Name, ThinkingLevel Value)[] ThinkingLevels =
+    [
+        ("关闭思考", ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
+        ("低级思考", ThinkingLevel.LOW),
+        ("中级思考", ThinkingLevel.MEDIUM),
+        ("高级思考", ThinkingLevel.HIGH)
+    ];
+
+    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showThinkingMenu = false; }
+    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showPresetMenu = false; }
+
+    private void SelectPreset(string presetId)
+    {
+        OnSelectPreset.InvokeAsync(presetId);
+        _showPresetMenu = false;
+    }
+
+    private void SelectThinkingLevel(ThinkingLevel level)
+    {
+        OnSelectThinkingLevel.InvokeAsync(level);
+        _showThinkingMenu = false;
+    }
+
+    private string GetThinkingLevelName() => ThinkingLevels.FirstOrDefault(l => l.Value == CurrentThinkingLevel).Name ?? "中级思考";
+    private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
+
+    public void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; }
+}
+

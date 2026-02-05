@@ -24,24 +24,24 @@
             }
         }
     </script>
-    
+
     <!-- Prism.js 代码高亮 -->
     <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    
+
     <style>
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #fef3c7; }
         ::-webkit-scrollbar-thumb { background: #f59e0b; border-radius: 3px; }
-        
+
         .cursor-blink {
             animation: blink 1s step-end infinite;
         }
         @@keyframes blink {
             50% { opacity: 0; }
         }
-        
+
         .thinking-pulse {
             animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
@@ -49,7 +49,7 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        
+
         /* Markdown 样式 */
         .markdown-body {
             line-height: 1.6;
@@ -139,7 +139,28 @@
 </head>
 
 <body class="bg-warm text-gray-800 antialiased">
-    <Routes />
+    <ErrorBoundary>
+        <ChildContent>
+            <Routes />
+        </ChildContent>
+        <ErrorContent Context="ex">
+            <div class="h-screen flex items-center justify-center bg-amber-50">
+                <div class="max-w-md text-center p-6">
+                    <div class="text-6xl mb-4">😵</div>
+                    <h1 class="text-2xl font-bold text-amber-800 mb-2">出错了</h1>
+                    <p class="text-amber-600 mb-4">应用遇到了一个问题，请刷新页面重试。</p>
+                    <button onclick="location.reload()"
+                            class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+                        刷新页面
+                    </button>
+                    <details class="mt-4 text-left">
+                        <summary class="cursor-pointer text-xs text-amber-700">技术详情</summary>
+                        <pre class="mt-2 p-2 bg-amber-100 rounded text-xs overflow-auto">@ex.Message</pre>
+                    </details>
+                </div>
+            </div>
+        </ErrorContent>
+    </ErrorBoundary>
     <script src="_framework/blazor.web.js"></script>
 </body>
 

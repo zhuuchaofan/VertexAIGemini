@@ -32,234 +32,57 @@ else
                  @onclick="ToggleSidebar"></div>
         }
 
-        @* 侧边栏 - 响应式设计 *@
-        <aside class="@(_showSidebar ? "translate-x-0" : "-translate-x-full md:w-0 md:border-r-0")
-                      absolute md:static inset-y-0 left-0 z-40 w-64 md:w-64 flex-shrink-0
-                      bg-amber-100 border-r border-amber-200 flex flex-col
-                      transition-all duration-300 ease-in-out">
-            <div class="p-3 border-b border-amber-200 flex items-center justify-between">
-                <span class="font-bold text-amber-800">对话历史</span>
-                <div class="flex items-center gap-1">
-                    <button @onclick="CreateNewConversation" class="p-1 hover:bg-amber-200 rounded" title="新对话">
-                        <svg class="w-5 h-5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                    </button>
-                    @* 移动端关闭按钮 *@
-                    <button @onclick="ToggleSidebar" class="md:hidden p-1 hover:bg-amber-200 rounded" title="关闭">
-                        <svg class="w-5 h-5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            <div class="flex-1 overflow-y-auto">
-                @foreach (var conv in _conversations)
-                {
-                    <div class="group flex items-center hover:bg-amber-200 transition-colors @(_currentConversationId == conv.Id ? "bg-amber-200" : "")">
-                        <button @onclick="() => LoadConversation(conv.Id)"
-                                class="flex-1 text-left px-3 py-2 text-sm truncate">
-                            @(conv.Title ?? "新对话")
-                        </button>
-                        <button @onclick="() => DeleteConversation(conv.Id)" @onclick:stopPropagation
-                                class="hidden group-hover:block px-2 py-1 text-amber-600 hover:text-red-600"
-                                title="删除对话">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                            </svg>
-                        </button>
-                    </div>
-                }
-            </div>
-            <div class="p-3 border-t border-amber-200">
-                <button @onclick="SignOut" class="w-full text-left text-sm text-amber-700 hover:text-amber-900 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                    </svg>
-                    <span class="truncate">退出 (@Auth.CurrentUser.Email)</span>
-                </button>
-            </div>
-        </aside>
+        <ChatSidebar
+            IsOpen="@_showSidebar"
+            Conversations="@_conversationItems"
+            CurrentConversationId="@_currentConversationId"
+            UserEmail="@Auth.CurrentUser.Email"
+            OnToggle="ToggleSidebar"
+            OnNewConversation="CreateNewConversation"
+            OnSelectConversation="LoadConversation"
+            OnDeleteConversation="DeleteConversation"
+            OnSignOut="SignOut" />
 
-        @* 主内容区 *@
         <div class="flex-1 flex flex-col min-w-0">
-            <header class="flex-shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 shadow-md safe-area-top">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <button @onclick="ToggleSidebar" class="p-1 text-white hover:bg-white/20 rounded">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                            </svg>
-                        </button>
-                        <h1 class="text-lg font-bold text-white">Gemini</h1>
-                        @* 预设选择器 *@
-                        <div class="relative">
-                            <button @onclick="TogglePresetMenu"
-                                    class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
-                                <span class="truncate max-w-[80px]">@GetCurrentPresetName()</span>
-                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                            </button>
-                            @if (_showPresetMenu)
-                            {
-                                <div class="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
-                                    @foreach (var preset in GeminiService.Presets.Where(p => p.Id != "custom"))
-                                    {
-                                        <button @onclick="() => SelectPreset(preset.Id)"
-                                                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 text-left @(Gemini.CurrentPresetId == preset.Id ? "bg-amber-100" : "")">
-                                            <div class="flex-1 min-w-0">
-                                                <div class="font-medium text-gray-800">@preset.Name</div>
-                                                <div class="text-xs text-gray-500 truncate">@preset.Description</div>
-                                            </div>
-                                        </button>
-                                    }
-                                    <hr class="border-amber-200" />
-                                    <button @onclick="ShowCustomPromptDialog"
-                                            class="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 text-left">
-                                        <div class="flex-1">
-                                            <div class="font-medium text-gray-800">自定义提示词</div>
-                                        </div>
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                        @* 思考模式选择器 *@
-                        <div class="relative">
-                            <button @onclick="ToggleThinkingMenu"
-                                    class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
-                                <span class="truncate max-w-[60px]">@GetThinkingLevelName()</span>
-                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                            </button>
-                            @if (_showThinkingMenu)
-                            {
-                                <div class="absolute top-full left-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
-                                    @foreach (var level in _thinkingLevels)
-                                    {
-                                        <button @onclick="() => SelectThinkingLevel(level.Value)"
-                                                class="w-full px-4 py-2 text-left hover:bg-amber-50 text-sm @(Gemini.CurrentThinkingLevel == level.Value ? "bg-amber-100 font-medium" : "")">
-                                            @level.Name
-                                        </button>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs text-white/80 font-mono">@FormatTokenCount(Gemini.CurrentTokenCount)/@FormatTokenCount(Gemini.MaxTokens)</span>
-                        <button @onclick="ClearChat" class="px-2 py-1 text-xs text-white/80 hover:bg-white/10 rounded">清空</button>
-                    </div>
-                </div>
-            </header>
+            <ChatHeader
+                @ref="_headerRef"
+                CurrentPresetId="@Gemini.CurrentPresetId"
+                CurrentPresetName="@GetCurrentPresetName()"
+                Presets="@_presetItems"
+                CurrentThinkingLevel="@Gemini.CurrentThinkingLevel"
+                TokenCount="@Gemini.CurrentTokenCount"
+                MaxTokens="@Gemini.MaxTokens"
+                OnToggleSidebar="ToggleSidebar"
+                OnSelectPreset="SelectPreset"
+                OnShowCustomPrompt="ShowCustomPromptDialog"
+                OnSelectThinkingLevel="SelectThinkingLevel"
+                OnClearChat="ClearChat" />
 
-            <main class="flex-1 overflow-y-auto px-3 py-4 bg-amber-50" id="messages-container" @onclick="CloseMenus">
-                <div class="max-w-4xl mx-auto space-y-4">
-                    @if (_messages.Count == 0)
-                    {
-                        <div class="text-center py-16">
-                            <p class="text-amber-700 font-medium">@GetCurrentPresetName()</p>
-                            <p class="text-sm text-amber-500 mt-2">开始对话吧</p>
-                        </div>
-                    }
+            <MessageList
+                Messages="@_messages"
+                PresetName="@GetCurrentPresetName()"
+                IsLoading="@_isLoading"
+                OnAreaClicked="CloseMenus" />
 
-                    @foreach (var msg in _messages)
-                    {
-                        <div class="@(msg.IsUser ? "flex justify-end" : "flex justify-start")">
-                            <div class="max-w-[90%] @(msg.IsUser ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl rounded-br-md" : "bg-white border border-amber-200 text-gray-800 rounded-2xl rounded-bl-md shadow-sm") px-3 py-2">
-                                @if (!msg.IsUser && msg.ThinkingContent?.Length > 0)
-                                {
-                                    <details class="mb-2 group">
-                                        <summary class="cursor-pointer text-xs text-amber-700">思考过程 (@msg.ThinkingContent.Length 字符)</summary>
-                                        <div class="mt-2 pl-3 text-xs text-amber-800 border-l-2 border-amber-300 whitespace-pre-wrap">@msg.ThinkingContent</div>
-                                    </details>
-                                }
-                                @if (msg.IsUser)
-                                {
-                                    <div class="whitespace-pre-wrap break-words text-sm">@msg.Content</div>
-                                }
-                                else
-                                {
-                                    <div class="markdown-body text-sm">
-                                        @((MarkupString)Markdown.ToHtml(msg.Content))
-                                        @if (msg.IsStreaming)
-                                        {
-                                            <span class="inline-block w-2 h-4 bg-amber-600 ml-1 cursor-blink"></span>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-
-                    @if (_isLoading && !_messages.Any(m => m.IsStreaming))
-                    {
-                        <div class="flex justify-start">
-                            <div class="bg-white border border-amber-200 rounded-2xl px-3 py-2 shadow-sm">
-                                <span class="text-amber-700 text-sm thinking-pulse">思考中...</span>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </main>
-
-            <footer class="flex-shrink-0 bg-white border-t border-amber-200 px-3 py-3 safe-area-bottom">
-                <form @onsubmit="SendMessage" @onsubmit:preventDefault class="max-w-4xl mx-auto flex gap-2 items-end">
-                    <textarea @bind="_inputMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"
-                              rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@_isLoading"
-                              class="flex-1 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none min-h-[40px] max-h-[200px]"
-                              style="field-sizing: content;" />
-                    <button type="submit" disabled="@(string.IsNullOrWhiteSpace(_inputMessage) || _isLoading)"
-                            class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 h-[40px]">
-                        发送
-                    </button>
-                </form>
-            </footer>
+            <ChatInput
+                InputValue="@_inputMessage"
+                InputValueChanged="@((v) => _inputMessage = v)"
+                IsLoading="@_isLoading"
+                OnSendMessage="SendMessage" />
         </div>
     </div>
 }
 
-@* 自定义提示词对话框 *@
-@if (_showCustomDialog)
-{
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="CloseCustomDialog">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg" @onclick:stopPropagation>
-            <div class="px-6 py-4 border-b border-amber-200">
-                <h2 class="text-lg font-bold text-gray-800">自定义系统提示词</h2>
-            </div>
-            <div class="p-6">
-                <textarea @bind="_customPromptInput" rows="6" placeholder="输入自定义的 AI 人设提示词..."
-                          class="w-full bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"></textarea>
-            </div>
-            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
-                <button @onclick="CloseCustomDialog" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
-                <button @onclick="ApplyCustomPrompt" disabled="@string.IsNullOrWhiteSpace(_customPromptInput)"
-                        class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-lg disabled:opacity-50">
-                    应用
-                </button>
-            </div>
-        </div>
-    </div>
-}
+<CustomPromptDialog
+    IsOpen="@_showCustomDialog"
+    PromptValue="@_customPromptInput"
+    OnClose="CloseCustomDialog"
+    OnApply="ApplyCustomPrompt" />
 
-@* 删除确认对话框 *@
-@if (_showDeleteConfirm)
-{
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="CancelDelete">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm" @onclick:stopPropagation>
-            <div class="px-6 py-4 border-b border-amber-200">
-                <h2 class="text-lg font-bold text-gray-800">确认删除</h2>
-            </div>
-            <div class="p-6 text-gray-600">
-                确定要删除这个对话吗？此操作不可恢复。
-            </div>
-            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
-                <button @onclick="CancelDelete" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
-                <button @onclick="ConfirmDelete"
-                        class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg">
-                    删除
-                </button>
-            </div>
-        </div>
-    </div>
-}
+<DeleteConfirmDialog
+    IsOpen="@_showDeleteConfirm"
+    OnCancel="CancelDelete"
+    OnConfirm="ConfirmDelete" />
 
 <style>
     .safe-area-top { padding-top: max(env(safe-area-inset-top), 0.75rem); }
@@ -272,33 +95,37 @@ else
 </style>
 
 @code {
-    private readonly List<ChatMessage> _messages = [];
-    private List<Data.Entities.Conversation> _conversations = [];
+    private readonly List<ChatMessageModel> _messages = [];
+    private List<ConversationItem> _conversationItems = [];
+    private List<PresetItem> _presetItems = [];
     private Guid? _currentConversationId;
     private string _inputMessage = "";
     private bool _isLoading;
     private bool _initialized;
     private bool _showSidebar = true;
-    private bool _showPresetMenu;
     private bool _showCustomDialog;
-    private bool _showThinkingMenu;
     private bool _showDeleteConfirm;
     private Guid? _deleteTargetId;
     private string _customPromptInput = "";
+    private ChatHeader? _headerRef;
 
     protected override async Task OnInitializedAsync()
     {
-        // 如果 AuthService 已经有登录状态（从 Login.razor 跳转过来），直接使用
-        // 否则尝试从 localStorage 恢复会话
+        // 初始化预设列表
+        _presetItems = GeminiService.Presets.Select(p => new PresetItem
+        {
+            Id = p.Id,
+            Name = p.Name,
+            Description = p.Description
+        }).ToList();
+
         if (!Auth.IsAuthenticated)
         {
             await Auth.InitializeAsync();
         }
 
-        // 立即显示页面，不等待数据库
         _initialized = true;
 
-        // 后台异步加载对话历史（不阻塞 UI）
         if (Auth.IsAuthenticated)
         {
             _ = LoadConversationsAsync().ContinueWith(_ => InvokeAsync(StateHasChanged));
@@ -309,12 +136,12 @@ else
     {
         try
         {
-            _conversations = await ConversationSvc.GetUserConversationsAsync(Auth.CurrentUser.Id);
+            var convs = await ConversationSvc.GetUserConversationsAsync(Auth.CurrentUser.Id);
+            _conversationItems = convs.Select(c => new ConversationItem { Id = c.Id, Title = c.Title }).ToList();
         }
         catch
         {
-            // 数据库不可用，保持空列表
-            _conversations = [];
+            _conversationItems = [];
         }
     }
 
@@ -322,7 +149,7 @@ else
     {
         var conv = await ConversationSvc.CreateConversationAsync(
             Auth.CurrentUser.Id, Gemini.CurrentPresetId, Gemini.CurrentCustomPrompt);
-        _currentConversationId = conv?.Id; // 可能为 null（离线模式）
+        _currentConversationId = conv?.Id;
         _messages.Clear();
         Gemini.ClearHistory();
         await LoadConversationsAsync();
@@ -340,7 +167,7 @@ else
 
         foreach (var msg in conv.Messages)
         {
-            _messages.Add(new ChatMessage
+            _messages.Add(new ChatMessageModel
             {
                 IsUser = msg.Role == "user",
                 Content = msg.Content,
@@ -353,7 +180,6 @@ else
     {
         if (string.IsNullOrWhiteSpace(_inputMessage) || _isLoading) return;
 
-        // 如果没有当前对话，创建一个
         if (_currentConversationId == null)
         {
             await CreateNewConversation();
@@ -363,17 +189,16 @@ else
         _inputMessage = "";
         _isLoading = true;
 
-        _messages.Add(new ChatMessage { IsUser = true, Content = userMessage });
+        _messages.Add(new ChatMessageModel { IsUser = true, Content = userMessage });
         await ScrollToBottom();
         StateHasChanged();
 
-        // 持久化用户消息（如果有对话 ID）
         if (_currentConversationId.HasValue)
         {
             await ConversationSvc.AddMessageAsync(_currentConversationId.Value, "user", userMessage);
         }
 
-        var aiMessage = new ChatMessage { IsUser = false, Content = "", IsStreaming = true };
+        var aiMessage = new ChatMessageModel { IsUser = false, Content = "", IsStreaming = true };
         _messages.Add(aiMessage);
 
         try
@@ -397,7 +222,6 @@ else
                 await ScrollToBottom();
             }
 
-            // 持久化 AI 回复（如果有对话 ID）
             if (_currentConversationId.HasValue)
             {
                 await ConversationSvc.AddMessageAsync(
@@ -412,7 +236,7 @@ else
         {
             aiMessage.IsStreaming = false;
             _isLoading = false;
-            await LoadConversationsAsync(); // 刷新标题
+            await LoadConversationsAsync();
             StateHasChanged();
         }
     }
@@ -424,9 +248,6 @@ else
     }
 
     private void ToggleSidebar() => _showSidebar = !_showSidebar;
-    private void TogglePresetMenu() => _showPresetMenu = !_showPresetMenu;
-    private void ToggleThinkingMenu() => _showThinkingMenu = !_showThinkingMenu;
-    private void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; }
 
     private void ClearChat()
     {
@@ -453,7 +274,6 @@ else
         {
             await ConversationSvc.DeleteConversationAsync(_deleteTargetId.Value, Auth.CurrentUser.Id);
 
-            // 如果删除的是当前对话，清空聊天
             if (_currentConversationId == _deleteTargetId)
             {
                 ClearChat();
@@ -467,11 +287,6 @@ else
         StateHasChanged();
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
-    }
-
     private async Task ScrollToBottom()
     {
         await JS.InvokeVoidAsync("eval", "document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight");
@@ -481,55 +296,30 @@ else
     {
         Gemini.SetSystemPrompt(presetId);
         _messages.Clear();
-        _showPresetMenu = false;
         _currentConversationId = null;
     }
 
     private void ShowCustomPromptDialog()
     {
-        _showPresetMenu = false;
         _showCustomDialog = true;
         _customPromptInput = Gemini.CurrentCustomPrompt;
     }
 
     private void CloseCustomDialog() => _showCustomDialog = false;
+    private void CloseMenus() => _headerRef?.CloseMenus();
 
-    private void ApplyCustomPrompt()
+    private void ApplyCustomPrompt(string prompt)
     {
-        if (!string.IsNullOrWhiteSpace(_customPromptInput))
-        {
-            Gemini.SetSystemPrompt("custom", _customPromptInput);
-            _messages.Clear();
-            _showCustomDialog = false;
-            _currentConversationId = null;
-        }
+        Gemini.SetSystemPrompt("custom", prompt);
+        _messages.Clear();
+        _showCustomDialog = false;
+        _currentConversationId = null;
     }
-
-    private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
-    private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
-
-    // 思考模式相关
-    private static readonly (string Name, Google.GenAI.Types.ThinkingLevel Value)[] _thinkingLevels =
-    [
-        ("关闭思考", Google.GenAI.Types.ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
-        ("低级思考", Google.GenAI.Types.ThinkingLevel.LOW),
-        ("中级思考", Google.GenAI.Types.ThinkingLevel.MEDIUM),
-        ("高级思考", Google.GenAI.Types.ThinkingLevel.HIGH)
-    ];
-
-    private string GetThinkingLevelName() => _thinkingLevels.FirstOrDefault(l => l.Value == Gemini.CurrentThinkingLevel).Name ?? "中级思考";
 
     private void SelectThinkingLevel(Google.GenAI.Types.ThinkingLevel level)
     {
         Gemini.SetThinkingLevel(level);
-        _showThinkingMenu = false;
     }
 
-    private class ChatMessage
-    {
-        public bool IsUser { get; init; }
-        public string Content { get; set; } = "";
-        public string? ThinkingContent { get; set; }
-        public bool IsStreaming { get; set; }
-    }
+    private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
 }

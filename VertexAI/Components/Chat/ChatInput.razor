@@ -1,0 +1,37 @@
+@* 聊天输入区域组件 *@
+
+<footer class="flex-shrink-0 bg-white border-t border-amber-200 px-3 py-3 safe-area-bottom">
+    <form @onsubmit="OnSend" @onsubmit:preventDefault class="max-w-4xl mx-auto flex gap-2 items-end">
+        <textarea @bind="InputValue" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                  rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@IsLoading"
+                  class="flex-1 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none min-h-[40px] max-h-[200px]"
+                  style="field-sizing: content;" />
+        <button type="submit" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
+                class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 h-[40px]">
+            发送
+        </button>
+    </form>
+</footer>
+
+@code {
+    [Parameter] public string InputValue { get; set; } = "";
+    [Parameter] public EventCallback<string> InputValueChanged { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnSendMessage { get; set; }
+
+    private async Task OnSend()
+    {
+        if (!string.IsNullOrWhiteSpace(InputValue) && !IsLoading)
+        {
+            await OnSendMessage.InvokeAsync();
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await OnSend();
+        }
+    }
+}
