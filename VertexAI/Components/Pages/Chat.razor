@@ -56,10 +56,19 @@ else
             <div class="flex-1 overflow-y-auto">
                 @foreach (var conv in _conversations)
                 {
-                    <button @onclick="() => LoadConversation(conv.Id)"
-                            class="w-full text-left px-3 py-2 text-sm hover:bg-amber-200 transition-colors truncate @(_currentConversationId == conv.Id ? "bg-amber-200" : "")">
-                        @(conv.Title ?? "新对话")
-                    </button>
+                    <div class="group flex items-center hover:bg-amber-200 transition-colors @(_currentConversationId == conv.Id ? "bg-amber-200" : "")">
+                        <button @onclick="() => LoadConversation(conv.Id)"
+                                class="flex-1 text-left px-3 py-2 text-sm truncate">
+                            @(conv.Title ?? "新对话")
+                        </button>
+                        <button @onclick="() => DeleteConversation(conv.Id)" @onclick:stopPropagation
+                                class="hidden group-hover:block px-2 py-1 text-amber-600 hover:text-red-600"
+                                title="删除对话">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
+                    </div>
                 }
             </div>
             <div class="p-3 border-t border-amber-200">
@@ -110,6 +119,26 @@ else
                                             <div class="font-medium text-gray-800">自定义提示词</div>
                                         </div>
                                     </button>
+                                </div>
+                            }
+                        </div>
+                        @* 思考模式选择器 *@
+                        <div class="relative">
+                            <button @onclick="ToggleThinkingMenu"
+                                    class="flex items-center gap-1 px-2 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-xs">
+                                <span class="truncate max-w-[60px]">@GetThinkingLevelName()</span>
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                            </button>
+                            @if (_showThinkingMenu)
+                            {
+                                <div class="absolute top-full left-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-amber-200 z-50">
+                                    @foreach (var level in _thinkingLevels)
+                                    {
+                                        <button @onclick="() => SelectThinkingLevel(level.Value)"
+                                                class="w-full px-4 py-2 text-left hover:bg-amber-50 text-sm @(Gemini.CurrentThinkingLevel == level.Value ? "bg-amber-100 font-medium" : "")">
+                                            @level.Name
+                                        </button>
+                                    }
                                 </div>
                             }
                         </div>
@@ -172,12 +201,13 @@ else
             </main>
 
             <footer class="flex-shrink-0 bg-white border-t border-amber-200 px-3 py-3 safe-area-bottom">
-                <form @onsubmit="SendMessage" class="max-w-4xl mx-auto flex gap-2">
-                    <input @bind="_inputMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"
-                           type="text" placeholder="输入消息..." disabled="@_isLoading"
-                           class="flex-1 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <form @onsubmit="SendMessage" @onsubmit:preventDefault class="max-w-4xl mx-auto flex gap-2 items-end">
+                    <textarea @bind="_inputMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                              rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled="@_isLoading"
+                              class="flex-1 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none min-h-[40px] max-h-[200px]"
+                              style="field-sizing: content;" />
                     <button type="submit" disabled="@(string.IsNullOrWhiteSpace(_inputMessage) || _isLoading)"
-                            class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50">
+                            class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 h-[40px]">
                         发送
                     </button>
                 </form>
@@ -209,6 +239,28 @@ else
     </div>
 }
 
+@* 删除确认对话框 *@
+@if (_showDeleteConfirm)
+{
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="CancelDelete">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm" @onclick:stopPropagation>
+            <div class="px-6 py-4 border-b border-amber-200">
+                <h2 class="text-lg font-bold text-gray-800">确认删除</h2>
+            </div>
+            <div class="p-6 text-gray-600">
+                确定要删除这个对话吗？此操作不可恢复。
+            </div>
+            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
+                <button @onclick="CancelDelete" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
+                <button @onclick="ConfirmDelete"
+                        class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg">
+                    删除
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .safe-area-top { padding-top: max(env(safe-area-inset-top), 0.75rem); }
     .safe-area-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0.75rem); }
@@ -229,6 +281,9 @@ else
     private bool _showSidebar = true;
     private bool _showPresetMenu;
     private bool _showCustomDialog;
+    private bool _showThinkingMenu;
+    private bool _showDeleteConfirm;
+    private Guid? _deleteTargetId;
     private string _customPromptInput = "";
 
     protected override async Task OnInitializedAsync()
@@ -370,13 +425,46 @@ else
 
     private void ToggleSidebar() => _showSidebar = !_showSidebar;
     private void TogglePresetMenu() => _showPresetMenu = !_showPresetMenu;
-    private void CloseMenus() => _showPresetMenu = false;
+    private void ToggleThinkingMenu() => _showThinkingMenu = !_showThinkingMenu;
+    private void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; }
 
     private void ClearChat()
     {
         _messages.Clear();
         Gemini.ClearHistory();
         _currentConversationId = null;
+    }
+
+    private void DeleteConversation(Guid conversationId)
+    {
+        _deleteTargetId = conversationId;
+        _showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        _showDeleteConfirm = false;
+        _deleteTargetId = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_deleteTargetId.HasValue)
+        {
+            await ConversationSvc.DeleteConversationAsync(_deleteTargetId.Value, Auth.CurrentUser.Id);
+
+            // 如果删除的是当前对话，清空聊天
+            if (_currentConversationId == _deleteTargetId)
+            {
+                ClearChat();
+            }
+
+            await LoadConversationsAsync();
+        }
+
+        _showDeleteConfirm = false;
+        _deleteTargetId = null;
+        StateHasChanged();
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -419,6 +507,23 @@ else
 
     private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
     private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
+
+    // 思考模式相关
+    private static readonly (string Name, Google.GenAI.Types.ThinkingLevel Value)[] _thinkingLevels =
+    [
+        ("关闭思考", Google.GenAI.Types.ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
+        ("低级思考", Google.GenAI.Types.ThinkingLevel.LOW),
+        ("中级思考", Google.GenAI.Types.ThinkingLevel.MEDIUM),
+        ("高级思考", Google.GenAI.Types.ThinkingLevel.HIGH)
+    ];
+
+    private string GetThinkingLevelName() => _thinkingLevels.FirstOrDefault(l => l.Value == Gemini.CurrentThinkingLevel).Name ?? "中级思考";
+
+    private void SelectThinkingLevel(Google.GenAI.Types.ThinkingLevel level)
+    {
+        Gemini.SetThinkingLevel(level);
+        _showThinkingMenu = false;
+    }
 
     private class ChatMessage
     {

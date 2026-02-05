@@ -17,6 +17,7 @@ public class GeminiService : IAsyncDisposable
     // 当前系统提示词状态
     private string _currentSystemPrompt;
     private string _currentPresetId = "default";
+    private ThinkingLevel _thinkingLevel = ThinkingLevel.MEDIUM;
 
     // 公开属性 - 委托给 HistoryManager
     public int CurrentTokenCount => _historyManager.CurrentTokenCount;
@@ -26,6 +27,7 @@ public class GeminiService : IAsyncDisposable
     // 当前预设信息
     public string CurrentPresetId => _currentPresetId;
     public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
+    public ThinkingLevel CurrentThinkingLevel => _thinkingLevel;
 
     // 预设列表（向后兼容）
     public static List<SystemPromptPreset> Presets => SystemPromptPresets.All;
@@ -47,7 +49,7 @@ public class GeminiService : IAsyncDisposable
         _historyManager = new ChatHistoryManager(_client, _modelName, config);
 
         // 配置生成参数
-        _config = BuildConfig(_currentSystemPrompt);
+        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
     }
 
     /// <summary>
@@ -61,8 +63,17 @@ public class GeminiService : IAsyncDisposable
             ? customPrompt
             : SystemPromptPresets.GetById(presetId).Prompt;
 
-        _config = BuildConfig(_currentSystemPrompt);
+        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
         ClearHistory();
+    }
+
+    /// <summary>
+    /// 切换思考级别
+    /// </summary>
+    public void SetThinkingLevel(ThinkingLevel level)
+    {
+        _thinkingLevel = level;
+        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
     }
 
     /// <summary>
@@ -130,8 +141,12 @@ public class GeminiService : IAsyncDisposable
     /// <summary>
     /// 构建生成配置
     /// </summary>
-    private static GenerateContentConfig BuildConfig(string systemPrompt)
+    private static GenerateContentConfig BuildConfig(string systemPrompt, ThinkingLevel thinkingLevel)
     {
+        // 禁用思考: ThinkingBudget=0, IncludeThoughts=false
+        // 启用思考: 使用 ThinkingLevel 控制强度
+        var isThinkingDisabled = thinkingLevel == ThinkingLevel.THINKING_LEVEL_UNSPECIFIED;
+
         return new GenerateContentConfig
         {
             SystemInstruction = new Content
@@ -140,8 +155,9 @@ public class GeminiService : IAsyncDisposable
             },
             ThinkingConfig = new ThinkingConfig
             {
-                ThinkingLevel = ThinkingLevel.MEDIUM,
-                IncludeThoughts = true
+                ThinkingBudget = isThinkingDisabled ? 0 : null,  // 0=禁用, null=使用 ThinkingLevel
+                ThinkingLevel = isThinkingDisabled ? null : thinkingLevel,
+                IncludeThoughts = !isThinkingDisabled
             },
             MaxOutputTokens = 4096,
             Temperature = 1,
