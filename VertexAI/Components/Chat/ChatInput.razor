@@ -1,4 +1,5 @@
 @* 聊天输入区域组件 *@
+@inject IJSRuntime JS
 
 <footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-3 py-3 safe-area-bottom">
     <div class="max-w-4xl mx-auto">
@@ -8,6 +9,7 @@
                           value="@InputValue"
                           @oninput="OnInput"
                           @onkeydown="HandleKeyDown"
+                          @onkeydown:preventDefault="_preventEnter"
                           rows="1"
                           placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
                           disabled="@IsLoading"
@@ -51,6 +53,7 @@
 
     private ElementReference _textareaRef;
     private int CharCount => InputValue?.Length ?? 0;
+    private bool _preventEnter;
 
     private async Task OnInput(ChangeEventArgs e)
     {
@@ -68,9 +71,12 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey)
+        // Enter 不带 Shift = 发送（阻止默认换行）
+        // Enter + Shift = 换行（不阻止）
+        _preventEnter = e.Key == "Enter" && !e.ShiftKey;
+
+        if (_preventEnter)
         {
-            // 阻止默认换行需要用 JS，这里只触发发送
             await OnSend();
         }
     }
