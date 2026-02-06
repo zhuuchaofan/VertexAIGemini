@@ -105,7 +105,9 @@ public class GeminiService : IAsyncDisposable
         // 获取发送内容
         var contentsToSend = _historyManager.GetContentsForSending();
 
-        Content? assistantContent = null;
+        // 累积完整回复（流式响应每次只返回增量片段）
+        var responseBuilder = new System.Text.StringBuilder();
+        var thinkingBuilder = new System.Text.StringBuilder();
 
         await foreach (var response in _client.Models.GenerateContentStreamAsync(
             model: _modelName,
@@ -119,14 +121,19 @@ public class GeminiService : IAsyncDisposable
 
             if (parts == null) continue;
 
-            if (candidate.Content != null)
-            {
-                assistantContent = candidate.Content;
-            }
-
             foreach (var part in parts)
             {
                 if (string.IsNullOrEmpty(part.Text)) continue;
+
+                // 累积内容
+                if (part.Thought == true)
+                {
+                    thinkingBuilder.Append(part.Text);
+                }
+                else
+                {
+                    responseBuilder.Append(part.Text);
+                }
 
                 yield return new ChatChunk
                 {
@@ -136,9 +143,24 @@ public class GeminiService : IAsyncDisposable
             }
         }
 
-        // 将 AI 回复加入历史
-        if (assistantContent != null)
+        // 构建完整的 AI 回复并加入历史
+        var responseText = responseBuilder.ToString();
+        if (!string.IsNullOrEmpty(responseText))
         {
+            var parts = new List<Part> { new Part { Text = responseText } };
+
+            // 如果有 thinking 内容，也加入（用于更准确的 Token 计数）
+            var thinkingText = thinkingBuilder.ToString();
+            if (!string.IsNullOrEmpty(thinkingText))
+            {
+                parts.Insert(0, new Part { Text = thinkingText, Thought = true });
+            }
+
+            var assistantContent = new Content
+            {
+                Role = "model",
+                Parts = parts
+            };
             _historyManager.AddAssistantMessage(assistantContent);
         }
 
