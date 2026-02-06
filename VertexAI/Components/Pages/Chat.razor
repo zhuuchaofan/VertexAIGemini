@@ -275,6 +275,10 @@ else
             _isLoading = false;
             await LoadConversationsAsync();
             StateHasChanged();
+
+            // 短暂延迟后再次刷新，确保 Token 计数已更新
+            await Task.Delay(100);
+            StateHasChanged();
         }
     }
 
