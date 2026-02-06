@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject AuthService Auth
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100 px-4">
     <div class="w-full max-w-md">
@@ -101,30 +102,19 @@
 
         try
         {
-            if (_isLogin)
+            var endpoint = _isLogin ? "/api/auth/login" : "/api/auth/register";
+
+            // 使用 JS fetch 让浏览器处理 Cookie（Blazor Server 的 HttpClient 在服务器端运行，无法设置浏览器 Cookie）
+            var result = await JS.InvokeAsync<AuthResult>("window.authFetch", endpoint, _email, _password);
+
+            if (result.Success)
             {
-                var (success, error) = await Auth.SignInAsync(_email, _password);
-                if (success)
-                {
-                    Navigation.NavigateTo("/");
-                }
-                else
-                {
-                    _error = error;
-                }
+                // 刷新页面以建立新的 SignalR 连接（带 Cookie）
+                Navigation.NavigateTo("/", forceLoad: true);
             }
             else
             {
-                var (success, error) = await Auth.SignUpAsync(_email, _password);
-                if (success)
-                {
-                    _success = "注册成功！请查看邮箱确认链接后登录。";
-                    _isLogin = true;
-                }
-                else
-                {
-                    _error = error;
-                }
+                _error = result.Error ?? "操作失败";
             }
         }
         catch (Exception ex)
@@ -143,4 +133,7 @@
         _error = null;
         _success = null;
     }
+
+    // DTO for JS interop result
+    private record AuthResult(bool Success, string? Error);
 }

@@ -280,8 +280,16 @@ else
 
     private async Task SignOut()
     {
+        try
+        {
+            // 使用 JS 调用登出 API（浏览器端处理 Cookie）
+            await JS.InvokeVoidAsync("authLogout");
+        }
+        catch { /* 忽略错误 */ }
+
         await Auth.SignOutAsync();
-        Navigation.NavigateTo("/login");
+        // 刷新页面以确保 Cookie 被清除
+        Navigation.NavigateTo("/login", forceLoad: true);
     }
 
     private void ToggleSidebar() => _showSidebar = !_showSidebar;

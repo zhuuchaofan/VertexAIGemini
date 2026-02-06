@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Events;
+using VertexAI.Api;
 using VertexAI.Components;
 using VertexAI.Data;
 using VertexAI.Services;
@@ -37,17 +38,28 @@ builder.Services.Configure<GeminiSettings>(
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-// 3. 业务服务
+// 3. HttpContext 访问器（用于认证）
+builder.Services.AddHttpContextAccessor();
+
+// 4. 业务服务
 builder.Services.AddScoped<GeminiService>();       // AI 聊天
 builder.Services.AddScoped<AuthService>();          // 用户认证
 builder.Services.AddScoped<ConversationService>();  // 对话持久化
 builder.Services.AddSingleton<MarkdownService>();   // Markdown 渲染
 
-// 4. Blazor 服务
+// 5. HttpClient（用于 Blazor 组件调用 API）
+builder.Services.AddScoped(sp =>
+{
+    var navigationManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(navigationManager.BaseUri) };
+});
+
+// 5. Blazor 服务
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+
 
 // 5. 初始化数据库
 try
@@ -77,7 +89,10 @@ else
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-// 7. 配置 Blazor 路由
+// 8. 认证 API 端点
+app.MapAuthEndpoints();
+
+// 9. 配置 Blazor 路由
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
