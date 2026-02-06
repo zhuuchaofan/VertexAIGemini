@@ -115,7 +115,7 @@ public class ChatHistoryManager
     }
 
     /// <summary>
-    /// 计算当前历史的 Token 数量
+    /// 计算当前历史的 Token 数量（包含摘要上下文）
     /// </summary>
     private async Task<int> CountTokensAsync()
     {
@@ -123,16 +123,20 @@ public class ChatHistoryManager
 
         try
         {
+            // 使用 GetContentsForSending() 获取完整内容（包含摘要上下文）
+            var contentsToCount = GetContentsForSending();
+
             var response = await _client.Models.CountTokensAsync(
                 model: _modelName,
-                contents: _chatHistory
+                contents: contentsToCount
             );
             return response.TotalTokens ?? 0;
         }
         catch
         {
             // 如果计数失败，使用估算（每字符约 1.5 token）
-            var totalChars = _chatHistory
+            var contentsToCount = GetContentsForSending();
+            var totalChars = contentsToCount
                 .SelectMany(c => c.Parts ?? [])
                 .Sum(p => p.Text?.Length ?? 0);
             return (int)(totalChars * 1.5);
