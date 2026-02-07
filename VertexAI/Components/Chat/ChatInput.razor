@@ -1,27 +1,22 @@
 @* 聊天输入区域组件 *@
 @inject IJSRuntime JS
+@implements IDisposable
 
 <footer class="flex-shrink-0 bg-white/70 backdrop-blur-xl border-t border-slate-100 px-2 sm:px-3 py-3 sm:py-4 safe-area-bottom">
     <div class="max-w-4xl mx-auto">
-        <div class="flex gap-2 items-end">
-            <div class="flex-1 relative min-w-0">
+        <div class="flex gap-2 items-center">
+            <div class="flex-1 min-w-0">
                 <textarea @ref="_textareaRef"
                           @bind="BoundValue"
                           @bind:event="oninput"
-                          @onkeydown="HandleKeyDown"
-                          @onkeydown:preventDefault="_shouldPreventDefault"
                           rows="1"
-                          placeholder="输入消息..."
+                          placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
                           disabled="@IsLoading"
-                          class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 pr-12 sm:pr-16 text-slate-700 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 resize-none min-h-[48px] max-h-[200px] transition-all shadow-sm"
+                          class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-slate-700 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 resize-none min-h-[48px] max-h-[200px] transition-all shadow-sm"
                           style="field-sizing: content;" />
-                @* 字符计数 - 移动端隐藏 *@
-                <div class="absolute right-3 sm:right-4 bottom-3 text-xs hidden sm:block @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-500" : "text-slate-400")">
-                    @CharCount
-                </div>
             </div>
             <button type="button" @onclick="OnSend" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
-                    class="px-4 sm:px-5 py-3 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-sky-200/50 hover:scale-105 active:scale-95 transition-all min-h-[48px] flex items-center justify-center gap-2 flex-shrink-0 shadow-md">
+                    class="h-12 px-4 sm:px-5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-sky-200/50 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 flex-shrink-0 shadow-md">
                 @if (IsLoading)
                 {
                     <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -38,9 +33,12 @@
                 <span class="hidden sm:inline">发送</span>
             </button>
         </div>
-        @if (CharCount > 4000)
+        @* 字符计数提示 *@
+        @if (CharCount > 3000)
         {
-            <p class="text-xs text-red-500 mt-2 ml-1">消息过长，建议精简内容</p>
+            <p class="text-xs mt-2 ml-1 @(CharCount > 4000 ? "text-red-500" : "text-amber-500")">
+                @(CharCount > 4000 ? "消息过长，建议精简内容" : $"已输入 {CharCount:N0} 字符")
+            </p>
         }
     </div>
 </footer>
@@ -52,18 +50,29 @@
     [Parameter] public EventCallback OnSendMessage { get; set; }
 
     private ElementReference _textareaRef;
+    private DotNetObjectReference<ChatInput>? _dotnetRef;
     private int CharCount => InputValue?.Length ?? 0;
 
-    // 用于阻止 Enter 键默认行为（换行）
-    // 这个值在每次按键后更新，用于下一次按键判断
-    private bool _shouldPreventDefault;
-
-    // 用于双向绑定的属性
     private string BoundValue
     {
         get => InputValue;
         set => InputValueChanged.InvokeAsync(value);
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("chatInputHandler.init", _textareaRef, _dotnetRef);
+        }
+    }
+
+    /// <summary>
+    /// 供 JS 调用的发送方法
+    /// </summary>
+    [JSInvokable]
+    public async Task SendMessage() => await OnSend();
 
     private async Task OnSend()
     {
@@ -73,41 +82,9 @@
         }
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
+    public void Dispose()
     {
-        // 只处理 Enter 键
-        if (e.Key == "Enter")
-        {
-            if (e.ShiftKey)
-            {
-                // Shift+Enter: 允许换行（不阻止默认行为）
-                // 但由于 _shouldPreventDefault 的初始值，需要用 JS 插入
-                await InsertNewlineAsync();
-            }
-            else
-            {
-                // 单独 Enter: 发送消息
-                await OnSend();
-            }
-        }
-
-        // 更新下次按键的 preventDefault 状态
-        // Enter 键始终阻止默认行为，其他键不阻止
-        _shouldPreventDefault = e.Key == "Enter";
-    }
-
-    private async Task InsertNewlineAsync()
-    {
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                const ta = document.activeElement;
-                if (ta?.tagName === 'TEXTAREA') {
-                    const s = ta.selectionStart, e = ta.selectionEnd;
-                    ta.value = ta.value.substring(0, s) + '\n' + ta.value.substring(e);
-                    ta.selectionStart = ta.selectionEnd = s + 1;
-                    ta.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            })()
-        ");
+        _dotnetRef?.Dispose();
     }
 }
+
