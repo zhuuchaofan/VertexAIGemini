@@ -23,6 +23,19 @@
 
         @if (IsUser)
         {
+            @* 用户消息：显示附加的图片 *@
+            @if (Attachments?.Count > 0)
+            {
+                <div class="flex flex-wrap gap-2 mb-2">
+                    @foreach (var img in Attachments)
+                    {
+                        <img src="@img.DataUrl"
+                             alt="上传的图片"
+                             class="max-w-[200px] max-h-[150px] rounded-lg shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                             @onclick="() => OpenImagePreview(img.DataUrl)" />
+                    }
+                </div>
+            }
             <div class="whitespace-pre-wrap break-words text-sm leading-relaxed">@Content</div>
         }
         else
@@ -54,4 +67,11 @@
     [Parameter] public string? ThinkingContent { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string MarkdownHtml { get; set; } = "";
+    [Parameter] public List<ImageAttachment>? Attachments { get; set; }
+
+    private void OpenImagePreview(string dataUrl)
+    {
+        // 简单实现：打开新窗口显示大图
+        // 可以后续改为模态框
+    }
 }

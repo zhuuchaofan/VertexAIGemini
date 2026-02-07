@@ -35,6 +35,7 @@
                 Content="@msg.Content"
                 ThinkingContent="@msg.ThinkingContent"
                 IsStreaming="@msg.IsStreaming"
+                Attachments="@msg.Attachments"
                 MarkdownHtml="@(msg.IsUser ? "" : Markdown.ToHtml(msg.Content))" />
         }
 
