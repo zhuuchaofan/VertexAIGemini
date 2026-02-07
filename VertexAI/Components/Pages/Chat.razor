@@ -4,6 +4,7 @@
 @inject MarkdownService Markdown
 @inject AuthService Auth
 @inject ConversationService ConversationSvc
+@inject ImageService ImageSvc
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -72,9 +73,13 @@ else
             }
 
             <ChatInput
+                @ref="_chatInputRef"
                 InputValue="@_inputMessage"
                 InputValueChanged="@((v) => _inputMessage = v)"
                 IsLoading="@_isLoading"
+                PendingImages="@_pendingImages"
+                PendingImagesChanged="@((images) => _pendingImages = images)"
+                OnFilesSelected="HandleFilesSelected"
                 OnSendMessage="SendMessage" />
         </div>
     </div>
@@ -106,6 +111,7 @@ else
     private readonly List<ChatMessageModel> _messages = [];
     private List<ConversationItem> _conversationItems = [];
     private List<PresetItem> _presetItems = [];
+    private List<ImageAttachment> _pendingImages = new();
     private Guid? _currentConversationId;
     private string _inputMessage = "";
     private string? _validationError;
@@ -117,6 +123,7 @@ else
     private Guid? _deleteTargetId;
     private string _customPromptInput = "";
     private ChatHeader? _headerRef;
+    private VertexAI.Components.Chat.ChatInput? _chatInputRef;
 
     protected override async Task OnInitializedAsync()
     {
@@ -226,10 +233,14 @@ else
     {
         _validationError = null;
 
-        if (string.IsNullOrWhiteSpace(_inputMessage) || _isLoading) return;
+        // 允许只发送图片，或文本+图片
+        var hasText = !string.IsNullOrWhiteSpace(_inputMessage);
+        var hasImages = _pendingImages.Count > 0;
+
+        if (!hasText && !hasImages || _isLoading) return;
 
         // 消息长度验证
-        if (_inputMessage.Length > MaxMessageLength)
+        if (hasText && _inputMessage.Length > MaxMessageLength)
         {
             _validationError = $"消息长度不能超过 {MaxMessageLength:N0} 个字符（当前 {_inputMessage.Length:N0} 个字符）";
             StateHasChanged();
@@ -242,10 +253,18 @@ else
         }
 
         var userMessage = _inputMessage.Trim();
+        var imagesToSend = _pendingImages.ToList();
         _inputMessage = "";
+        _pendingImages.Clear();
         _isLoading = true;
 
-        _messages.Add(new ChatMessageModel { IsUser = true, Content = userMessage });
+        // 构建用户消息（包含图片附件）
+        _messages.Add(new ChatMessageModel
+        {
+            IsUser = true,
+            Content = userMessage,
+            Attachments = imagesToSend.Count > 0 ? imagesToSend : null
+        });
         await ScrollToBottom();
         StateHasChanged();
 
@@ -262,7 +281,27 @@ else
             var thinkingBuilder = new System.Text.StringBuilder();
             var responseBuilder = new System.Text.StringBuilder();
 
-            await foreach (var chunk in Gemini.StreamChatAsync(userMessage))
+            // 构建 Parts 列表（文本 + 图片）
+            var parts = new List<Google.GenAI.Types.Part>();
+
+            if (hasText)
+            {
+                parts.Add(new Google.GenAI.Types.Part { Text = userMessage });
+            }
+
+            foreach (var img in imagesToSend)
+            {
+                parts.Add(new Google.GenAI.Types.Part
+                {
+                    InlineData = new Google.GenAI.Types.Blob
+                    {
+                        Data = Convert.FromBase64String(img.Base64Data),
+                        MimeType = img.MimeType
+                    }
+                });
+            }
+
+            await foreach (var chunk in Gemini.StreamChatAsync(parts))
             {
                 if (chunk.IsThinking)
                 {
@@ -300,6 +339,34 @@ else
             StateHasChanged();
         }
     }
+
+    /// <summary>
+    /// 处理文件选择事件
+    /// </summary>
+    private async Task HandleFilesSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            var result = await ImageSvc.ProcessImageAsync(file);
+
+            if (result.IsSuccess)
+            {
+                _pendingImages.Add(new ImageAttachment
+                {
+                    Base64Data = result.Base64Data!,
+                    MimeType = result.MimeType!,
+                    FileName = result.FileName
+                });
+            }
+            else
+            {
+                _chatInputRef?.SetError(result.ErrorMessage!);
+                break;
+            }
+        }
+        StateHasChanged();
+    }
+
 
     private async Task SignOut()
     {

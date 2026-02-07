@@ -41,6 +41,18 @@ public class ChatHistoryManager
     }
 
     /// <summary>
+    /// 添加包含多个 Part（文本+图片）的用户消息到历史
+    /// </summary>
+    public void AddUserMessage(List<Part> parts)
+    {
+        _chatHistory.Add(new Content
+        {
+            Role = "user",
+            Parts = parts
+        });
+    }
+
+    /// <summary>
     /// 添加 AI 回复到历史
     /// </summary>
     public void AddAssistantMessage(Content content)

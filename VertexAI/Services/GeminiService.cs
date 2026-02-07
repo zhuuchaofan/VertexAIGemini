@@ -84,20 +84,33 @@ public class GeminiService : IAsyncDisposable
     }
 
     /// <summary>
-    /// 流式发送消息并返回响应
+    /// 流式发送消息并返回响应（纯文本）
     /// </summary>
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage)
+    {
+        var parts = new List<Part> { new Part { Text = userMessage } };
+        return StreamChatAsync(parts);
+    }
+
+    /// <summary>
+    /// 流式发送消息并返回响应（多模态：文本+图片）
+    /// </summary>
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts)
     {
         var stopwatch = Stopwatch.StartNew();
         var thinkingBudget = _config.ThinkingConfig?.ThinkingBudget;
         var thinkingLevel = _config.ThinkingConfig?.ThinkingLevel;
 
+        // 提取文本用于日志
+        var textPart = userParts.FirstOrDefault(p => !string.IsNullOrEmpty(p.Text))?.Text ?? "[多模态消息]";
+        var hasImage = userParts.Any(p => p.InlineData != null);
+
         _logger.LogInformation(
-            "Chat 请求开始, MessageLength={Length}, ThinkingBudget={Budget}, ThinkingLevel={Level}, PresetId={Preset}",
-            userMessage.Length, thinkingBudget, thinkingLevel, _currentPresetId);
+            "Chat 请求开始, MessageLength={Length}, HasImage={HasImage}, ThinkingLevel={Level}, PresetId={Preset}",
+            textPart.Length, hasImage, thinkingLevel, _currentPresetId);
 
         // 添加用户消息
-        _historyManager.AddUserMessage(userMessage);
+        _historyManager.AddUserMessage(userParts);
 
         // 检查并修剪历史
         await _historyManager.TrimIfNeededAsync();
@@ -147,19 +160,19 @@ public class GeminiService : IAsyncDisposable
         var responseText = responseBuilder.ToString();
         if (!string.IsNullOrEmpty(responseText))
         {
-            var parts = new List<Part> { new Part { Text = responseText } };
+            var responseParts = new List<Part> { new Part { Text = responseText } };
 
             // 如果有 thinking 内容，也加入（用于更准确的 Token 计数）
             var thinkingText = thinkingBuilder.ToString();
             if (!string.IsNullOrEmpty(thinkingText))
             {
-                parts.Insert(0, new Part { Text = thinkingText, Thought = true });
+                responseParts.Insert(0, new Part { Text = thinkingText, Thought = true });
             }
 
             var assistantContent = new Content
             {
                 Role = "model",
-                Parts = parts
+                Parts = responseParts
             };
             _historyManager.AddAssistantMessage(assistantContent);
         }
@@ -172,6 +185,7 @@ public class GeminiService : IAsyncDisposable
             "Chat 请求完成, Duration={Duration}ms, TokenCount={Tokens}, HasThinking={HasThinking}",
             stopwatch.ElapsedMilliseconds, _historyManager.CurrentTokenCount, thinkingLevel != null && thinkingBudget != 0);
     }
+
 
     /// <summary>
     /// 清空聊天历史

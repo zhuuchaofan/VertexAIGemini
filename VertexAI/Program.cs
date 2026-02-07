@@ -52,6 +52,7 @@ builder.Services.AddScoped<GeminiService>();       // AI 聊天
 builder.Services.AddScoped<AuthService>();          // 用户认证
 builder.Services.AddScoped<ConversationService>();  // 对话持久化
 builder.Services.AddSingleton<MarkdownService>();   // Markdown 渲染
+builder.Services.AddScoped<ImageService>();         // 图片处理
 
 // 5. HttpClient（用于 Blazor 组件调用 API）
 builder.Services.AddScoped(sp =>
