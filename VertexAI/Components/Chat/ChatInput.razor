@@ -1,9 +1,9 @@
 @* 聊天输入区域组件 *@
 @inject IJSRuntime JS
 
-<footer class="flex-shrink-0 bg-white/80 backdrop-blur border-t border-amber-200 px-2 sm:px-3 py-2 sm:py-3 safe-area-bottom">
+<footer class="flex-shrink-0 bg-white/70 backdrop-blur-xl border-t border-slate-100 px-2 sm:px-3 py-3 sm:py-4 safe-area-bottom">
     <div class="max-w-4xl mx-auto">
-        <div class="flex gap-1.5 sm:gap-2 items-end">
+        <div class="flex gap-2 items-end">
             <div class="flex-1 relative min-w-0">
                 <textarea @ref="_textareaRef"
                           @bind="BoundValue"
@@ -13,25 +13,25 @@
                           rows="1"
                           placeholder="输入消息..."
                           disabled="@IsLoading"
-                          class="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 pr-10 sm:pr-16 text-gray-800 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none min-h-[44px] sm:min-h-[48px] max-h-[200px] transition-all"
+                          class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 pr-12 sm:pr-16 text-slate-700 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 resize-none min-h-[48px] max-h-[200px] transition-all shadow-sm"
                           style="field-sizing: content;" />
                 @* 字符计数 - 移动端隐藏 *@
-                <div class="absolute right-2 sm:right-3 bottom-2 sm:bottom-3 text-xs hidden sm:block @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-600" : "text-gray-400")">
+                <div class="absolute right-3 sm:right-4 bottom-3 text-xs hidden sm:block @(CharCount > 4000 ? "text-red-500" : CharCount > 3000 ? "text-amber-500" : "text-slate-400")">
                     @CharCount
                 </div>
             </div>
             <button type="button" @onclick="OnSend" disabled="@(string.IsNullOrWhiteSpace(InputValue) || IsLoading)"
-                    class="px-3 sm:px-5 py-2.5 sm:py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 active:scale-95 transition-all h-[44px] sm:h-[48px] flex items-center justify-center gap-2 flex-shrink-0">
+                    class="px-4 sm:px-5 py-3 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-sky-200/50 hover:scale-105 active:scale-95 transition-all min-h-[48px] flex items-center justify-center gap-2 flex-shrink-0 shadow-md">
                 @if (IsLoading)
                 {
-                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                 }
                 else
                 {
-                    <svg class="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
                 }
@@ -40,7 +40,7 @@
         </div>
         @if (CharCount > 4000)
         {
-            <p class="text-xs text-red-500 mt-1 ml-1">消息过长，建议精简内容</p>
+            <p class="text-xs text-red-500 mt-2 ml-1">消息过长，建议精简内容</p>
         }
     </div>
 </footer>

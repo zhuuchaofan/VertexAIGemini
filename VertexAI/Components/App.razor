@@ -12,13 +12,14 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#f59e0b',
-                        'primary-dark': '#d97706',
-                        warm: '#fef3c7',
-                        'warm-dark': '#fde68a',
-                        surface: '#fffbeb',
-                        'surface-dark': '#fef3c7',
-                        thinking: '#92400e'
+                        primary: '#0ea5e9',       // sky-500
+                        'primary-dark': '#0284c7', // sky-600
+                        secondary: '#10b981',      // emerald-500
+                        warm: '#f8fafc',           // slate-50
+                        'warm-dark': '#e2e8f0',    // slate-200
+                        surface: '#ffffff',
+                        'surface-dark': '#f1f5f9', // slate-100
+                        thinking: '#64748b'        // slate-500
                     }
                 }
             }
@@ -31,9 +32,18 @@
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 
     <style>
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #fef3c7; }
-        ::-webkit-scrollbar-thumb { background: #f59e0b; border-radius: 3px; }
+        /* 滚动条 - 清新风格 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* 毛玻璃效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
 
         .cursor-blink {
             animation: blink 1s step-end infinite;
@@ -50,27 +60,27 @@
             50% { opacity: 0.5; }
         }
 
-        /* Markdown 样式 */
+        /* Markdown 样式 - 清新配色 */
         .markdown-body {
-            line-height: 1.6;
+            line-height: 1.7;
         }
         .markdown-body h1 {
             font-size: 1.5rem;
             font-weight: 700;
             margin: 1rem 0 0.5rem;
-            color: #92400e;
+            color: #0284c7;
         }
         .markdown-body h2 {
             font-size: 1.25rem;
             font-weight: 600;
             margin: 0.75rem 0 0.5rem;
-            color: #b45309;
+            color: #0ea5e9;
         }
         .markdown-body h3 {
             font-size: 1.1rem;
             font-weight: 600;
             margin: 0.5rem 0 0.25rem;
-            color: #d97706;
+            color: #38bdf8;
         }
         .markdown-body p {
             margin: 0.5rem 0;
@@ -85,15 +95,16 @@
         .markdown-body blockquote {
             margin: 0.5rem 0;
             padding: 0.5rem 1rem;
-            border-left: 4px solid #f59e0b;
-            background: #fef3c7;
-            color: #92400e;
+            border-left: 4px solid #0ea5e9;
+            background: #f0f9ff;
+            color: #0369a1;
+            border-radius: 0 0.5rem 0.5rem 0;
         }
         .markdown-body pre {
             margin: 0.5rem 0;
             padding: 1rem;
             background: #1e293b !important;
-            border-radius: 0.5rem;
+            border-radius: 0.75rem;
             overflow-x: auto;
         }
         .markdown-body pre code {
@@ -102,11 +113,11 @@
             font-size: 0.875rem;
         }
         .markdown-body code {
-            background: #fef3c7;
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
+            background: #e0f2fe;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.375rem;
             font-size: 0.875rem;
-            color: #92400e;
+            color: #0369a1;
         }
         .markdown-body table {
             width: 100%;
@@ -114,48 +125,48 @@
             border-collapse: collapse;
         }
         .markdown-body th, .markdown-body td {
-            border: 1px solid #fcd34d;
+            border: 1px solid #e2e8f0;
             padding: 0.5rem 0.75rem;
             text-align: left;
         }
         .markdown-body th {
-            background: #fef3c7;
+            background: #f1f5f9;
             font-weight: 600;
         }
         .markdown-body a {
-            color: #d97706;
+            color: #0ea5e9;
             text-decoration: underline;
         }
         .markdown-body a:hover {
-            color: #92400e;
+            color: #0284c7;
         }
         .markdown-body hr {
             margin: 1rem 0;
             border: none;
-            border-top: 1px solid #fcd34d;
+            border-top: 1px solid #e2e8f0;
         }
     </style>
     <HeadOutlet />
 </head>
 
-<body class="bg-warm text-gray-800 antialiased">
+<body class="bg-slate-50 text-slate-800 antialiased">
     <ErrorBoundary>
         <ChildContent>
             <Routes />
         </ChildContent>
         <ErrorContent Context="ex">
-            <div class="h-screen flex items-center justify-center bg-amber-50">
-                <div class="max-w-md text-center p-6">
+            <div class="h-screen flex items-center justify-center bg-gradient-to-br from-sky-50 to-slate-100">
+                <div class="max-w-md text-center p-8 bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-white/50">
                     <div class="text-6xl mb-4">😵</div>
-                    <h1 class="text-2xl font-bold text-amber-800 mb-2">出错了</h1>
-                    <p class="text-amber-600 mb-4">应用遇到了一个问题，请刷新页面重试。</p>
+                    <h1 class="text-2xl font-bold text-slate-800 mb-2">出错了</h1>
+                    <p class="text-slate-600 mb-6">应用遇到了一个问题，请刷新页面重试。</p>
                     <button onclick="location.reload()"
-                            class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+                            class="px-6 py-3 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-2xl hover:shadow-lg transition-all">
                         刷新页面
                     </button>
-                    <details class="mt-4 text-left">
-                        <summary class="cursor-pointer text-xs text-amber-700">技术详情</summary>
-                        <pre class="mt-2 p-2 bg-amber-100 rounded text-xs overflow-auto">@ex.Message</pre>
+                    <details class="mt-6 text-left">
+                        <summary class="cursor-pointer text-xs text-slate-500">技术详情</summary>
+                        <pre class="mt-2 p-3 bg-slate-100 rounded-xl text-xs overflow-auto text-slate-600">@ex.Message</pre>
                     </details>
                 </div>
             </div>

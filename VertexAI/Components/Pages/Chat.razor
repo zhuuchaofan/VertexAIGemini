@@ -64,6 +64,13 @@ else
                 IsLoading="@_isLoading"
                 OnAreaClicked="CloseMenus" />
 
+            @if (!string.IsNullOrEmpty(_validationError))
+            {
+                <div class="px-4 py-2 bg-red-50 border-t border-red-200 text-red-700 text-sm">
+                    @_validationError
+                </div>
+            }
+
             <ChatInput
                 InputValue="@_inputMessage"
                 InputValueChanged="@((v) => _inputMessage = v)"
@@ -95,11 +102,13 @@ else
 </style>
 
 @code {
+    private const int MaxMessageLength = 10000;
     private readonly List<ChatMessageModel> _messages = [];
     private List<ConversationItem> _conversationItems = [];
     private List<PresetItem> _presetItems = [];
     private Guid? _currentConversationId;
     private string _inputMessage = "";
+    private string? _validationError;
     private bool _isLoading;
     private bool _initialized;
     private bool _showSidebar = true;
@@ -215,7 +224,17 @@ else
 
     private async Task SendMessage()
     {
+        _validationError = null;
+
         if (string.IsNullOrWhiteSpace(_inputMessage) || _isLoading) return;
+
+        // 消息长度验证
+        if (_inputMessage.Length > MaxMessageLength)
+        {
+            _validationError = $"消息长度不能超过 {MaxMessageLength:N0} 个字符（当前 {_inputMessage.Length:N0} 个字符）";
+            StateHasChanged();
+            return;
+        }
 
         if (_currentConversationId == null)
         {

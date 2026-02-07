@@ -6,6 +6,9 @@ using VertexAI.Components;
 using VertexAI.Data;
 using VertexAI.Services;
 
+// 加载 .env 环境变量文件（如果存在）
+DotNetEnv.Env.Load();
+
 // --------------------------------------------------------------------------------------
 // 项目名称: Gemini Chat - Blazor Web App
 // 描述: 使用 Google.GenAI SDK 调用 Gemini，可视化展示"思考过程"的聊天界面。
@@ -35,8 +38,11 @@ builder.Services.Configure<GeminiSettings>(
     builder.Configuration.GetSection("VertexAI"));
 
 // 2. 数据库配置 (本地 PostgreSQL) - 使用 Factory 避免并发问题
+// 优先从环境变量读取连接字符串，否则使用 appsettings.json
+var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? builder.Configuration.GetConnectionString("Default");
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    options.UseNpgsql(connectionString));
 
 // 3. HttpContext 访问器（用于认证）
 builder.Services.AddHttpContextAccessor();
