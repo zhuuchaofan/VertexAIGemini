@@ -3,17 +3,26 @@
 
 @if (IsOpen)
 {
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn"
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fadeIn"
          @onclick="Close">
-        <div class="relative max-w-[90vw] max-h-[90vh]" @onclick:stopPropagation>
-            <img src="@ImageUrl"
-                 alt="预览图片"
-                 class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+        <div class="relative max-w-[95vw] max-h-[90vh] animate-zoomIn" @onclick:stopPropagation>
+            @* 图片容器 - 支持缩放 *@
+            <div class="relative">
+                <img src="@ImageUrl"
+                     alt="预览图片"
+                     class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl select-none"
+                     style="touch-action: pinch-zoom;" />
+
+                @* 移动端提示 *@
+                <div class="absolute bottom-4 left-1/2 -translate-x-1/2 sm:hidden bg-black/60 text-white/80 text-xs px-3 py-1.5 rounded-full">
+                    双指缩放查看
+                </div>
+            </div>
 
             @* 关闭按钮 *@
             <button type="button"
                     @onclick="Close"
-                    class="absolute -top-3 -right-3 w-10 h-10 bg-white/90 hover:bg-white text-slate-700 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-110">
+                    class="absolute -top-3 -right-3 w-11 h-11 bg-white/95 hover:bg-white text-slate-700 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-110 active:scale-95">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
@@ -30,6 +39,20 @@
         from { opacity: 0; }
         to { opacity: 1; }
     }
+
+    .animate-zoomIn {
+        animation: zoomIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @@keyframes zoomIn {
+        from {
+            opacity: 0;
+            transform: scale(0.9);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
 </style>
 
 @code {
@@ -37,21 +60,32 @@
     [Parameter] public string ImageUrl { get; set; } = "";
     [Parameter] public EventCallback OnClose { get; set; }
 
+    private bool _previousIsOpen;
+
     private async Task Close()
     {
         await OnClose.InvokeAsync();
     }
 
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // 当模态框打开时，禁止页面滚动
-        if (IsOpen)
+        // 只在 IsOpen 状态变化时操作 body.overflow
+        if (IsOpen != _previousIsOpen)
         {
-            await JS.InvokeVoidAsync("eval", "document.body.style.overflow = 'hidden'");
-        }
-        else
-        {
-            await JS.InvokeVoidAsync("eval", "document.body.style.overflow = ''");
+            _previousIsOpen = IsOpen;
+            try
+            {
+                if (IsOpen)
+                {
+                    await JS.InvokeVoidAsync("eval", "document.body.style.overflow = 'hidden'");
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("eval", "document.body.style.overflow = ''");
+                }
+            }
+            catch { /* 忽略 JS 调用失败 */ }
         }
     }
 }
+
