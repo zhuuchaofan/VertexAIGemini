@@ -74,6 +74,15 @@ try
     var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
     await using var db = await dbFactory.CreateDbContextAsync();
     await db.Database.EnsureCreatedAsync();
+
+    // 手动添加 TokenCount 列（如果不存在）
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS \"TokenCount\" INTEGER DEFAULT 0");
+    }
+    catch { /* 列已存在或其他错误，忽略 */ }
+
     Console.WriteLine("数据库连接成功");
 }
 catch (Exception ex)
