@@ -36,6 +36,7 @@
                 ThinkingContent="@msg.ThinkingContent"
                 IsStreaming="@msg.IsStreaming"
                 Attachments="@msg.Attachments"
+                OnImageClick="OnImageClick"
                 MarkdownHtml="@(msg.IsUser ? "" : Markdown.ToHtml(msg.Content))" />
         }
 
@@ -64,4 +65,6 @@
     [Parameter] public string PresetName { get; set; } = "默认助手";
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public EventCallback OnAreaClicked { get; set; }
+    [Parameter] public EventCallback<string> OnImageClick { get; set; }
 }
+

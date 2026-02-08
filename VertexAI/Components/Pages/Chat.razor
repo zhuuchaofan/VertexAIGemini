@@ -63,7 +63,8 @@ else
                 Messages="@_messages"
                 PresetName="@GetCurrentPresetName()"
                 IsLoading="@_isLoading"
-                OnAreaClicked="CloseMenus" />
+                OnAreaClicked="CloseMenus"
+                OnImageClick="ShowImagePreview" />
 
             @if (!string.IsNullOrEmpty(_validationError))
             {
@@ -96,6 +97,11 @@ else
     OnCancel="CancelDelete"
     OnConfirm="ConfirmDelete" />
 
+<ImagePreviewModal
+    IsOpen="@_showImagePreview"
+    ImageUrl="@_previewImageUrl"
+    OnClose="CloseImagePreview" />
+
 <style>
     .safe-area-top { padding-top: max(env(safe-area-inset-top), 0.75rem); }
     .safe-area-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0.75rem); }
@@ -120,8 +126,10 @@ else
     private bool _showSidebar = true;
     private bool _showCustomDialog;
     private bool _showDeleteConfirm;
+    private bool _showImagePreview;
     private Guid? _deleteTargetId;
     private string _customPromptInput = "";
+    private string _previewImageUrl = "";
     private ChatHeader? _headerRef;
     private VertexAI.Components.Chat.ChatInput? _chatInputRef;
 
@@ -463,4 +471,17 @@ else
     }
 
     private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
+
+    private void ShowImagePreview(string imageUrl)
+    {
+        _previewImageUrl = imageUrl;
+        _showImagePreview = true;
+    }
+
+    private void CloseImagePreview()
+    {
+        _showImagePreview = false;
+        _previewImageUrl = "";
+    }
 }
+

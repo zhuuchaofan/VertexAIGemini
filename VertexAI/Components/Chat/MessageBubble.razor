@@ -68,10 +68,11 @@
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string MarkdownHtml { get; set; } = "";
     [Parameter] public List<ImageAttachment>? Attachments { get; set; }
+    [Parameter] public EventCallback<string> OnImageClick { get; set; }
 
-    private void OpenImagePreview(string dataUrl)
+    private async Task OpenImagePreview(string dataUrl)
     {
-        // 简单实现：打开新窗口显示大图
-        // 可以后续改为模态框
+        await OnImageClick.InvokeAsync(dataUrl);
     }
 }
+
