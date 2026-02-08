@@ -38,6 +38,11 @@ public class Conversation
     /// </summary>
     public string? HistorySummary { get; set; }
 
+    /// <summary>
+    /// 当前 Token 计数 (用于持久化)
+    /// </summary>
+    public int TokenCount { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

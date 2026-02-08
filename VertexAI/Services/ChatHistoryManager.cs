@@ -117,6 +117,14 @@ public class ChatHistoryManager
     }
 
     /// <summary>
+    /// 直接设置 Token 计数 (用于从数据库恢复)
+    /// </summary>
+    public void SetTokenCount(int count)
+    {
+        CurrentTokenCount = count;
+    }
+
+    /// <summary>
     /// 清空聊天历史
     /// </summary>
     public void Clear()

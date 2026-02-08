@@ -192,6 +192,16 @@ public class GeminiService : IAsyncDisposable
     /// </summary>
     public void ClearHistory() => _historyManager.Clear();
 
+    /// <summary>
+    /// 设置 Token 计数 (用于从数据库恢复)
+    /// </summary>
+    public void SetTokenCount(int count) => _historyManager.SetTokenCount(count);
+
+    /// <summary>
+    /// 重新计算 Token 计数 (用于历史对话)
+    /// </summary>
+    public async Task RecalculateTokenCountAsync() => await _historyManager.UpdateTokenCountAsync();
+
     public ValueTask DisposeAsync() => _client.DisposeAsync();
 
     /// <summary>

@@ -226,4 +226,51 @@ public class ConversationService
             _dbAvailable = false;
         }
     }
+
+    /// <summary>
+    /// 获取对话的 Token 计数
+    /// </summary>
+    public async Task<int> GetTokenCountAsync(Guid conversationId)
+    {
+        if (!_dbAvailable) return 0;
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversation = await db.Conversations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == conversationId);
+            return conversation?.TokenCount ?? 0;
+        }
+        catch
+        {
+            _dbAvailable = false;
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 更新对话的 Token 计数
+    /// </summary>
+    public async Task UpdateTokenCountAsync(Guid conversationId, int tokenCount)
+    {
+        if (!_dbAvailable) return;
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversation = await db.Conversations.FindAsync(conversationId);
+            if (conversation != null)
+            {
+                conversation.TokenCount = tokenCount;
+                conversation.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            _dbAvailable = false;
+        }
+    }
 }
+
