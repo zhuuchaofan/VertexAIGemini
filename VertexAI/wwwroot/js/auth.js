@@ -2,6 +2,9 @@
 // 用于在浏览器端发起认证请求，以正确处理 HttpOnly Cookie
 
 window.authFetch = async function (endpoint, email, password) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -9,8 +12,11 @@ window.authFetch = async function (endpoint, email, password) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ email, password }),
-      credentials: "same-origin", // 确保 Cookie 被包含
+      credentials: "same-origin",
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     const data = await response.json();
     return {
@@ -18,9 +24,18 @@ window.authFetch = async function (endpoint, email, password) {
       error: data.error || null,
     };
   } catch (error) {
+    clearTimeout(timeout);
+
+    if (error.name === "AbortError") {
+      return {
+        success: false,
+        error: "请求超时，请检查网络后重试",
+      };
+    }
+
     return {
       success: false,
-      error: error.message || "网络错误",
+      error: "网络连接失败，请稍后重试",
     };
   }
 };

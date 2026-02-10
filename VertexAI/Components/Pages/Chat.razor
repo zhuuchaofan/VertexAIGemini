@@ -16,10 +16,11 @@
 }
 else if (!Auth.IsAuthenticated)
 {
-    <div class="h-dvh flex items-center justify-center bg-amber-50">
-        <div class="text-center">
-            <p class="text-amber-600 mb-4">请先登录</p>
-            <a href="/login" class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600">登录</a>
+    <div class="h-dvh flex items-center justify-center bg-gradient-to-br from-sky-100 via-white to-emerald-100">
+        <div class="text-center bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl p-8 border border-white/50">
+            <h2 class="text-xl font-bold bg-gradient-to-r from-sky-500 to-emerald-500 bg-clip-text text-transparent mb-2">Gemini Chat</h2>
+            <p class="text-slate-500 mb-6">请登录后开始对话</p>
+            <a href="/login" class="px-6 py-2.5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-2xl hover:shadow-lg hover:shadow-sky-200/50 transition-all inline-block">登录 / 注册</a>
         </div>
     </div>
 }

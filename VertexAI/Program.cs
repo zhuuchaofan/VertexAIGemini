@@ -80,6 +80,11 @@ try
     {
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS \"TokenCount\" INTEGER DEFAULT 0");
+        // 邮箱验证预留字段
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)");
     }
     catch (Exception ex)
     {

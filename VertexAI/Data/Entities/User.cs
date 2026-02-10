@@ -22,6 +22,19 @@ public class User
     [Column("password_hash")]
     public string PasswordHash { get; set; } = "";
 
+    /// <summary>
+    /// 邮箱是否已验证（预留：后期接入邮件服务后启用强制验证）
+    /// </summary>
+    [Column("email_verified")]
+    public bool EmailVerified { get; set; }
+
+    /// <summary>
+    /// 邮箱验证 Token（预留：用于验证链接 /verify?token=xxx）
+    /// </summary>
+    [MaxLength(64)]
+    [Column("verification_token")]
+    public string? VerificationToken { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
