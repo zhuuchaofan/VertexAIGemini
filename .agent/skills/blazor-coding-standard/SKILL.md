@@ -129,7 +129,12 @@ public class XxxService : IAsyncDisposable
 - chore: 构建/工具
 ```
 
-**示例**: `feat(chat): add markdown rendering support`
+**要求**:
+
+- Must verify: 提交说明使用中文。
+- Must verify: 遵循 Angular 规范。
+
+**示例**: `feat(chat): 新增 Markdown 渲染支持`
 
 ---
 

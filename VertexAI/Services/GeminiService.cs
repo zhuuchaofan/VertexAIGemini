@@ -202,6 +202,36 @@ public class GeminiService : IAsyncDisposable
     /// </summary>
     public async Task RecalculateTokenCountAsync() => await _historyManager.UpdateTokenCountAsync();
 
+    /// <summary>
+    /// 导入历史消息 (用于页面加载时恢复上下文)
+    /// </summary>
+    public void ImportHistory(IEnumerable<VertexAI.Data.Entities.Message> messages)
+    {
+        _historyManager.Clear();
+        foreach (var msg in messages)
+        {
+            if (msg.Role == "user")
+            {
+                _historyManager.AddUserMessage(msg.Content);
+            }
+            else if (msg.Role == "model")
+            {
+                var parts = new List<Part>();
+                if (!string.IsNullOrEmpty(msg.ThinkingContent))
+                {
+                    parts.Add(new Part { Text = msg.ThinkingContent, Thought = true });
+                }
+                parts.Add(new Part { Text = msg.Content });
+
+                _historyManager.AddAssistantMessage(new Content
+                {
+                    Role = "model",
+                    Parts = parts
+                });
+            }
+        }
+    }
+
     public ValueTask DisposeAsync() => _client.DisposeAsync();
 
     /// <summary>

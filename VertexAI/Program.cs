@@ -81,7 +81,14 @@ try
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS \"TokenCount\" INTEGER DEFAULT 0");
     }
-    catch { /* 列已存在或其他错误，忽略 */ }
+    catch (Exception ex)
+    {
+        // 列已存在是预期内的，但其他错误应该记录
+        if (!ex.Message.Contains("already exists"))
+        {
+             Log.Warning(ex, "尝试添加 TokenCount 列时发生非关键错误");
+        }
+    }
 
     Console.WriteLine("数据库连接成功");
 }
