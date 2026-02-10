@@ -66,6 +66,12 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// 6. SignalR 配置（支持图片上传）
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 5 * 1024 * 1024; // 5MB
+});
+
 var app = builder.Build();
 
 
