@@ -37,8 +37,9 @@ public class ConversationService
                 .AsNoTracking()
                 .ToListAsync();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "获取用户对话列表失败, UserId={UserId}", userId);
             _dbAvailable = false;
             return [];
         }
@@ -58,8 +59,9 @@ public class ConversationService
                 .Include(c => c.Messages.OrderBy(m => m.CreatedAt))
                 .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "获取对话详情失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
             return null;
         }
@@ -101,14 +103,15 @@ public class ConversationService
     /// <summary>
     /// 更新对话标题
     /// </summary>
-    public async Task UpdateTitleAsync(Guid conversationId, string title)
+    public async Task UpdateTitleAsync(Guid conversationId, Guid userId, string title)
     {
         if (!_dbAvailable) return;
 
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
-            var conversation = await db.Conversations.FindAsync(conversationId);
+            var conversation = await db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
             if (conversation != null)
             {
                 conversation.Title = title;
@@ -116,8 +119,9 @@ public class ConversationService
                 await db.SaveChangesAsync();
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "更新对话标题失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
         }
     }
@@ -127,6 +131,7 @@ public class ConversationService
     /// </summary>
     public async Task<Message?> AddMessageAsync(
         Guid conversationId,
+        Guid userId,
         string role,
         string content,
         string? thinkingContent = null)
@@ -136,6 +141,17 @@ public class ConversationService
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
+
+            // 验证对话归属
+            var conversation = await db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+            if (conversation == null)
+            {
+                _logger.LogWarning("尝试向不属于自己的对话添加消息, ConversationId={ConversationId}, UserId={UserId}",
+                    conversationId, userId);
+                return null;
+            }
+
             var message = new Message
             {
                 ConversationId = conversationId,
@@ -145,23 +161,19 @@ public class ConversationService
             };
 
             db.Messages.Add(message);
+            conversation.UpdatedAt = DateTime.UtcNow;
 
-            var conversation = await db.Conversations.FindAsync(conversationId);
-            if (conversation != null)
+            if (string.IsNullOrEmpty(conversation.Title) && role == "user")
             {
-                conversation.UpdatedAt = DateTime.UtcNow;
-
-                if (string.IsNullOrEmpty(conversation.Title) && role == "user")
-                {
-                    conversation.Title = content.Length > 50 ? content[..50] + "..." : content;
-                }
+                conversation.Title = content.Length > 50 ? content[..50] + "..." : content;
             }
 
             await db.SaveChangesAsync();
             return message;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "添加消息失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
             return null;
         }
@@ -199,30 +211,30 @@ public class ConversationService
     /// <summary>
     /// 清空对话消息
     /// </summary>
-    public async Task ClearMessagesAsync(Guid conversationId)
+    public async Task ClearMessagesAsync(Guid conversationId, Guid userId)
     {
         if (!_dbAvailable) return;
 
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversation = await db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+            if (conversation == null) return;
+
             var messages = await db.Messages
                 .Where(m => m.ConversationId == conversationId)
                 .ToListAsync();
 
             db.Messages.RemoveRange(messages);
-
-            var conversation = await db.Conversations.FindAsync(conversationId);
-            if (conversation != null)
-            {
-                conversation.HistorySummary = null;
-                conversation.UpdatedAt = DateTime.UtcNow;
-            }
+            conversation.HistorySummary = null;
+            conversation.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "清空消息失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
         }
     }
@@ -230,7 +242,7 @@ public class ConversationService
     /// <summary>
     /// 获取对话的 Token 计数
     /// </summary>
-    public async Task<int> GetTokenCountAsync(Guid conversationId)
+    public async Task<int> GetTokenCountAsync(Guid conversationId, Guid userId)
     {
         if (!_dbAvailable) return 0;
 
@@ -239,11 +251,12 @@ public class ConversationService
             await using var db = await _dbFactory.CreateDbContextAsync();
             var conversation = await db.Conversations
                 .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.Id == conversationId);
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
             return conversation?.TokenCount ?? 0;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "获取 Token 计数失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
             return 0;
         }
@@ -252,14 +265,15 @@ public class ConversationService
     /// <summary>
     /// 更新对话的 Token 计数
     /// </summary>
-    public async Task UpdateTokenCountAsync(Guid conversationId, int tokenCount)
+    public async Task UpdateTokenCountAsync(Guid conversationId, Guid userId, int tokenCount)
     {
         if (!_dbAvailable) return;
 
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
-            var conversation = await db.Conversations.FindAsync(conversationId);
+            var conversation = await db.Conversations
+                .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
             if (conversation != null)
             {
                 conversation.TokenCount = tokenCount;
@@ -267,8 +281,9 @@ public class ConversationService
                 await db.SaveChangesAsync();
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "更新 Token 计数失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
         }
     }

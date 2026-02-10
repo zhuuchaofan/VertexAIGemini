@@ -134,8 +134,8 @@ public static class AuthEndpoints
 
         var email = NormalizeEmail(request.Email);
 
-        // 邮箱格式基本校验
-        if (!email.Contains('@') || !email.Contains('.'))
+        // 邮箱格式校验（正则）
+        if (!System.Text.RegularExpressions.Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
         {
             return Results.BadRequest(new AuthResponse(false, "请输入有效的邮箱地址"));
         }

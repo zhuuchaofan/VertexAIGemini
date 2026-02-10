@@ -150,7 +150,7 @@ public partial class Chat : ComponentBase
         else if (conv.Messages.Count > 0)
         {
             await Gemini.RecalculateTokenCountAsync();
-            await ConversationSvc.UpdateTokenCountAsync(conversationId, Gemini.CurrentTokenCount);
+            await ConversationSvc.UpdateTokenCountAsync(conversationId, Auth.CurrentUser.Id, Gemini.CurrentTokenCount);
         }
     }
 
@@ -195,7 +195,7 @@ public partial class Chat : ComponentBase
 
         if (_currentConversationId.HasValue)
         {
-            await ConversationSvc.AddMessageAsync(_currentConversationId.Value, "user", userMessage);
+            await ConversationSvc.AddMessageAsync(_currentConversationId.Value, Auth.CurrentUser.Id, "user", userMessage);
         }
 
         var aiMessage = new ChatMessageModel { IsUser = false, Content = "", IsStreaming = true };
@@ -245,7 +245,7 @@ public partial class Chat : ComponentBase
             if (_currentConversationId.HasValue)
             {
                 await ConversationSvc.AddMessageAsync(
-                    _currentConversationId.Value, "model", aiMessage.Content, aiMessage.ThinkingContent);
+                    _currentConversationId.Value, Auth.CurrentUser.Id, "model", aiMessage.Content, aiMessage.ThinkingContent);
             }
         }
         catch (Exception ex)
@@ -272,7 +272,7 @@ public partial class Chat : ComponentBase
             if (_currentConversationId.HasValue)
             {
                 await ConversationSvc.UpdateTokenCountAsync(
-                    _currentConversationId.Value, Gemini.CurrentTokenCount);
+                    _currentConversationId.Value, Auth.CurrentUser.Id, Gemini.CurrentTokenCount);
             }
 
             // 短暂延迟后再次刷新，确保 Token 计数已更新
@@ -375,7 +375,7 @@ public partial class Chat : ComponentBase
         {
             await JS.InvokeVoidAsync("scrollToBottom", "messages-container");
         }
-        catch { /* 忽略 JS 调用失败 */ }
+        catch (Exception) { /* JS 在预渲染阶段不可用，属预期行为 */ }
     }
 
     private void SelectPreset(string presetId)

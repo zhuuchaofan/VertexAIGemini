@@ -108,8 +108,6 @@
         }
     }
 
-
-
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
         _errorMessage = null;
@@ -150,7 +148,7 @@
         {
             await JS.InvokeVoidAsync("focusTextarea", _textareaRef);
         }
-        catch { /* 忽略 JS 调用失败 */ }
+        catch (Exception) { /* JS 在预渲染阶段不可用 */ }
     }
 
     /// <summary>
@@ -200,5 +198,3 @@
         _dotnetRef?.Dispose();
     }
 }
-
-
