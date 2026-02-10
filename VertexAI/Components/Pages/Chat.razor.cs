@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.JSInterop;
+using Microsoft.Extensions.Logging;
 using VertexAI.Components.Chat;
 using VertexAI.Services;
 
@@ -8,6 +9,8 @@ namespace VertexAI.Components.Pages;
 
 public partial class Chat : ComponentBase
 {
+    [Inject] private ILogger<Chat> Logger { get; set; } = default!;
+
     private const int MaxMessageLength = 10000;
     private readonly List<ChatMessageModel> _messages = [];
     private List<ConversationItem> _conversationItems = [];
@@ -25,6 +28,9 @@ public partial class Chat : ComponentBase
     private Guid? _deleteTargetId;
     private string _customPromptInput = "";
     private string _previewImageUrl = "";
+    private bool _showSwitchConfirm;
+    private string? _pendingSwitchPresetId;
+    private string? _pendingSwitchCustomPrompt;
     private ChatHeader? _headerRef;
     private VertexAI.Components.Chat.ChatInput? _chatInputRef;
 
@@ -244,7 +250,16 @@ public partial class Chat : ComponentBase
         }
         catch (Exception ex)
         {
-            aiMessage.Content = $"错误: {ex.Message}";
+            Logger.LogError(ex, "Chat 请求失败");
+            aiMessage.Content = ex switch
+            {
+                TaskCanceledException => "请求超时，请重试",
+                HttpRequestException => "网络连接异常，请检查网络后重试",
+                _ when ex.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) => "API 配额已用尽，请稍后再试",
+                _ when ex.Message.Contains("Unavailable", StringComparison.OrdinalIgnoreCase) => "AI 服务暂时不可用，请稍后重试",
+                _ when ex.Message.Contains("permission", StringComparison.OrdinalIgnoreCase) => "权限不足，请联系管理员",
+                _ => "服务暂时不可用，请稍后重试"
+            };
         }
         finally
         {
@@ -263,6 +278,12 @@ public partial class Chat : ComponentBase
             // 短暂延迟后再次刷新，确保 Token 计数已更新
             await Task.Delay(100);
             StateHasChanged();
+
+            // 发送完成后自动聚焦输入框
+            if (_chatInputRef is not null)
+            {
+                await _chatInputRef.FocusAsync();
+            }
         }
     }
 
@@ -350,11 +371,24 @@ public partial class Chat : ComponentBase
 
     private async Task ScrollToBottom()
     {
-        await JS.InvokeVoidAsync("eval", "document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight");
+        try
+        {
+            await JS.InvokeVoidAsync("scrollToBottom", "messages-container");
+        }
+        catch { /* 忽略 JS 调用失败 */ }
     }
 
     private void SelectPreset(string presetId)
     {
+        // 如果当前有对话内容，弹出确认框
+        if (_messages.Count > 0)
+        {
+            _pendingSwitchPresetId = presetId;
+            _pendingSwitchCustomPrompt = null;
+            _showSwitchConfirm = true;
+            return;
+        }
+
         Gemini.SetSystemPrompt(presetId);
         _messages.Clear();
         _currentConversationId = null;
@@ -371,10 +405,41 @@ public partial class Chat : ComponentBase
 
     private void ApplyCustomPrompt(string prompt)
     {
+        // 如果当前有对话内容，弹出确认框
+        if (_messages.Count > 0)
+        {
+            _pendingSwitchPresetId = "custom";
+            _pendingSwitchCustomPrompt = prompt;
+            _showSwitchConfirm = true;
+            _showCustomDialog = false;
+            return;
+        }
+
         Gemini.SetSystemPrompt("custom", prompt);
         _messages.Clear();
         _showCustomDialog = false;
         _currentConversationId = null;
+    }
+
+    private void CancelSwitchPreset()
+    {
+        _showSwitchConfirm = false;
+        _pendingSwitchPresetId = null;
+        _pendingSwitchCustomPrompt = null;
+    }
+
+    private void ConfirmSwitchPreset()
+    {
+        if (_pendingSwitchPresetId != null)
+        {
+            Gemini.SetSystemPrompt(_pendingSwitchPresetId, _pendingSwitchCustomPrompt);
+            _messages.Clear();
+            _currentConversationId = null;
+        }
+
+        _showSwitchConfirm = false;
+        _pendingSwitchPresetId = null;
+        _pendingSwitchCustomPrompt = null;
     }
 
     private async Task SelectThinkingLevel(Google.GenAI.Types.ThinkingLevel level)

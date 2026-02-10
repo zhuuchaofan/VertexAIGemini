@@ -4,17 +4,17 @@
 {
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @onclick="OnClose">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg" @onclick:stopPropagation>
-            <div class="px-6 py-4 border-b border-amber-200">
-                <h2 class="text-lg font-bold text-gray-800">自定义系统提示词</h2>
+            <div class="px-6 py-4 border-b border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800">自定义系统提示词</h2>
             </div>
             <div class="p-6">
                 <textarea @bind="PromptValue" @bind:event="oninput" rows="6" placeholder="输入自定义的 AI 人设提示词..."
-                          class="w-full bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"></textarea>
+                          class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 resize-none"></textarea>
             </div>
-            <div class="px-6 py-4 border-t border-amber-200 flex justify-end gap-3">
-                <button @onclick="OnClose" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">取消</button>
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                <button @onclick="OnClose" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">取消</button>
                 <button @onclick="Apply" disabled="@string.IsNullOrWhiteSpace(PromptValue)"
-                        class="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-lg disabled:opacity-50">
+                        class="px-4 py-2 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-medium rounded-lg disabled:opacity-50 hover:shadow-lg transition-all">
                     应用
                 </button>
             </div>

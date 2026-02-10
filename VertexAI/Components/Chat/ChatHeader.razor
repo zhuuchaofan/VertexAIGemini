@@ -65,8 +65,9 @@
         </div>
 
         <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-            @* Token 统计 - 移动端隐藏 *@
+            @* Token 统计 - 移动端紧凑显示 *@
             <span class="text-xs text-white/80 font-mono hidden sm:inline">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
+            <span class="text-xs text-white/80 font-mono sm:hidden" title="@TokenCount/@MaxTokens">@FormatTokenCount(TokenCount)</span>
             <button @onclick="OnNewChat" class="p-1.5 sm:px-3 sm:py-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-xl flex items-center gap-1.5 transition-all" title="新对话">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
