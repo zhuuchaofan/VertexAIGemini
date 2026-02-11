@@ -1,5 +1,5 @@
-using System.Net;
-using System.Net.Mail;
+using MimeKit;
+using MailKit.Net.Smtp;
 
 namespace VertexAI.Services;
 
@@ -79,23 +79,26 @@ public class EmailService
 
         try
         {
-            using var client = new SmtpClient(_settings.Host, _settings.Port)
-            {
-                Credentials = new NetworkCredential(_settings.User, _settings.Password),
-                EnableSsl = true,
-                Timeout = 10000
-            };
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_settings.FromName, _settings.User));
+            message.To.Add(new MailboxAddress("", toEmail));
+            message.Subject = subject;
 
-            var message = new MailMessage
+            var bodyBuilder = new BodyBuilder
             {
-                From = new MailAddress(_settings.User, _settings.FromName),
-                Subject = subject,
-                Body = htmlBody,
-                IsBodyHtml = true
+                HtmlBody = htmlBody
             };
-            message.To.Add(toEmail);
+            message.Body = bodyBuilder.ToMessageBody();
 
-            await client.SendMailAsync(message);
+            using var client = new MailKit.Net.Smtp.SmtpClient();
+            // 接受所有 SSL 证书（开发环境便利，生产环境建议配置更严格的验证）
+            client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
+            await client.ConnectAsync(_settings.Host, _settings.Port, MailKit.Security.SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(_settings.User, _settings.Password);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+
             _logger.LogInformation("[Email] 邮件已发送到 {Email}", toEmail);
             return true;
         }
