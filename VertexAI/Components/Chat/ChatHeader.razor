@@ -63,6 +63,28 @@
                     </div>
                 }
             </div>
+
+            @* 导出按钮 *@
+            <div class="relative flex-shrink-0 ml-1">
+                <button @onclick="ToggleExportMenu"
+                        class="p-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-lg transition-all"
+                        title="导出对话">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </button>
+                @if (_showExportMenu)
+                {
+                    <div class="absolute top-full right-0 mt-2 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-100 z-50 py-1 overflow-hidden">
+                        <button @onclick="@(() => SelectExport("markdown"))" class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
+                            <span class="font-medium">导出 Markdown</span>
+                        </button>
+                        <button @onclick="@(() => SelectExport("json"))" class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
+                            <span class="font-medium">导出 JSON</span>
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
 
         <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -118,9 +140,11 @@
     [Parameter] public EventCallback OnShowCustomPrompt { get; set; }
     [Parameter] public EventCallback<ThinkingLevel> OnSelectThinkingLevel { get; set; }
     [Parameter] public EventCallback OnNewChat { get; set; }
+    [Parameter] public EventCallback<string> OnExport { get; set; }
 
     private bool _showPresetMenu;
     private bool _showThinkingMenu;
+    private bool _showExportMenu;
     private bool _dismissedVerifyBanner;
     private bool _resendingEmail;
     private string? _resendMessage;
@@ -133,8 +157,9 @@
         ("高级思考", ThinkingLevel.HIGH)
     ];
 
-    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showThinkingMenu = false; }
-    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showPresetMenu = false; }
+    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showThinkingMenu = false; _showExportMenu = false; }
+    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showPresetMenu = false; _showExportMenu = false; }
+    private void ToggleExportMenu() { _showExportMenu = !_showExportMenu; _showPresetMenu = false; _showThinkingMenu = false; }
 
     private void SelectPreset(string presetId)
     {
@@ -148,10 +173,16 @@
         _showThinkingMenu = false;
     }
 
+    private void SelectExport(string format)
+    {
+        OnExport.InvokeAsync(format);
+        _showExportMenu = false;
+    }
+
     private string GetThinkingLevelName() => ThinkingLevels.FirstOrDefault(l => l.Value == CurrentThinkingLevel).Name ?? "中级思考";
     private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
 
-    public void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; }
+    public void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
 
     private record ResendResult(bool Success, string? Error);
 

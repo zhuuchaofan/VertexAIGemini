@@ -455,6 +455,25 @@ public partial class Chat : ComponentBase
 
     private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
 
+    private async Task ExportConversation(string format)
+    {
+        if (_currentConversationId == null || _currentConversationId == Guid.Empty)
+        {
+            // 对于未保存的新对话，暂时不支持导出
+            return;
+        }
+
+        try
+        {
+            var url = $"/api/export/{_currentConversationId}/{format}";
+            await JS.InvokeVoidAsync("downloadFile", url, null);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "导出对话失败");
+        }
+    }
+
     private void ShowImagePreview(string imageUrl)
     {
         _previewImageUrl = imageUrl;

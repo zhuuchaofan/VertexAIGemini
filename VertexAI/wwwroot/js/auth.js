@@ -92,3 +92,16 @@ window.simpleFetch = async function (endpoint, body) {
     };
   }
 };
+
+// 文件下载辅助函数
+window.downloadFile = (url, fileName) => {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  if (fileName) {
+    anchor.download = fileName;
+  }
+  anchor.target = "_blank";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+};

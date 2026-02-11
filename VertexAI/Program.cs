@@ -132,7 +132,14 @@ else
 {
     app.UseExceptionHandler("/Error");
     app.UseHsts();
-    app.UseHttpsRedirection();
+
+    // 仅当配置了 HTTPS 端口时才启用重定向（避免 Docker 纯 HTTP 环境下阻断 API）
+    var httpsPort = builder.Configuration["HTTPS_PORT"]
+        ?? Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORT");
+    if (!string.IsNullOrEmpty(httpsPort))
+    {
+        app.UseHttpsRedirection();
+    }
 }
 
 app.UseStaticFiles();
@@ -140,6 +147,7 @@ app.UseAntiforgery();
 
 // 8. 认证 API 端点
 app.MapAuthEndpoints();
+app.MapExportEndpoints();
 
 // 9. 配置 Blazor 路由
 app.MapRazorComponents<App>()
