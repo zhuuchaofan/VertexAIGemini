@@ -35,6 +35,19 @@ public class User
     [Column("verification_token")]
     public string? VerificationToken { get; set; }
 
+    /// <summary>
+    /// 密码重置 Token（有效期 1 小时）
+    /// </summary>
+    [MaxLength(64)]
+    [Column("password_reset_token")]
+    public string? PasswordResetToken { get; set; }
+
+    /// <summary>
+    /// 密码重置 Token 过期时间
+    /// </summary>
+    [Column("password_reset_expires_at")]
+    public DateTime? PasswordResetExpiresAt { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

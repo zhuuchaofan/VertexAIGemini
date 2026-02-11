@@ -52,3 +52,43 @@ window.authLogout = async function () {
     return false;
   }
 };
+
+// 通用 POST 请求（用于密码重置等非登录表单）
+window.simpleFetch = async function (endpoint, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    const data = await response.json();
+    return {
+      success: data.success === true,
+      error: data.error || null,
+    };
+  } catch (error) {
+    clearTimeout(timeout);
+
+    if (error.name === "AbortError") {
+      return {
+        success: false,
+        error: "请求超时，请检查网络后重试",
+      };
+    }
+
+    return {
+      success: false,
+      error: "网络连接失败，请稍后重试",
+    };
+  }
+};

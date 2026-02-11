@@ -36,6 +36,9 @@ public static class AuthEndpoints
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/logout", LogoutAsync);
         group.MapGet("/status", GetStatusAsync);
+        group.MapPost("/forgot-password", ForgotPasswordAsync);
+        group.MapPost("/reset-password", ResetPasswordAsync);
+        group.MapPost("/verify-email", VerifyEmailAsync);
     }
 
     /// <summary>
@@ -99,7 +102,7 @@ public static class AuthEndpoints
         httpContext.Response.Cookies.Append(SessionCookieName, token, CookieOptions);
 
         ResetRateLimit(clientIp);
-        return Results.Ok(new AuthResponse(true, null, new UserInfo(user.Id, user.Email)));
+        return Results.Ok(new AuthResponse(true, null, new UserInfo(user.Id, user.Email, user.EmailVerified)));
     }
 
     /// <summary>
@@ -174,7 +177,7 @@ public static class AuthEndpoints
         httpContext.Response.Cookies.Append(SessionCookieName, token, CookieOptions);
 
         ResetRateLimit(clientIp);
-        return Results.Ok(new AuthResponse(true, null, new UserInfo(user.Id, user.Email)));
+        return Results.Ok(new AuthResponse(true, null, new UserInfo(user.Id, user.Email, user.EmailVerified)));
     }
 
     /// <summary>
@@ -227,7 +230,145 @@ public static class AuthEndpoints
             return Results.Ok(new AuthResponse(false, null));
         }
 
-        return Results.Ok(new AuthResponse(true, null, new UserInfo(session.User.Id, session.User.Email)));
+        return Results.Ok(new AuthResponse(true, null, new UserInfo(session.User.Id, session.User.Email, session.User.EmailVerified)));
+    }
+
+    // ──────────────────────────────────────────────
+    // 密码重置 & 邮箱验证
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// 忘记密码 - 生成重置 Token（有效期 1 小时）
+    /// </summary>
+    private static async Task<IResult> ForgotPasswordAsync(
+        ForgotPasswordRequest request,
+        IDbContextFactory<AppDbContext> dbFactory,
+        HttpContext httpContext,
+        ILoggerFactory loggerFactory)
+    {
+        var logger = loggerFactory.CreateLogger("AuthEndpoints");
+        var clientIp = GetClientIp(httpContext);
+        if (IsRateLimited(clientIp))
+        {
+            return Results.Json(
+                new AuthResponse(false, "操作过于频繁，请稍后再试"),
+                statusCode: 429);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return Results.BadRequest(new AuthResponse(false, "请输入邮箱地址"));
+        }
+
+        var email = NormalizeEmail(request.Email);
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+        // 无论用户是否存在，都返回相同消息（防止邮箱枚举攻击）
+        if (user != null)
+        {
+            user.PasswordResetToken = GenerateSecureToken();
+            user.PasswordResetExpiresAt = DateTime.UtcNow.AddHours(1);
+            await db.SaveChangesAsync();
+
+            // 开发环境：在日志中输出 Token，方便调试
+            logger.LogInformation(
+                "[DEV] 密码重置 Token 已生成, Email={Email}, Token={Token}",
+                email, user.PasswordResetToken);
+        }
+
+        RecordFailedAttempt(clientIp);
+        return Results.Ok(new AuthResponse(true, "如果该邮箱已注册，重置链接将发送到您的邮箱"));
+    }
+
+    /// <summary>
+    /// 重置密码 - 验证 Token 后更新密码
+    /// </summary>
+    private static async Task<IResult> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        IDbContextFactory<AppDbContext> dbFactory,
+        HttpContext httpContext)
+    {
+        var clientIp = GetClientIp(httpContext);
+        if (IsRateLimited(clientIp))
+        {
+            return Results.Json(
+                new AuthResponse(false, "操作过于频繁，请稍后再试"),
+                statusCode: 429);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return Results.BadRequest(new AuthResponse(false, "Token 和新密码不能为空"));
+        }
+
+        var passwordError = ValidatePasswordStrength(request.NewPassword);
+        if (passwordError != null)
+        {
+            return Results.BadRequest(new AuthResponse(false, passwordError));
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var user = await db.Users.FirstOrDefaultAsync(u =>
+            u.PasswordResetToken == request.Token &&
+            u.PasswordResetExpiresAt > DateTime.UtcNow);
+
+        if (user == null)
+        {
+            RecordFailedAttempt(clientIp);
+            return Results.BadRequest(new AuthResponse(false, "重置链接无效或已过期"));
+        }
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.PasswordResetToken = null;
+        user.PasswordResetExpiresAt = null;
+
+        // 使该用户所有现有 Session 失效（安全起见）
+        var sessions = await db.Sessions.Where(s => s.UserId == user.Id).ToListAsync();
+        db.Sessions.RemoveRange(sessions);
+
+        await db.SaveChangesAsync();
+
+        ResetRateLimit(clientIp);
+        return Results.Ok(new AuthResponse(true, "密码重置成功，请使用新密码登录"));
+    }
+
+    /// <summary>
+    /// 邮箱验证 - 验证 Token 后标记邮箱已验证
+    /// </summary>
+    private static async Task<IResult> VerifyEmailAsync(
+        VerifyEmailRequest request,
+        IDbContextFactory<AppDbContext> dbFactory,
+        HttpContext httpContext)
+    {
+        var clientIp = GetClientIp(httpContext);
+        if (IsRateLimited(clientIp))
+        {
+            return Results.Json(
+                new AuthResponse(false, "操作过于频繁，请稍后再试"),
+                statusCode: 429);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            return Results.BadRequest(new AuthResponse(false, "验证 Token 不能为空"));
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.VerificationToken == request.Token);
+
+        if (user == null)
+        {
+            RecordFailedAttempt(clientIp);
+            return Results.BadRequest(new AuthResponse(false, "验证链接无效"));
+        }
+
+        user.EmailVerified = true;
+        user.VerificationToken = null;
+        await db.SaveChangesAsync();
+
+        ResetRateLimit(clientIp);
+        return Results.Ok(new AuthResponse(true, "邮箱验证成功"));
     }
 
     // ──────────────────────────────────────────────
@@ -347,4 +488,7 @@ internal class RateLimitEntry
 // DTOs
 public record AuthRequest(string Email, string Password);
 public record AuthResponse(bool Success, string? Error, UserInfo? User = null);
-public record UserInfo(Guid Id, string Email);
+public record UserInfo(Guid Id, string Email, bool EmailVerified = false);
+public record ForgotPasswordRequest(string Email);
+public record ResetPasswordRequest(string Token, string NewPassword);
+public record VerifyEmailRequest(string Token);

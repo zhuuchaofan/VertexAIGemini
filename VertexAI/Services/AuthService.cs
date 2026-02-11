@@ -85,6 +85,7 @@ public class AuthService
         {
             Id = userInfo.Id,
             Email = userInfo.Email,
+            EmailVerified = userInfo.EmailVerified,
             IsAuthenticated = true
         };
         OnAuthStateChanged?.Invoke();
@@ -114,6 +115,7 @@ public class AuthService
         {
             Id = user.Id,
             Email = user.Email,
+            EmailVerified = user.EmailVerified,
             IsAuthenticated = true
         };
         OnAuthStateChanged?.Invoke();
@@ -127,5 +129,6 @@ public class CurrentUser
 {
     public Guid Id { get; set; }
     public string Email { get; set; } = "";
+    public bool EmailVerified { get; set; }
     public bool IsAuthenticated { get; set; }
 }

@@ -78,6 +78,23 @@
     </div>
 </header>
 
+@if (!EmailVerified && !_dismissedVerifyBanner)
+{
+    <div class="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-3 py-2 flex items-center justify-between gap-2 text-xs text-amber-700">
+        <div class="flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+            <span>您的邮箱尚未验证，部分功能可能受限</span>
+        </div>
+        <button @onclick="() => _dismissedVerifyBanner = true" class="p-0.5 hover:bg-amber-200/50 rounded transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+    </div>
+}
+
 
 @code {
     [Parameter] public string CurrentPresetId { get; set; } = "default";
@@ -86,6 +103,7 @@
     [Parameter] public ThinkingLevel CurrentThinkingLevel { get; set; }
     [Parameter] public int TokenCount { get; set; }
     [Parameter] public int MaxTokens { get; set; }
+    [Parameter] public bool EmailVerified { get; set; }
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
     [Parameter] public EventCallback<string> OnSelectPreset { get; set; }
     [Parameter] public EventCallback OnShowCustomPrompt { get; set; }
@@ -94,6 +112,7 @@
 
     private bool _showPresetMenu;
     private bool _showThinkingMenu;
+    private bool _dismissedVerifyBanner;
 
     private static readonly (string Name, ThinkingLevel Value)[] ThinkingLevels =
     [

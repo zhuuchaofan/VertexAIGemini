@@ -92,6 +92,10 @@ try
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(64)");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ");
     }
     catch (Exception ex)
     {
@@ -119,6 +123,7 @@ else
 {
     app.UseExceptionHandler("/Error");
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
 
 app.UseStaticFiles();

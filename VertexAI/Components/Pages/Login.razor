@@ -9,7 +9,7 @@
         <div class="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl p-6 sm:p-8 border border-white/50">
             <div class="text-center mb-8">
                 <h1 class="text-3xl font-bold bg-gradient-to-r from-sky-500 to-emerald-500 bg-clip-text text-transparent">Gemini Chat</h1>
-                <p class="text-slate-500 mt-2">@(_isLogin ? "登录您的账户" : "创建新账户")</p>
+                <p class="text-slate-500 mt-2">@ViewTitle</p>
             </div>
 
             @if (!string.IsNullOrEmpty(_error))
@@ -32,79 +32,190 @@
                 </div>
             }
 
-            <form @onsubmit="HandleSubmit" class="space-y-5">
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1.5">邮箱</label>
-                    <input type="email"
-                           @bind="_email"
-                           required
-                           placeholder="your@email.com"
-                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
-                </div>
+            @* ── 登录 / 注册 表单 ── *@
+            @if (_viewMode is ViewMode.Login or ViewMode.Register)
+            {
+                <form @onsubmit="HandleSubmit" class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">邮箱</label>
+                        <input type="email"
+                               @bind="_email"
+                               required
+                               placeholder="your@email.com"
+                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
+                    </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1.5">密码</label>
-                    <div class="relative">
-                        <input type="@(_showPassword ? "text" : "password")"
-                               @bind="_password"
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">密码</label>
+                        <div class="relative">
+                            <input type="@(_showPassword ? "text" : "password")"
+                                   @bind="_password"
+                                   required
+                                   minlength="6"
+                                   placeholder="@(_viewMode == ViewMode.Login ? "输入密码" : "至少 6 个字符，需包含字母和数字")"
+                                   class="w-full px-4 py-3 pr-12 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
+                            <button type="button"
+                                    @onclick="() => _showPassword = !_showPassword"
+                                    class="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                                    tabindex="-1"
+                                    title="@(_showPassword ? "隐藏密码" : "显示密码")">
+                                @if (_showPassword)
+                                {
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                    </svg>
+                                }
+                            </button>
+                        </div>
+                        @if (_viewMode == ViewMode.Register && _password.Length > 0)
+                        {
+                            <p class="mt-1.5 text-xs @(_password.Length >= 6 ? "text-emerald-500" : "text-slate-400")">
+                                @_password.Length/6 字符最低要求
+                            </p>
+                        }
+                    </div>
+
+                    <button type="submit"
+                            disabled="@_isLoading"
+                            class="w-full py-3.5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-sky-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center justify-center gap-2">
+                        @if (_isLoading)
+                        {
+                            <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>处理中...</span>
+                        }
+                        else
+                        {
+                            <span>@(_viewMode == ViewMode.Login ? "登录" : "注册")</span>
+                        }
+                    </button>
+                </form>
+
+                <div class="mt-5 flex items-center justify-between text-sm">
+                    <button @onclick="ToggleMode"
+                            class="text-sky-600 hover:text-sky-700 font-medium transition-colors">
+                        @(_viewMode == ViewMode.Login ? "没有账户？立即注册" : "已有账户？立即登录")
+                    </button>
+                    @if (_viewMode == ViewMode.Login)
+                    {
+                        <button @onclick="() => SwitchView(ViewMode.ForgotPassword)"
+                                class="text-slate-400 hover:text-slate-600 transition-colors">
+                            忘记密码？
+                        </button>
+                    }
+                </div>
+            }
+
+            @* ── 忘记密码 表单 ── *@
+            @if (_viewMode == ViewMode.ForgotPassword)
+            {
+                <form @onsubmit="HandleForgotPassword" class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">注册邮箱</label>
+                        <input type="email"
+                               @bind="_email"
+                               required
+                               placeholder="your@email.com"
+                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
+                    </div>
+
+                    <button type="submit"
+                            disabled="@_isLoading"
+                            class="w-full py-3.5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-sky-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center justify-center gap-2">
+                        @if (_isLoading)
+                        {
+                            <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>发送中...</span>
+                        }
+                        else
+                        {
+                            <span>发送重置链接</span>
+                        }
+                    </button>
+                </form>
+
+                <div class="mt-5 flex items-center justify-between text-sm">
+                    <button @onclick="() => SwitchView(ViewMode.Login)"
+                            class="text-sky-600 hover:text-sky-700 font-medium transition-colors">
+                        返回登录
+                    </button>
+                    <button @onclick="() => SwitchView(ViewMode.ResetPassword)"
+                            class="text-slate-400 hover:text-slate-600 transition-colors">
+                        已有重置码？
+                    </button>
+                </div>
+            }
+
+            @* ── 重置密码 表单 ── *@
+            @if (_viewMode == ViewMode.ResetPassword)
+            {
+                <form @onsubmit="HandleResetPassword" class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">重置码</label>
+                        <input type="text"
+                               @bind="_resetToken"
+                               required
+                               placeholder="粘贴您收到的重置码"
+                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all font-mono text-sm" />
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">新密码</label>
+                        <input type="password"
+                               @bind="_newPassword"
                                required
                                minlength="6"
-                               placeholder="@(_isLogin ? "输入密码" : "至少 6 个字符，需包含字母和数字")"
-                               class="w-full px-4 py-3 pr-12 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
-                        <button type="button"
-                                @onclick="() => _showPassword = !_showPassword"
-                                class="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
-                                tabindex="-1"
-                                title="@(_showPassword ? "隐藏密码" : "显示密码")">
-                            @if (_showPassword)
-                            {
-                                @* 眼睛关闭图标 *@
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/>
-                                </svg>
-                            }
-                            else
-                            {
-                                @* 眼睛打开图标 *@
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                </svg>
-                            }
-                        </button>
+                               placeholder="至少 6 个字符，需包含字母和数字"
+                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
                     </div>
-                    @if (!_isLogin && _password.Length > 0)
-                    {
-                        <p class="mt-1.5 text-xs @(_password.Length >= 6 ? "text-emerald-500" : "text-slate-400")">
-                            @_password.Length/6 字符最低要求
-                        </p>
-                    }
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">确认新密码</label>
+                        <input type="password"
+                               @bind="_confirmPassword"
+                               required
+                               minlength="6"
+                               placeholder="再次输入新密码"
+                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300 text-slate-700 transition-all" />
+                    </div>
+
+                    <button type="submit"
+                            disabled="@_isLoading"
+                            class="w-full py-3.5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-sky-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center justify-center gap-2">
+                        @if (_isLoading)
+                        {
+                            <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>重置中...</span>
+                        }
+                        else
+                        {
+                            <span>重置密码</span>
+                        }
+                    </button>
+                </form>
+
+                <div class="mt-5">
+                    <button @onclick="() => SwitchView(ViewMode.Login)"
+                            class="text-sky-600 hover:text-sky-700 text-sm font-medium transition-colors">
+                        返回登录
+                    </button>
                 </div>
-
-                <button type="submit"
-                        disabled="@_isLoading"
-                        class="w-full py-3.5 bg-gradient-to-r from-sky-400 to-emerald-400 text-white font-bold rounded-2xl hover:shadow-lg hover:shadow-sky-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center justify-center gap-2">
-                    @if (_isLoading)
-                    {
-                        <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>处理中...</span>
-                    }
-                    else
-                    {
-                        <span>@(_isLogin ? "登录" : "注册")</span>
-                    }
-                </button>
-            </form>
-
-            <div class="mt-6 text-center">
-                <button @onclick="ToggleMode"
-                        class="text-sky-600 hover:text-sky-700 text-sm font-medium transition-colors">
-                    @(_isLogin ? "没有账户？立即注册" : "已有账户？立即登录")
-                </button>
-            </div>
+            }
         </div>
 
         <p class="mt-6 text-center text-slate-400 text-sm">
@@ -127,19 +238,32 @@
 </style>
 
 @code {
+    private enum ViewMode { Login, Register, ForgotPassword, ResetPassword }
+
     private string _email = "";
     private string _password = "";
-    private bool _isLogin = true;
+    private string _resetToken = "";
+    private string _newPassword = "";
+    private string _confirmPassword = "";
+    private ViewMode _viewMode = ViewMode.Login;
     private bool _isLoading;
     private bool _showPassword;
     private string? _error;
     private string? _success;
 
+    private string ViewTitle => _viewMode switch
+    {
+        ViewMode.Login => "登录您的账户",
+        ViewMode.Register => "创建新账户",
+        ViewMode.ForgotPassword => "重置密码",
+        ViewMode.ResetPassword => "设置新密码",
+        _ => ""
+    };
+
     protected override async Task OnInitializedAsync()
     {
         await Auth.InitializeAsync();
 
-        // 如果已登录，跳转到聊天页面
         if (Auth.IsAuthenticated)
         {
             Navigation.NavigateTo("/");
@@ -151,14 +275,12 @@
         _error = null;
         _success = null;
 
-        // 客户端验证
         if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
         {
             _error = "邮箱和密码不能为空";
             return;
         }
 
-        // 邮箱格式验证
         if (!System.Text.RegularExpressions.Regex.IsMatch(_email.Trim(),
             @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
         {
@@ -166,7 +288,6 @@
             return;
         }
 
-        // 密码长度验证
         if (_password.Length < 6)
         {
             _error = "密码长度至少需要 6 个字符";
@@ -184,21 +305,17 @@
 
         try
         {
-            var endpoint = _isLogin ? "/api/auth/login" : "/api/auth/register";
-
-            // 使用 JS fetch 让浏览器处理 Cookie（Blazor Server 的 HttpClient 在服务器端运行，无法设置浏览器 Cookie）
+            var endpoint = _viewMode == ViewMode.Login ? "/api/auth/login" : "/api/auth/register";
             var result = await JS.InvokeAsync<AuthResult>("window.authFetch", endpoint, _email, _password);
 
             if (result.Success)
             {
-                if (_isLogin)
+                if (_viewMode == ViewMode.Login)
                 {
-                    // 登录：直接跳转
                     Navigation.NavigateTo("/", forceLoad: true);
                 }
                 else
                 {
-                    // 注册：显示成功消息后延迟跳转
                     _success = "注册成功，正在跳转...";
                     _isLoading = false;
                     StateHasChanged();
@@ -227,14 +344,128 @@
         }
     }
 
+    private async Task HandleForgotPassword()
+    {
+        _error = null;
+        _success = null;
+
+        if (string.IsNullOrWhiteSpace(_email))
+        {
+            _error = "请输入注册邮箱";
+            return;
+        }
+
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await JS.InvokeAsync<AuthResult>(
+                "window.simpleFetch", "/api/auth/forgot-password",
+                new { email = _email.Trim() });
+
+            if (result.Success)
+            {
+                _success = result.Error ?? "如果该邮箱已注册，重置链接将发送到您的邮箱";
+            }
+            else
+            {
+                _error = result.Error ?? "操作失败，请重试";
+            }
+        }
+        catch
+        {
+            _error = "网络错误，请稍后重试";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task HandleResetPassword()
+    {
+        _error = null;
+        _success = null;
+
+        if (string.IsNullOrWhiteSpace(_resetToken))
+        {
+            _error = "请输入重置码";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _error = "请输入新密码";
+            return;
+        }
+
+        if (_newPassword != _confirmPassword)
+        {
+            _error = "两次输入的密码不一致";
+            return;
+        }
+
+        if (_newPassword.Length < 6)
+        {
+            _error = "密码长度至少需要 6 个字符";
+            return;
+        }
+
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await JS.InvokeAsync<AuthResult>(
+                "window.simpleFetch", "/api/auth/reset-password",
+                new { token = _resetToken.Trim(), newPassword = _newPassword });
+
+            if (result.Success)
+            {
+                _success = "密码重置成功，请使用新密码登录";
+                _isLoading = false;
+                StateHasChanged();
+                await Task.Delay(1500);
+                SwitchView(ViewMode.Login);
+            }
+            else
+            {
+                _error = result.Error ?? "重置失败，请重试";
+            }
+        }
+        catch
+        {
+            _error = "网络错误，请稍后重试";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
     private void ToggleMode()
     {
-        _isLogin = !_isLogin;
+        _viewMode = _viewMode == ViewMode.Login ? ViewMode.Register : ViewMode.Login;
+        ClearState();
+    }
+
+    private void SwitchView(ViewMode mode)
+    {
+        _viewMode = mode;
+        ClearState();
+    }
+
+    private void ClearState()
+    {
         _error = null;
         _success = null;
         _showPassword = false;
+        _resetToken = "";
+        _newPassword = "";
+        _confirmPassword = "";
     }
 
-    // DTO for JS interop result
     private record AuthResult(bool Success, string? Error);
 }
+
