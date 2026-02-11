@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
+using VertexAI.Services;
 
 namespace VertexAI.Api;
 
@@ -39,6 +40,7 @@ public static class AuthEndpoints
         group.MapPost("/forgot-password", ForgotPasswordAsync);
         group.MapPost("/reset-password", ResetPasswordAsync);
         group.MapPost("/verify-email", VerifyEmailAsync);
+        group.MapPost("/resend-verification", ResendVerificationAsync);
     }
 
     /// <summary>
@@ -111,7 +113,8 @@ public static class AuthEndpoints
     private static async Task<IResult> RegisterAsync(
         AuthRequest request,
         IDbContextFactory<AppDbContext> dbFactory,
-        HttpContext httpContext)
+        HttpContext httpContext,
+        EmailService emailService)
     {
         var clientIp = GetClientIp(httpContext);
 
@@ -177,6 +180,14 @@ public static class AuthEndpoints
         httpContext.Response.Cookies.Append(SessionCookieName, token, CookieOptions);
 
         ResetRateLimit(clientIp);
+
+        // 异步发送验证邮件（不阻塞注册流程）
+        _ = Task.Run(async () =>
+        {
+            try { await emailService.SendVerificationEmailAsync(user.Email, user.VerificationToken!); }
+            catch { /* 日志已在 EmailService 内部记录 */ }
+        });
+
         return Results.Ok(new AuthResponse(true, null, new UserInfo(user.Id, user.Email, user.EmailVerified)));
     }
 
@@ -244,6 +255,7 @@ public static class AuthEndpoints
         ForgotPasswordRequest request,
         IDbContextFactory<AppDbContext> dbFactory,
         HttpContext httpContext,
+        EmailService emailService,
         ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("AuthEndpoints");
@@ -271,10 +283,14 @@ public static class AuthEndpoints
             user.PasswordResetExpiresAt = DateTime.UtcNow.AddHours(1);
             await db.SaveChangesAsync();
 
-            // 开发环境：在日志中输出 Token，方便调试
-            logger.LogInformation(
-                "[DEV] 密码重置 Token 已生成, Email={Email}, Token={Token}",
-                email, user.PasswordResetToken);
+            logger.LogInformation("密码重置 Token 已生成, Email={Email}", email);
+
+            // 异步发送重置邮件
+            _ = Task.Run(async () =>
+            {
+                try { await emailService.SendPasswordResetEmailAsync(user.Email, user.PasswordResetToken!); }
+                catch { /* 日志已在 EmailService 内部记录 */ }
+            });
         }
 
         RecordFailedAttempt(clientIp);
@@ -369,6 +385,61 @@ public static class AuthEndpoints
 
         ResetRateLimit(clientIp);
         return Results.Ok(new AuthResponse(true, "邮箱验证成功"));
+    }
+
+    /// <summary>
+    /// 重发验证邮件 - 为当前登录用户重新生成并发送验证邮件
+    /// </summary>
+    private static async Task<IResult> ResendVerificationAsync(
+        IDbContextFactory<AppDbContext> dbFactory,
+        HttpContext httpContext,
+        EmailService emailService)
+    {
+        var clientIp = GetClientIp(httpContext);
+        if (IsRateLimited(clientIp))
+        {
+            return Results.Json(
+                new AuthResponse(false, "操作过于频繁，请稍后再试"),
+                statusCode: 429);
+        }
+
+        // 通过 Cookie 获取当前用户
+        var sessionToken = httpContext.Request.Cookies[SessionCookieName];
+        if (string.IsNullOrEmpty(sessionToken))
+        {
+            return Results.Unauthorized();
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var session = await db.Sessions
+            .Include(s => s.User)
+            .FirstOrDefaultAsync(s => s.Token == sessionToken && s.ExpiresAt > DateTime.UtcNow);
+
+        if (session?.User == null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (session.User.EmailVerified)
+        {
+            return Results.Ok(new AuthResponse(true, "邮箱已验证，无需重复操作"));
+        }
+
+        // 生成新 Token
+        session.User.VerificationToken = GenerateSecureToken();
+        await db.SaveChangesAsync();
+
+        // 异步发送验证邮件
+        var email = session.User.Email;
+        var token = session.User.VerificationToken;
+        _ = Task.Run(async () =>
+        {
+            try { await emailService.SendVerificationEmailAsync(email, token); }
+            catch { /* 日志已在 EmailService 内部记录 */ }
+        });
+
+        RecordFailedAttempt(clientIp);
+        return Results.Ok(new AuthResponse(true, "验证邮件已发送，请查收"));
     }
 
     // ──────────────────────────────────────────────

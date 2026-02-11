@@ -55,6 +55,15 @@ builder.Services.AddScoped<ConversationService>();  // 对话持久化
 builder.Services.AddSingleton<MarkdownService>();   // Markdown 渲染
 builder.Services.AddScoped<ImageService>();         // 图片处理
 
+// 4.5 邮件服务 (Gmail SMTP)
+var smtpSettings = builder.Configuration.GetSection("Smtp").Get<SmtpSettings>() ?? new SmtpSettings();
+// 环境变量优先覆盖
+smtpSettings.User = Environment.GetEnvironmentVariable("SMTP_USER") ?? smtpSettings.User;
+smtpSettings.Password = Environment.GetEnvironmentVariable("SMTP_PASSWORD") ?? smtpSettings.Password;
+smtpSettings.BaseUrl = Environment.GetEnvironmentVariable("APP_BASE_URL") ?? smtpSettings.BaseUrl;
+builder.Services.AddSingleton(smtpSettings);
+builder.Services.AddSingleton<EmailService>();
+
 // 5. HttpClient（用于 Blazor 组件调用 API）
 builder.Services.AddScoped(sp =>
 {

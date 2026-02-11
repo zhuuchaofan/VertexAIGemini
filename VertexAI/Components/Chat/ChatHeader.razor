@@ -1,5 +1,6 @@
 @* 顶部栏组件 - 预设/思考选择器 *@
 @using Google.GenAI.Types
+@inject IJSRuntime JS
 
 <header class="flex-shrink-0 bg-gradient-to-r from-sky-400 to-emerald-400 px-2 sm:px-4 py-2 sm:py-3 shadow-lg safe-area-top">
     <div class="flex items-center justify-between gap-1 sm:gap-2">
@@ -85,7 +86,15 @@
             <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
             </svg>
-            <span>您的邮箱尚未验证，部分功能可能受限</span>
+            <span>@(_resendMessage ?? "您的邮箱尚未验证")</span>
+            @if (!_resendingEmail)
+            {
+                <button @onclick="ResendVerification" class="ml-1 underline hover:text-amber-900 font-medium transition-colors">重新发送</button>
+            }
+            else
+            {
+                <span class="ml-1 text-amber-500">发送中...</span>
+            }
         </div>
         <button @onclick="() => _dismissedVerifyBanner = true" class="p-0.5 hover:bg-amber-200/50 rounded transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,6 +122,8 @@
     private bool _showPresetMenu;
     private bool _showThinkingMenu;
     private bool _dismissedVerifyBanner;
+    private bool _resendingEmail;
+    private string? _resendMessage;
 
     private static readonly (string Name, ThinkingLevel Value)[] ThinkingLevels =
     [
@@ -141,5 +152,28 @@
     private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
 
     public void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; }
+
+    private record ResendResult(bool Success, string? Error);
+
+    private async Task ResendVerification()
+    {
+        _resendingEmail = true;
+        _resendMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await JS.InvokeAsync<ResendResult>(
+                "simpleFetch", "/api/auth/resend-verification", new { });
+            _resendMessage = result?.Success == true ? "验证邮件已发送，请查收" : (result?.Error ?? "发送失败");
+        }
+        catch
+        {
+            _resendMessage = "网络错误，请稍后重试";
+        }
+
+        _resendingEmail = false;
+        StateHasChanged();
+    }
 }
 
