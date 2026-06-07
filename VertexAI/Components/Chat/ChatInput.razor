@@ -29,7 +29,7 @@
                           rows="1"
                           placeholder="输入消息，Enter 发送，Shift + Enter 换行"
                           disabled="@IsLoading"
-                          class="w-full bg-transparent px-2 py-2 text-slate-800 text-sm focus:outline-none resize-none min-h-[36px] max-h-[200px] transition-all leading-relaxed"
+                          class="w-full bg-transparent px-2 py-2 text-slate-800 text-sm focus:outline-none resize-none min-h-[36px] max-h-[200px] transition-all leading-5"
                           style="field-sizing: content;" />
             </div>
             <button type="button" @onclick="OnSend" disabled="@(CannotSend || IsLoading)"
