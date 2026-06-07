@@ -7,7 +7,7 @@
         @* 图片预览区域 *@
         <ImagePreview Images="PendingImages" OnRemove="HandleRemoveImage" />
 
-        <div class="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl p-1.5 focus-within:ring-2 focus-within:ring-slate-300 focus-within:border-slate-400 focus-within:bg-white transition-all shadow-sm">
+        <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl p-1.5 focus-within:ring-2 focus-within:ring-slate-300 focus-within:border-slate-400 focus-within:bg-white transition-all shadow-sm">
             @* 上传按钮 - 使用 label + for 实现 iOS 兼容 *@
             <InputFile id="chat-file-upload"
                        OnChange="HandleFileSelected"
