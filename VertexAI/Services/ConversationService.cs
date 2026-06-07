@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
+using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
@@ -9,7 +10,7 @@ namespace VertexAI.Services;
 /// 对话服务 - 管理用户对话和消息的持久化
 /// 使用 IDbContextFactory 避免 Blazor Server 中的并发问题
 /// </summary>
-public class ConversationService
+public class ConversationService : IConversationStore
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly ILogger<ConversationService> _logger;

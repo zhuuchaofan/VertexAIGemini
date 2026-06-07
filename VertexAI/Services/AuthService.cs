@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
-using VertexAI.Api;
+using VertexAI.Services.Auth;
 
 namespace VertexAI.Services;
 
@@ -14,9 +14,9 @@ public class AuthService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IAuthCookieService _cookies;
     private readonly ILogger<AuthService> _logger;
     private CurrentUser _currentUser = new();
-    private const string SessionCookieName = "gemini_auth";
 
     public CurrentUser CurrentUser => _currentUser;
     public bool IsAuthenticated => _currentUser.IsAuthenticated;
@@ -26,10 +26,12 @@ public class AuthService
     public AuthService(
         IDbContextFactory<AppDbContext> dbFactory,
         IHttpContextAccessor httpContextAccessor,
+        IAuthCookieService cookies,
         ILogger<AuthService> logger)
     {
         _dbFactory = dbFactory;
         _httpContextAccessor = httpContextAccessor;
+        _cookies = cookies;
         _logger = logger;
     }
 
@@ -47,7 +49,7 @@ public class AuthService
                 return;
             }
 
-            var token = httpContext.Request.Cookies[SessionCookieName];
+            var token = _cookies.ReadSessionToken(httpContext);
             if (string.IsNullOrEmpty(token))
             {
                 _logger.LogDebug("未找到认证 Cookie");

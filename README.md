@@ -1,172 +1,127 @@
-# Gemini Chat - Blazor Web App
+# Gemini Chat
 
-基于 Vertex AI Gemini 的 Blazor Web 聊天应用，支持思考过程可视化和对话历史管理。
+A Blazor Server chat application for Google Vertex AI Gemini. It supports local authentication, persisted conversations, streaming responses, thinking output display, image attachments, email verification, export endpoints, and Docker-based PostgreSQL setup.
 
-## 功能
+## What Is Included
 
-- 流式 AI 回复
-- 思考过程可折叠显示
-- **系统提示词预设选择**（5种内置人设 + 自定义）
-- **对话历史管理**（Token 计数、滑动窗口、自动摘要）
-- Docker 一键部署
+- Blazor Server chat UI with streaming model responses.
+- Google.GenAI / Vertex AI integration.
+- Local email/password authentication with HttpOnly cookies.
+- PostgreSQL persistence for users, sessions, conversations, messages, and token counts.
+- Conversation export endpoints.
+- Image validation and compression before sending multimodal prompts.
+- SMTP hooks for verification and password reset emails.
+- Docker Compose setup for the app and PostgreSQL.
 
-## 系统提示词预设
+## Requirements
 
-| 预设     | 说明             |
-| -------- | ---------------- |
-| 默认助手 | 通用对话助手     |
-| 陕西老哥 | 暴躁陕西方言     |
-| 编程专家 | 技术问答专家     |
-| 翻译官   | 中英互译         |
-| 文案写手 | 创意写作         |
-| 自定义   | 输入自定义提示词 |
+- .NET 10 SDK
+- PostgreSQL 15+ or Docker
+- Google Cloud project with Vertex AI enabled
+- Google application credentials JSON
 
-## 对话历史管理
+## Configuration
 
-- **Token 计数**：实时显示当前对话 Token 使用量
-- **滑动窗口**：自动保留最近 20 轮对话
-- **自动摘要**：超出阈值时自动压缩历史，保持上下文
+The app reads `VertexAI/appsettings.json`, environment variables, and an optional `.env` file when running from the `VertexAI/` directory.
 
-## 架构
+Important settings:
 
-```mermaid
-graph TB
-    subgraph Browser["浏览器"]
-        UI["Chat.razor<br>聊天界面"]
-    end
+| Setting | Description |
+| --- | --- |
+| `ConnectionStrings:Default` | PostgreSQL connection string |
+| `VertexAI:ProjectId` | Google Cloud project id |
+| `VertexAI:Location` | Vertex AI location, defaults to `global` |
+| `VertexAI:ModelName` | Gemini model name |
+| `SMTP_USER` / `SMTP_PASSWORD` | Optional SMTP credentials |
+| `APP_BASE_URL` | Base URL used in email links |
+| `DATABASE_URL` | Optional override for the database connection |
 
-    subgraph Server["Blazor Server"]
-        SignalR["SignalR<br>实时通信"]
-        Service["GeminiService<br>AI 服务"]
-    end
+For local shell usage:
 
-    subgraph Cloud["Google Cloud"]
-        VertexAI["Vertex AI<br>Gemini API"]
-    end
-
-    UI <-->|WebSocket| SignalR
-    SignalR --> Service
-    Service -->|Streaming| VertexAI
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\credentials.json"
+$env:VertexAI__ProjectId="your-google-cloud-project"
+dotnet run --project VertexAI\VertexAI.csproj --urls "http://localhost:5000"
 ```
 
-**数据流**：用户输入 → SignalR → GeminiService → Vertex AI → 流式返回 → UI 实时更新
+Open `http://localhost:5000`.
 
-## 本地开发
+## Docker
 
-```bash
-# 设置环境变量
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+Create a `.env` file in `VertexAI/` by copying `VertexAI/.env.example`:
 
-# 运行
-cd VertexAI
-ASPNETCORE_ENVIRONMENT=Development dotnet run --urls "http://localhost:5000"
+```env
+PROJECT_ID=your-google-cloud-project
+GCP_KEY_PATH=./GCPKey/credentials.json
+DB_PASSWORD=replace-this-password
+APP_BASE_URL=http://localhost:8880
 ```
 
-访问 http://localhost:5000
-
-## Docker 部署
+Then run:
 
 ```bash
 cd VertexAI
-
-# 一键构建并运行（默认）
-./run-docker.sh
-
-# 跳过构建，直接运行
-./run-docker.sh -s
+docker compose up --build
 ```
 
-访问 http://localhost:8880
+Open `http://localhost:8880`.
 
-### 自定义配置
+Docker also checks `http://localhost:8880/health/live` inside the container. Use `/health/ready` when you need to verify database connectivity before routing traffic.
 
-```bash
-GCP_KEY_PATH=/your/key.json \
-PROJECT_ID=your-project \
-SYSTEM_PROMPT="自定义提示词" \
-./run-docker.sh
+Useful checks:
+
+```powershell
+Invoke-WebRequest http://localhost:5000/health/live
+Invoke-WebRequest http://localhost:5000/health/ready
 ```
 
-## 配置说明
+## Development
 
-| 配置项           | 说明              | 默认值                 |
-| ---------------- | ----------------- | ---------------------- |
-| ProjectId        | GCP 项目 ID       | -                      |
-| Location         | Vertex AI 区域    | global                 |
-| ModelName        | 模型名称          | gemini-3-flash-preview |
-| SystemPrompt     | 系统提示词        | -                      |
-| MaxHistoryTokens | 最大历史 Token 数 | 100000                 |
-| MaxHistoryRounds | 最大对话轮数      | 20                     |
-| SummaryThreshold | 触发摘要阈值      | 80000                  |
+Restore and build:
 
-配置文件：`appsettings.json` / `appsettings.Production.json`
-
-## 目录结构
-
+```powershell
+dotnet restore VertexAI.slnx
+dotnet build VertexAI.slnx --no-restore
+dotnet run --project VertexAI.Tests\VertexAI.Tests.csproj --no-restore
 ```
+
+CI runs the same restore, build, and service-test checks through `.github/workflows/ci.yml`.
+
+Health endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/health/live` | Process liveness check used by Docker healthchecks |
+| `/health/ready` | Readiness check that includes database connectivity |
+
+The default database bootstrap path uses EF `EnsureCreated` plus compatibility migrations in `VertexAI/Data/DatabaseInitializer.cs`. For an external database, `VertexAI/Database/init.sql` contains the equivalent schema.
+
+## Project Structure
+
+```text
 VertexAI/
-├── Components/
-│   ├── App.razor          # 根组件
-│   ├── Routes.razor       # 路由配置
-│   └── Pages/
-│       └── Chat.razor     # 聊天页面
-├── Services/
-│   └── GeminiService.cs   # AI 服务封装（含历史管理）
-├── Program.cs             # 应用入口
-├── Dockerfile             # Docker 构建
-├── run-docker.sh          # 一键部署脚本
-└── appsettings.json       # 配置文件
+  Api/                 Minimal API endpoints
+  Components/          Blazor pages and chat components
+  Configuration/       Service registration and HTTP pipeline setup
+  Data/                EF Core context, entities, database initialization
+  Database/            Optional SQL bootstrap script
+  Services/            Application services and Gemini integration
+  Services/Auth/       Auth workflows, cookies, sessions, token generation, validation, and rate limiting
+  Services/Chat/       Chat orchestration, request models, and error mapping
+  wwwroot/             Browser JavaScript assets
 ```
 
-## 发展路线
+## Current Architecture Direction
 
-### Phase 1: 用户系统
+The startup path is intentionally split:
 
-- 用户注册/登录 (JWT)
-- 对话历史持久化 (PostgreSQL)
-- 每用户独立会话
+- `Program.cs` is the composition root.
+- `Configuration/ServiceCollectionExtensions.cs` owns dependency registration.
+- `Configuration/WebApplicationExtensions.cs` owns middleware and endpoint mapping.
+- `Data/DatabaseInitializer.cs` owns startup database preparation.
+- `Services/Auth/AuthWorkflowService.cs` owns login, registration, password reset, email verification, and session workflows.
+- `Services/Auth/*` owns authentication infrastructure such as cookies, session storage, tokens, validation, and rate limiting.
+- `Services/Chat/ChatOrchestrator.cs` owns chat sending, streaming, persistence, and token updates.
+- `Services/Chat/IChatModelClient.cs` and `IConversationStore.cs` isolate model providers and persistence from chat orchestration.
 
-### Phase 2: 多租户
-
-- 组织/团队管理
-- 角色权限控制 (Admin/User)
-- API 配额管理
-
-### Phase 3: 增强功能
-
-- 多模态输入 (图片/文件)
-- ~~自定义 AI 人设~~ ✅ 已实现
-- 对话分享/导出
-- RAG 知识库接入
-
-### Phase 4: 企业级
-
-- SSO 集成
-- 审计日志
-- 多区域部署
-- 监控告警
-
-```mermaid
-graph LR
-    subgraph Phase1["Phase 1"]
-        Auth["用户认证"]
-        History["对话历史"]
-    end
-
-    subgraph Phase2["Phase 2"]
-        Org["组织管理"]
-        RBAC["权限控制"]
-    end
-
-    subgraph Phase3["Phase 3"]
-        Multi["多模态"]
-        RAG["知识库"]
-    end
-
-    subgraph Phase4["Phase 4"]
-        SSO["SSO"]
-        Monitor["监控"]
-    end
-
-    Phase1 --> Phase2 --> Phase3 --> Phase4
-```
+This keeps future additions, such as alternate AI providers, richer auth, observability, migrations, or background jobs, from accumulating in `Program.cs`.

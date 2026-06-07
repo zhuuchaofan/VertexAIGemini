@@ -1,0 +1,50 @@
+# Architecture
+
+## Layers
+
+The project is organized around a small set of boundaries:
+
+- `Components`: Blazor UI, page state, and component models.
+- `Api`: HTTP endpoints for browser-facing commands such as auth and export.
+- `Services`: application behavior, external integrations, and chat orchestration.
+- `Services/Auth`: auth contracts, workflow orchestration, cookie policy, session persistence, rate limiting, validation, and token generation.
+- `Services/Chat`: chat request models, Gemini request construction, streaming orchestration, persistence coordination, and user-facing error mapping.
+- `Data`: EF Core persistence, entities, and startup database preparation.
+- `Configuration`: dependency injection, middleware, and endpoint composition.
+- `Services/Health`: runtime health checks for deployment and readiness probes.
+
+## Startup Flow
+
+1. `Program.cs` creates logging and the web host.
+2. `AddVertexApplication` registers options, persistence, app services, Blazor, and SignalR.
+3. `InitializeVertexApplicationAsync` prepares the database.
+4. `UseVertexPipeline` applies forwarded headers, error handling, static files, antiforgery, APIs, and Blazor routes.
+5. Health endpoints are exposed as `/health/live` and `/health/ready`.
+
+## Extension Points
+
+- Add new UI features under `Components`, keeping long-running or IO-heavy behavior in services.
+- Add new browser/API workflows under `Api`, then register them from `UseVertexPipeline`.
+- Add new application capabilities under `Services`, then register them from `ServiceCollectionExtensions`.
+- Extend authentication through `Services/Auth` instead of storing session, cookie, token, or rate-limit logic in endpoints.
+- Extend chat send behavior through `ChatOrchestrator` instead of adding persistence, streaming, or SDK logic to Razor components.
+- Swap chat models via `IChatModelClient` and persistence via `IConversationStore`.
+- Add schema compatibility work in `DatabaseInitializer`; move to EF migrations when the schema stabilizes.
+- Add new provider-specific AI code behind a service boundary instead of calling SDKs directly from components.
+- Add regression coverage in `VertexAI.Tests` for service-layer behavior before larger refactors.
+- Use `/health/live` for process liveness and `/health/ready` when traffic should wait for database connectivity.
+
+## Current Technical Debt
+
+- Auth workflows still use EF directly; repositories can be introduced when tests or alternate storage require it.
+- The chat page still owns UI-specific streaming updates, scrolling, and focus management.
+- Database creation currently uses `EnsureCreated` plus compatibility SQL. EF migrations should replace this before production data grows.
+- UI copy and visual polish should be reviewed after locking a product design brief.
+
+## Recommended Next Refactors
+
+1. Add tests for `AuthWorkflowService` around login, registration, reset, verification, and rate limiting.
+2. Add broader `ChatOrchestrator` tests for image-only requests and existing conversation sends.
+3. Convert the lightweight test runner to a full test framework if CI reporting needs richer output.
+4. Move database compatibility SQL into real EF migrations.
+5. Confirm a product design brief, then refine loading, empty, error, and mobile chat states.

@@ -3,15 +3,17 @@ using Google.GenAI.Types;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
 /// <summary>
 /// Gemini 聊天服务 - 封装与 Vertex AI 的流式交互
 /// </summary>
-public class GeminiService : IAsyncDisposable
+public class GeminiService : IChatModelClient, IAsyncDisposable
 {
     private readonly Client _client;
+    private readonly string _projectId;
     private readonly string _modelName;
     private readonly ChatHistoryManager _historyManager;
     private readonly ILogger<GeminiService> _logger;
@@ -39,12 +41,13 @@ public class GeminiService : IAsyncDisposable
     {
         _logger = logger;
         var config = settings.Value;
+        _projectId = config.ProjectId;
         _modelName = config.ModelName;
         _currentSystemPrompt = config.SystemPrompt ?? SystemPromptPresets.All[0].Prompt;
 
         // 初始化 Vertex AI 客户端
         _client = new Client(
-            project: config.ProjectId,
+            project: _projectId,
             location: config.Location,
             vertexAI: true
         );
@@ -56,7 +59,7 @@ public class GeminiService : IAsyncDisposable
         _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
 
         _logger.LogInformation("GeminiService 初始化完成, Model={Model}, Project={Project}",
-            _modelName, config.ProjectId);
+            _modelName, _projectId);
     }
 
     /// <summary>
@@ -97,6 +100,8 @@ public class GeminiService : IAsyncDisposable
     /// </summary>
     public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts)
     {
+        EnsureConfigured();
+
         var stopwatch = Stopwatch.StartNew();
         var thinkingBudget = _config.ThinkingConfig?.ThinkingBudget;
         var thinkingLevel = _config.ThinkingConfig?.ThinkingLevel;
@@ -266,5 +271,18 @@ public class GeminiService : IAsyncDisposable
                 new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF }
             ]
         };
+    }
+
+    private void EnsureConfigured()
+    {
+        if (string.IsNullOrWhiteSpace(_modelName))
+        {
+            throw new InvalidOperationException("Vertex AI model is not configured.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_projectId))
+        {
+            throw new InvalidOperationException("Vertex AI project is not configured.");
+        }
     }
 }

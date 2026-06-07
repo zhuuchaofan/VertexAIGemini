@@ -1,20 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Events;
-using VertexAI.Api;
-using VertexAI.Components;
-using VertexAI.Data;
-using VertexAI.Services;
+using VertexAI.Configuration;
 
-// 加载 .env 环境变量文件（如果存在）
 DotNetEnv.Env.Load();
 
-// --------------------------------------------------------------------------------------
-// 项目名称: Gemini Chat - Blazor Web App
-// 描述: 使用 Google.GenAI SDK 调用 Gemini，可视化展示"思考过程"的聊天界面。
-// --------------------------------------------------------------------------------------
-
-// Serilog 配置
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
@@ -29,138 +18,21 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
+    var builder = WebApplication.CreateBuilder(args);
+    builder.Host.UseSerilog();
+    builder.Services.AddVertexApplication(builder.Configuration);
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseSerilog();
+    var app = builder.Build();
 
-// 1. 配置服务
-builder.Services.Configure<GeminiSettings>(
-    builder.Configuration.GetSection("VertexAI"));
+    await app.InitializeVertexApplicationAsync();
+    app.UseVertexPipeline();
 
-// 2. 数据库配置 (本地 PostgreSQL) - 使用 Factory 避免并发问题
-// 优先从环境变量读取连接字符串，否则使用 appsettings.json
-var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
-
-// 3. HttpContext 访问器（用于认证）
-builder.Services.AddHttpContextAccessor();
-
-// 4. 业务服务
-builder.Services.AddScoped<GeminiService>();       // AI 聊天
-builder.Services.AddScoped<AuthService>();          // 用户认证
-builder.Services.AddHostedService<SessionCleanupService>(); // 过期 Session 清理
-builder.Services.AddScoped<ConversationService>();  // 对话持久化
-builder.Services.AddSingleton<MarkdownService>();   // Markdown 渲染
-builder.Services.AddScoped<ImageService>();         // 图片处理
-
-// 4.5 邮件服务 (Gmail SMTP)
-var smtpSettings = builder.Configuration.GetSection("Smtp").Get<SmtpSettings>() ?? new SmtpSettings();
-// 环境变量优先覆盖
-smtpSettings.User = Environment.GetEnvironmentVariable("SMTP_USER") ?? smtpSettings.User;
-smtpSettings.Password = Environment.GetEnvironmentVariable("SMTP_PASSWORD") ?? smtpSettings.Password;
-smtpSettings.BaseUrl = Environment.GetEnvironmentVariable("APP_BASE_URL") ?? smtpSettings.BaseUrl;
-builder.Services.AddSingleton(smtpSettings);
-builder.Services.AddSingleton<EmailService>();
-
-// 5. HttpClient（用于 Blazor 组件调用 API）
-builder.Services.AddScoped(sp =>
-{
-    var navigationManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
-    return new HttpClient { BaseAddress = new Uri(navigationManager.BaseUri) };
-});
-
-// 5. Blazor 服务
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
-// 6. SignalR 配置（支持图片上传）
-builder.Services.AddSignalR(options =>
-{
-    options.MaximumReceiveMessageSize = 5 * 1024 * 1024; // 5MB
-});
-
-var app = builder.Build();
-
-
-// 5. 初始化数据库
-try
-{
-    var dbFactory = app.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
-    await using var db = await dbFactory.CreateDbContextAsync();
-    await db.Database.EnsureCreatedAsync();
-
-    // 手动添加 TokenCount 列（如果不存在）
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS \"TokenCount\" INTEGER DEFAULT 0");
-        // 邮箱验证预留字段
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE");
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)");
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(64)");
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ");
-    }
-    catch (Exception ex)
-    {
-        // 列已存在是预期内的，但其他错误应该记录
-        if (!ex.Message.Contains("already exists"))
-        {
-             Log.Warning(ex, "尝试添加 TokenCount 列时发生非关键错误");
-        }
-    }
-
-    Console.WriteLine("数据库连接成功");
+    Log.Information("Gemini Chat started");
+    app.Run();
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"警告: 数据库连接失败 - {ex.Message}");
-    Console.WriteLine("应用将以离线模式启动（对话历史不会持久化）");
-}
-
-// 6. 配置中间件
-if (app.Environment.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-}
-else
-{
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
-
-    // 仅当配置了 HTTPS 端口时才启用重定向（避免 Docker 纯 HTTP 环境下阻断 API）
-    var httpsPort = builder.Configuration["HTTPS_PORT"]
-        ?? Environment.GetEnvironmentVariable("ASPNETCORE_HTTPS_PORT");
-    if (!string.IsNullOrEmpty(httpsPort))
-    {
-        app.UseHttpsRedirection();
-    }
-}
-
-app.UseStaticFiles();
-app.UseAntiforgery();
-
-// 8. 认证 API 端点
-app.MapAuthEndpoints();
-app.MapExportEndpoints();
-
-// 9. 配置 Blazor 路由
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
-
-Log.Information("Gemini Chat 已启动 - http://localhost:5000");
-
-app.Run();
-
-}
-catch (Exception ex)
-{
-    Log.Fatal(ex, "应用程序启动失败");
+    Log.Fatal(ex, "Application startup failed");
 }
 finally
 {

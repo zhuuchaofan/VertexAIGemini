@@ -35,8 +35,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.PresetId).HasColumnName("preset_id");
             entity.Property(e => e.CustomPrompt).HasColumnName("custom_prompt");
             entity.Property(e => e.HistorySummary).HasColumnName("history_summary");
+            entity.Property(e => e.TokenCount).HasColumnName("token_count").HasDefaultValue(0);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // 消息表配置

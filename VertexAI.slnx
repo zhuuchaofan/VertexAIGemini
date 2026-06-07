@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="VertexAI/VertexAI.csproj" />
+  <Project Path="VertexAI.Tests/VertexAI.Tests.csproj" />
 </Solution>

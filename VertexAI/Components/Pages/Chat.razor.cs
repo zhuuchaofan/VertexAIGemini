@@ -4,6 +4,7 @@ using Microsoft.JSInterop;
 using Microsoft.Extensions.Logging;
 using VertexAI.Components.Chat;
 using VertexAI.Services;
+using VertexAI.Services.Chat;
 
 namespace VertexAI.Components.Pages;
 
@@ -103,20 +104,6 @@ public partial class Chat : ComponentBase
         Gemini.ClearHistory();
     }
 
-    /// <summary>
-    /// 创建数据库对话记录（仅在发送第一条消息时调用）
-    /// </summary>
-    private async Task<Guid?> EnsureConversationAsync()
-    {
-        if (_currentConversationId.HasValue) return _currentConversationId;
-
-        var conv = await ConversationSvc.CreateConversationAsync(
-            Auth.CurrentUser.Id, Gemini.CurrentPresetId, Gemini.CurrentCustomPrompt);
-        _currentConversationId = conv?.Id;
-        await LoadConversationsAsync();
-        return _currentConversationId;
-    }
-
     private async Task LoadConversation(Guid conversationId)
     {
         var conv = await ConversationSvc.GetConversationAsync(conversationId, Auth.CurrentUser.Id);
@@ -172,11 +159,6 @@ public partial class Chat : ComponentBase
             return;
         }
 
-        if (_currentConversationId == null)
-        {
-            await EnsureConversationAsync();
-        }
-
         var userMessage = _inputMessage.Trim();
         var imagesToSend = _pendingImages.ToList();
         _inputMessage = "";
@@ -193,99 +175,43 @@ public partial class Chat : ComponentBase
         await ScrollToBottom();
         StateHasChanged();
 
-        if (_currentConversationId.HasValue)
-        {
-            await ConversationSvc.AddMessageAsync(_currentConversationId.Value, Auth.CurrentUser.Id, "user", userMessage);
-        }
-
         var aiMessage = new ChatMessageModel { IsUser = false, Content = "", IsStreaming = true };
         _messages.Add(aiMessage);
 
-        try
+        var request = new ChatSendRequest(
+            _currentConversationId,
+            Auth.CurrentUser.Id,
+            userMessage,
+            imagesToSend.Select(ToChatAttachment).ToList());
+
+        var result = await ChatFlow.SendAsync(request, async update =>
         {
-            var thinkingBuilder = new System.Text.StringBuilder();
-            var responseBuilder = new System.Text.StringBuilder();
-
-            // 构建 Parts 列表（文本 + 图片）
-            var parts = new List<Google.GenAI.Types.Part>();
-
-            if (hasText)
-            {
-                parts.Add(new Google.GenAI.Types.Part { Text = userMessage });
-            }
-
-            foreach (var img in imagesToSend)
-            {
-                parts.Add(new Google.GenAI.Types.Part
-                {
-                    InlineData = new Google.GenAI.Types.Blob
-                    {
-                        Data = Convert.FromBase64String(img.Base64Data),
-                        MimeType = img.MimeType
-                    }
-                });
-            }
-
-            await foreach (var chunk in Gemini.StreamChatAsync(parts))
-            {
-                if (chunk.IsThinking)
-                {
-                    thinkingBuilder.Append(chunk.Text);
-                    aiMessage.ThinkingContent = thinkingBuilder.ToString();
-                }
-                else
-                {
-                    responseBuilder.Append(chunk.Text);
-                    aiMessage.Content = responseBuilder.ToString();
-                }
-                StateHasChanged();
-                await ScrollToBottom();
-            }
-
-            if (_currentConversationId.HasValue)
-            {
-                await ConversationSvc.AddMessageAsync(
-                    _currentConversationId.Value, Auth.CurrentUser.Id, "model", aiMessage.Content, aiMessage.ThinkingContent);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Chat 请求失败");
-            aiMessage.Content = ex switch
-            {
-                TaskCanceledException => "请求超时，请重试",
-                HttpRequestException => "网络连接异常，请检查网络后重试",
-                _ when ex.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) => "API 配额已用尽，请稍后再试",
-                _ when ex.Message.Contains("Unavailable", StringComparison.OrdinalIgnoreCase) => "AI 服务暂时不可用，请稍后重试",
-                _ when ex.Message.Contains("permission", StringComparison.OrdinalIgnoreCase) => "权限不足，请联系管理员",
-                _ => "服务暂时不可用，请稍后重试"
-            };
-        }
-        finally
-        {
-            aiMessage.IsStreaming = false;
-            _isLoading = false;
-            await LoadConversationsAsync();
+            aiMessage.Content = update.Content;
+            aiMessage.ThinkingContent = update.ThinkingContent;
             StateHasChanged();
+            await ScrollToBottom();
+        });
 
-            // 保存 Token 计数到数据库
-            if (_currentConversationId.HasValue)
-            {
-                await ConversationSvc.UpdateTokenCountAsync(
-                    _currentConversationId.Value, Auth.CurrentUser.Id, Gemini.CurrentTokenCount);
-            }
+        _currentConversationId = result.ConversationId;
+        aiMessage.Content = result.Succeeded ? result.Content : result.ErrorMessage ?? result.Content;
+        aiMessage.ThinkingContent = result.ThinkingContent;
+        aiMessage.IsStreaming = false;
+        _isLoading = false;
 
-            // 短暂延迟后再次刷新，确保 Token 计数已更新
-            await Task.Delay(100);
-            StateHasChanged();
+        await LoadConversationsAsync();
+        StateHasChanged();
 
-            // 发送完成后自动聚焦输入框
-            if (_chatInputRef is not null)
-            {
-                await _chatInputRef.FocusAsync();
-            }
+        await Task.Delay(100);
+        StateHasChanged();
+
+        if (_chatInputRef is not null)
+        {
+            await _chatInputRef.FocusAsync();
         }
     }
+
+    private static ChatImageAttachment ToChatAttachment(ImageAttachment image) =>
+        new(image.Base64Data, image.MimeType, image.FileName);
 
     /// <summary>
     /// 处理文件选择事件
