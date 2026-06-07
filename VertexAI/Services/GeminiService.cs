@@ -14,9 +14,9 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 {
     private readonly Client _client;
     private readonly string _projectId;
-    private readonly string _modelName;
     private readonly ChatHistoryManager _historyManager;
     private readonly ILogger<GeminiService> _logger;
+    private string _modelName;
     private GenerateContentConfig _config;
 
     // 当前系统提示词状态
@@ -33,9 +33,17 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     public string CurrentPresetId => _currentPresetId;
     public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
     public ThinkingLevel CurrentThinkingLevel => _thinkingLevel;
+    public string CurrentModelName => _modelName;
 
     // 预设列表（向后兼容）
     public static List<SystemPromptPreset> Presets => SystemPromptPresets.All;
+    public static IReadOnlyList<GeminiModelOption> ModelOptions { get; } =
+    [
+        new("Gemini 3.5 Flash", "gemini-3.5-flash", "旗舰速度模型，提供极佳的响应速度与多模态能力"),
+        new("Gemini 3.1 Flash Lite", "gemini-3.1-flash-lite", "超低延迟、极度轻量级，适合日常高频交互"),
+        new("Gemini 3 Flash (Preview)", "gemini-3-flash-preview", "第三代快速原型预览，均衡的多模态多任务模型"),
+        new("Gemini 3.1 Pro (Preview)", "gemini-3.1-pro-preview", "深度推理版预览，适合复杂的代码逻辑和长文本深度思考")
+    ];
 
     public GeminiService(IOptions<GeminiSettings> settings, ILogger<GeminiService> logger)
     {
@@ -84,6 +92,24 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     {
         _thinkingLevel = level;
         _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
+    }
+
+    /// <summary>
+    /// 切换模型，下一次请求立即生效。
+    /// </summary>
+    public void SetModel(string modelName)
+    {
+        if (string.IsNullOrWhiteSpace(modelName) || _modelName == modelName)
+        {
+            return;
+        }
+
+        _modelName = ModelOptions.Any(m => m.ModelName == modelName)
+            ? modelName
+            : ModelOptions[0].ModelName;
+
+        _historyManager.SetModel(_modelName);
+        _logger.LogInformation("Gemini model switched, Model={Model}", _modelName);
     }
 
     /// <summary>
