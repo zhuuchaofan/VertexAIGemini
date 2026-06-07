@@ -16,6 +16,8 @@ public class GeminiSettings
     public int SummaryThreshold { get; set; } = 80000;     // 触发摘要的 Token 阈值
 }
 
+public sealed record GeminiModelOption(string Name, string ModelName, string Description);
+
 /// <summary>
 /// 聊天响应块 - 流式返回的单个片段
 /// </summary>

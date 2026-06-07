@@ -1,29 +1,34 @@
 @* 消息列表组件 *@
 @inject MarkdownService Markdown
 
-<main class="flex-1 overflow-y-auto px-3 py-4 bg-gradient-to-b from-sky-50/50 to-slate-50" id="messages-container" @onclick="OnAreaClicked">
-    <div class="max-w-4xl mx-auto space-y-4">
+<main class="flex-1 overflow-y-auto px-3 sm:px-6 py-6 bg-slate-50" id="messages-container" @onclick="OnAreaClicked">
+    <div class="max-w-5xl mx-auto space-y-5">
         @if (Messages.Count == 0)
         {
-            @* 精致的空状态 *@
-            <div class="flex flex-col items-center justify-center py-20 text-center">
-                <div class="w-20 h-20 mb-6 rounded-full bg-gradient-to-br from-sky-400 to-emerald-400 flex items-center justify-center shadow-xl">
-                    <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="min-h-[58vh] flex items-center justify-center">
+                <div class="w-full max-w-2xl text-center">
+                    <div class="w-14 h-14 mb-5 mx-auto rounded-2xl bg-slate-950 flex items-center justify-center shadow-sm">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                    </svg>
-                </div>
-                <h2 class="text-xl font-bold text-slate-700 mb-2">@PresetName</h2>
-                <p class="text-slate-500 mb-6">开始一段新对话吧</p>
-                <div class="flex flex-wrap gap-2 justify-center max-w-md">
-                    <span class="px-3 py-1.5 bg-white/80 border border-slate-200 rounded-full text-xs text-slate-600 shadow-sm">
-                        💡 试试问我任何问题
-                    </span>
-                    <span class="px-3 py-1.5 bg-white/80 border border-slate-200 rounded-full text-xs text-slate-600 shadow-sm">
-                        🧠 支持深度思考模式
-                    </span>
-                    <span class="px-3 py-1.5 bg-white/80 border border-slate-200 rounded-full text-xs text-slate-600 shadow-sm">
-                        📝 上下文记忆对话
-                    </span>
+                        </svg>
+                    </div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">@PresetName</p>
+                    <h2 class="text-2xl sm:text-3xl font-semibold text-slate-950 mb-3">开始一次高质量对话</h2>
+                    <p class="text-slate-500 mb-8">选择模型、设定思考强度，然后输入问题或上传图片。</p>
+                    <div class="grid sm:grid-cols-3 gap-3 text-left">
+                        <div class="bg-white border border-slate-200 rounded-lg p-4">
+                            <div class="text-sm font-semibold text-slate-900 mb-1">快速问答</div>
+                            <div class="text-xs text-slate-500">适合总结、改写、翻译和普通咨询。</div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-lg p-4">
+                            <div class="text-sm font-semibold text-slate-900 mb-1">深度推理</div>
+                            <div class="text-xs text-slate-500">切到 Pro 或高级思考处理复杂任务。</div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-lg p-4">
+                            <div class="text-sm font-semibold text-slate-900 mb-1">多模态</div>
+                            <div class="text-xs text-slate-500">可粘贴或上传图片一起发送。</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         }
@@ -44,7 +49,7 @@
         {
             @* 骨架屏加载态 *@
             <div class="flex justify-start">
-                <div class="bg-white border border-slate-100 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm max-w-[70%]">
+                <div class="bg-white border border-slate-200 rounded-lg px-4 py-3 shadow-sm max-w-[70%]">
                     <div class="flex items-center gap-2 mb-2">
                         <div class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></div>
                         <span class="text-slate-600 text-sm font-medium">正在思考...</span>
@@ -67,4 +72,3 @@
     [Parameter] public EventCallback OnAreaClicked { get; set; }
     [Parameter] public EventCallback<string> OnImageClick { get; set; }
 }
-

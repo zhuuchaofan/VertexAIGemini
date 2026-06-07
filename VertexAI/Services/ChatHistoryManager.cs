@@ -10,8 +10,8 @@ public class ChatHistoryManager
 {
     private readonly List<Content> _chatHistory = [];
     private readonly Client _client;
-    private readonly string _modelName;
     private readonly GeminiSettings _settings;
+    private string _modelName;
 
     // 历史摘要（当历史被修剪时存储）
     private string? _historySummary;
@@ -26,6 +26,14 @@ public class ChatHistoryManager
         _client = client;
         _modelName = modelName;
         _settings = settings;
+    }
+
+    public void SetModel(string modelName)
+    {
+        if (!string.IsNullOrWhiteSpace(modelName))
+        {
+            _modelName = modelName;
+        }
     }
 
     /// <summary>

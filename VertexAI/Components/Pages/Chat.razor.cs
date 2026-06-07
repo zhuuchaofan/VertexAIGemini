@@ -16,6 +16,7 @@ public partial class Chat : ComponentBase
     private readonly List<ChatMessageModel> _messages = [];
     private List<ConversationItem> _conversationItems = [];
     private List<PresetItem> _presetItems = [];
+    private List<GeminiModelOption> _modelItems = [];
     private List<ImageAttachment> _pendingImages = new();
     private Guid? _currentConversationId;
     private string _inputMessage = "";
@@ -44,6 +45,7 @@ public partial class Chat : ComponentBase
             Name = p.Name,
             Description = p.Description
         }).ToList();
+        _modelItems = GeminiService.ModelOptions.ToList();
 
         if (!Auth.IsAuthenticated)
         {
@@ -64,6 +66,7 @@ public partial class Chat : ComponentBase
         {
             // 从 localStorage 恢复思考模式设置
             await RestoreThinkingLevelAsync();
+            await RestoreModelAsync();
         }
     }
 
@@ -75,6 +78,20 @@ public partial class Chat : ComponentBase
             if (!string.IsNullOrEmpty(savedLevel) && Enum.TryParse<Google.GenAI.Types.ThinkingLevel>(savedLevel, out var level))
             {
                 Gemini.SetThinkingLevel(level);
+                StateHasChanged();
+            }
+        }
+        catch (Exception) { /* localStorage 在 SSR/预渲染阶段不可用，属预期行为 */ }
+    }
+
+    private async Task RestoreModelAsync()
+    {
+        try
+        {
+            var savedModel = await JS.InvokeAsync<string?>("localStorage.getItem", "geminiModel");
+            if (!string.IsNullOrWhiteSpace(savedModel))
+            {
+                Gemini.SetModel(savedModel);
                 StateHasChanged();
             }
         }
@@ -377,6 +394,18 @@ public partial class Chat : ComponentBase
             await JS.InvokeVoidAsync("localStorage.setItem", "thinkingLevel", level.ToString());
         }
         catch (Exception) { /* localStorage 在 SSR/预渲染阶段不可用，属预期行为 */ }
+    }
+
+    private async Task SelectModel(string modelName)
+    {
+        Gemini.SetModel(modelName);
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "geminiModel", modelName);
+        }
+        catch (Exception) { /* localStorage 在 SSR/预渲染阶段不可用，属预期行为 */ }
+
+        StateHasChanged();
     }
 
     private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";

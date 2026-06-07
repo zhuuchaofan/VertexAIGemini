@@ -2,41 +2,72 @@
 @using Google.GenAI.Types
 @inject IJSRuntime JS
 
-<header class="flex-shrink-0 bg-gradient-to-r from-sky-400 to-emerald-400 px-2 sm:px-4 py-2 sm:py-3 shadow-lg safe-area-top">
-    <div class="flex items-center justify-between gap-1 sm:gap-2">
-        <div class="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
-            <button @onclick="OnToggleSidebar" class="p-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-lg transition-all flex-shrink-0">
+<header class="flex-shrink-0 bg-white border-b border-slate-200 px-3 sm:px-5 py-3 safe-area-top">
+    <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
+            <button @onclick="OnToggleSidebar" class="h-9 w-9 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center flex-shrink-0" title="展开侧边栏">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
-            <h1 class="text-base sm:text-lg font-bold text-white flex-shrink-0 hidden sm:block">Gemini</h1>
+            <div class="min-w-0 hidden sm:block mr-1">
+                <h1 class="text-sm font-semibold text-slate-950 leading-5">Gemini Chat</h1>
+                <p class="text-[11px] text-slate-500 leading-4">Vertex AI Workspace</p>
+            </div>
+
+            @* 模型选择器 *@
+            <div class="relative flex-shrink-0">
+                <button @onclick="ToggleModelMenu"
+                        class="h-9 flex items-center gap-2 px-3 bg-slate-950 hover:bg-slate-800 rounded-lg text-white text-xs font-medium transition-all">
+                    <span class="hidden sm:inline text-slate-300">模型</span>
+                    <span class="truncate max-w-[116px]">@GetCurrentModelLabel()</span>
+                    <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-300" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </button>
+                @if (_showModelMenu)
+                {
+                    <div class="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                        @foreach (var model in Models)
+                        {
+                            <button @onclick="() => SelectModel(model.ModelName)"
+                                    class="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentModelName == model.ModelName ? "bg-slate-50" : "")">
+                                <span class="mt-1 h-2 w-2 rounded-full @(CurrentModelName == model.ModelName ? "bg-emerald-500" : "bg-slate-300")"></span>
+                                <span class="flex-1 min-w-0">
+                                    <span class="block text-sm font-semibold text-slate-800">@model.Name</span>
+                                    <span class="block text-xs text-slate-500 mt-0.5">@model.Description</span>
+                                    <span class="block text-[11px] font-mono text-slate-400 mt-1">@model.ModelName</span>
+                                </span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
 
             @* 预设选择器 *@
             <div class="relative flex-shrink-0">
                 <button @onclick="TogglePresetMenu"
-                        class="flex items-center gap-1 px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-xl text-white text-xs font-medium transition-all">
-                    <span class="truncate max-w-[60px] sm:max-w-[80px]">@CurrentPresetName</span>
-                    <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        class="h-9 flex items-center gap-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 text-xs font-medium transition-all">
+                    <span class="hidden sm:inline text-slate-500">角色</span>
+                    <span class="truncate max-w-[82px] sm:max-w-[110px]">@CurrentPresetName</span>
+                    <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
                 @if (_showPresetMenu)
                 {
-                    <div class="absolute top-full left-0 mt-2 w-56 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-100 z-50 max-h-[60vh] overflow-y-auto">
+                    <div class="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[60vh] overflow-y-auto">
                         @foreach (var preset in Presets.Where(p => p.Id != "custom"))
                         {
                             <button @onclick="() => SelectPreset(preset.Id)"
-                                    class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentPresetId == preset.Id ? "bg-sky-50" : "")">
+                                    class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentPresetId == preset.Id ? "bg-slate-50" : "")">
                                 <div class="flex-1 min-w-0">
-                                    <div class="font-medium text-slate-700">@preset.Name</div>
-                                    <div class="text-xs text-slate-400 truncate">@preset.Description</div>
+                                    <div class="font-semibold text-sm text-slate-800">@preset.Name</div>
+                                    <div class="text-xs text-slate-500 truncate">@preset.Description</div>
                                 </div>
                             </button>
                         }
-                        <hr class="border-slate-100" />
+                        <hr class="border-slate-200" />
                         <button @onclick="OnShowCustomPrompt"
                                 class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors">
                             <div class="flex-1">
-                                <div class="font-medium text-slate-700">自定义提示词</div>
+                                <div class="font-semibold text-sm text-slate-800">自定义提示词</div>
                             </div>
                         </button>
                     </div>
@@ -46,17 +77,18 @@
             @* 思考模式选择器 *@
             <div class="relative flex-shrink-0">
                 <button @onclick="ToggleThinkingMenu"
-                        class="flex items-center gap-1 px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded-xl text-white text-xs font-medium transition-all">
-                    <span class="truncate max-w-[50px] sm:max-w-[60px]">@GetThinkingLevelName()</span>
-                    <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        class="h-9 flex items-center gap-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 text-xs font-medium transition-all">
+                    <span class="hidden sm:inline text-slate-500">思考</span>
+                    <span class="truncate max-w-[58px] sm:max-w-[72px]">@GetThinkingLevelName()</span>
+                    <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
                 @if (_showThinkingMenu)
                 {
-                    <div class="absolute top-full left-0 mt-2 w-36 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-100 z-50">
+                    <div class="absolute top-full left-0 mt-2 w-40 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
                         @foreach (var level in ThinkingLevels)
                         {
                             <button @onclick="() => SelectThinkingLevel(level.Value)"
-                                    class="w-full px-4 py-2.5 text-left hover:bg-slate-50 text-sm transition-colors @(CurrentThinkingLevel == level.Value ? "bg-sky-50 text-sky-600 font-medium" : "text-slate-600")">
+                                    class="w-full px-4 py-2.5 text-left hover:bg-slate-50 text-sm transition-colors @(CurrentThinkingLevel == level.Value ? "bg-slate-50 text-slate-950 font-semibold" : "text-slate-600")">
                                 @level.Name
                             </button>
                         }
@@ -67,7 +99,7 @@
             @* 导出按钮 *@
             <div class="relative flex-shrink-0 ml-1">
                 <button @onclick="ToggleExportMenu"
-                        class="p-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-lg transition-all"
+                        class="h-9 w-9 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center"
                         title="导出对话">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -75,7 +107,7 @@
                 </button>
                 @if (_showExportMenu)
                 {
-                    <div class="absolute top-full right-0 mt-2 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-100 z-50 py-1 overflow-hidden">
+                    <div class="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
                         <button @onclick="@(() => SelectExport("markdown"))" class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
                             <span class="font-medium">导出 Markdown</span>
                         </button>
@@ -89,13 +121,13 @@
 
         <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             @* Token 统计 - 移动端紧凑显示 *@
-            <span class="text-xs text-white/80 font-mono hidden sm:inline">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
-            <span class="text-xs text-white/80 font-mono sm:hidden" title="@TokenCount/@MaxTokens">@FormatTokenCount(TokenCount)</span>
-            <button @onclick="OnNewChat" class="p-1.5 sm:px-3 sm:py-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-xl flex items-center gap-1.5 transition-all" title="新对话">
+            <span class="text-xs text-slate-500 font-mono hidden sm:inline">@FormatTokenCount(TokenCount)/@FormatTokenCount(MaxTokens)</span>
+            <span class="text-xs text-slate-500 font-mono sm:hidden" title="@TokenCount/@MaxTokens">@FormatTokenCount(TokenCount)</span>
+            <button @onclick="OnNewChat" class="h-9 sm:px-3 text-slate-600 hover:text-slate-950 hover:bg-slate-100 rounded-lg flex items-center justify-center gap-1.5 transition-all" title="新对话">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
-                <span class="hidden sm:inline text-xs font-medium">新对话</span>
+                <span class="hidden sm:inline text-xs font-semibold">新对话</span>
             </button>
         </div>
     </div>
@@ -131,18 +163,22 @@
     [Parameter] public string CurrentPresetId { get; set; } = "default";
     [Parameter] public string CurrentPresetName { get; set; } = "默认助手";
     [Parameter] public List<PresetItem> Presets { get; set; } = [];
+    [Parameter] public string CurrentModelName { get; set; } = "";
+    [Parameter] public List<GeminiModelOption> Models { get; set; } = [];
     [Parameter] public ThinkingLevel CurrentThinkingLevel { get; set; }
     [Parameter] public int TokenCount { get; set; }
     [Parameter] public int MaxTokens { get; set; }
     [Parameter] public bool EmailVerified { get; set; }
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
     [Parameter] public EventCallback<string> OnSelectPreset { get; set; }
+    [Parameter] public EventCallback<string> OnSelectModel { get; set; }
     [Parameter] public EventCallback OnShowCustomPrompt { get; set; }
     [Parameter] public EventCallback<ThinkingLevel> OnSelectThinkingLevel { get; set; }
     [Parameter] public EventCallback OnNewChat { get; set; }
     [Parameter] public EventCallback<string> OnExport { get; set; }
 
     private bool _showPresetMenu;
+    private bool _showModelMenu;
     private bool _showThinkingMenu;
     private bool _showExportMenu;
     private bool _dismissedVerifyBanner;
@@ -157,9 +193,16 @@
         ("高级思考", ThinkingLevel.HIGH)
     ];
 
-    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showThinkingMenu = false; _showExportMenu = false; }
-    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showPresetMenu = false; _showExportMenu = false; }
-    private void ToggleExportMenu() { _showExportMenu = !_showExportMenu; _showPresetMenu = false; _showThinkingMenu = false; }
+    private void ToggleModelMenu() { _showModelMenu = !_showModelMenu; _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
+    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showModelMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
+    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showModelMenu = false; _showPresetMenu = false; _showExportMenu = false; }
+    private void ToggleExportMenu() { _showExportMenu = !_showExportMenu; _showModelMenu = false; _showPresetMenu = false; _showThinkingMenu = false; }
+
+    private void SelectModel(string modelName)
+    {
+        OnSelectModel.InvokeAsync(modelName);
+        _showModelMenu = false;
+    }
 
     private void SelectPreset(string presetId)
     {
@@ -180,9 +223,10 @@
     }
 
     private string GetThinkingLevelName() => ThinkingLevels.FirstOrDefault(l => l.Value == CurrentThinkingLevel).Name ?? "中级思考";
+    private string GetCurrentModelLabel() => Models.FirstOrDefault(m => m.ModelName == CurrentModelName)?.Name ?? CurrentModelName;
     private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
 
-    public void CloseMenus() { _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
+    public void CloseMenus() { _showModelMenu = false; _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
 
     private record ResendResult(bool Success, string? Error);
 
@@ -207,4 +251,3 @@
         StateHasChanged();
     }
 }
-
