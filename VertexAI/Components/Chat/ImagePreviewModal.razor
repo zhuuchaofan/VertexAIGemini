@@ -22,6 +22,8 @@
             @* 关闭按钮 *@
             <button type="button"
                     @onclick="Close"
+                    title="关闭预览"
+                    aria-label="关闭预览"
                     class="absolute -top-3 -right-3 w-11 h-11 bg-white/95 hover:bg-white text-slate-700 rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-110 active:scale-95">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -77,11 +79,11 @@
             {
                 if (IsOpen)
                 {
-                    await JS.InvokeVoidAsync("eval", "document.body.style.overflow = 'hidden'");
+                    await JS.InvokeVoidAsync("setBodyScrollLock", true);
                 }
                 else
                 {
-                    await JS.InvokeVoidAsync("eval", "document.body.style.overflow = ''");
+                    await JS.InvokeVoidAsync("setBodyScrollLock", false);
                 }
             }
             catch { /* 忽略 JS 调用失败 */ }

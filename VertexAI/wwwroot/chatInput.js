@@ -91,7 +91,7 @@ function processImageFile(file, dotnetRef) {
 }
 
 /**
- * 平滑滚动到底部 - 替代 eval 方案
+ * 平滑滚动到底部
  */
 window.scrollToBottom = function (elementId) {
   const el = document.getElementById(elementId);
@@ -107,4 +107,11 @@ window.focusTextarea = function (textareaRef) {
   if (textareaRef) {
     textareaRef.focus();
   }
+};
+
+/**
+ * 锁定或恢复页面滚动 - 图片预览弹窗使用
+ */
+window.setBodyScrollLock = function (isLocked) {
+  document.body.style.overflow = isLocked ? "hidden" : "";
 };
