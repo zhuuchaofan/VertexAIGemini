@@ -35,17 +35,18 @@ public partial class Chat : ComponentBase
     private string? _pendingSwitchCustomPrompt;
     private ChatHeader? _headerRef;
     private VertexAI.Components.Chat.ChatInput? _chatInputRef;
+    private bool _enableSearch;
 
     protected override async Task OnInitializedAsync()
     {
         // 初始化预设列表
-        _presetItems = GeminiService.Presets.Select(p => new PresetItem
+        _presetItems = Gemini.Presets.Select(p => new PresetItem
         {
             Id = p.Id,
             Name = p.Name,
             Description = p.Description
         }).ToList();
-        _modelItems = GeminiService.ModelOptions.ToList();
+        _modelItems = Gemini.ModelOptions.ToList();
 
         if (!Auth.IsAuthenticated)
         {
@@ -199,12 +200,14 @@ public partial class Chat : ComponentBase
             _currentConversationId,
             Auth.CurrentUser.Id,
             userMessage,
-            imagesToSend.Select(ToChatAttachment).ToList());
+            imagesToSend.Select(ToChatAttachment).ToList(),
+            _enableSearch);
 
         var result = await ChatFlow.SendAsync(request, async update =>
         {
             aiMessage.Content = update.Content;
             aiMessage.ThinkingContent = update.ThinkingContent;
+            aiMessage.Citations = update.Citations;
             StateHasChanged();
             await ScrollToBottom();
         });
@@ -212,6 +215,7 @@ public partial class Chat : ComponentBase
         _currentConversationId = result.ConversationId;
         aiMessage.Content = result.Succeeded ? result.Content : result.ErrorMessage ?? result.Content;
         aiMessage.ThinkingContent = result.ThinkingContent;
+        aiMessage.Citations = result.Citations;
         aiMessage.IsStreaming = false;
         _isLoading = false;
 
@@ -408,7 +412,7 @@ public partial class Chat : ComponentBase
         StateHasChanged();
     }
 
-    private string GetCurrentPresetName() => GeminiService.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
+    private string GetCurrentPresetName() => Gemini.Presets.FirstOrDefault(p => p.Id == Gemini.CurrentPresetId)?.Name ?? "默认助手";
 
     private async Task ExportConversation(string format)
     {

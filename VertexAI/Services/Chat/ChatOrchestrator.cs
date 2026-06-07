@@ -37,12 +37,13 @@ public class ChatOrchestrator
 
         var responseBuilder = new StringBuilder();
         var thinkingBuilder = new StringBuilder();
+        var allCitations = new List<SearchCitation>();
 
         try
         {
             var parts = GeminiPartFactory.CreateParts(message, request.Images);
 
-            await foreach (var chunk in _gemini.StreamChatAsync(parts))
+            await foreach (var chunk in _gemini.StreamChatAsync(parts, request.EnableSearch))
             {
                 if (chunk.IsThinking)
                 {
@@ -53,9 +54,21 @@ public class ChatOrchestrator
                     responseBuilder.Append(chunk.Text);
                 }
 
+                if (chunk.Citations != null && chunk.Citations.Count > 0)
+                {
+                    foreach (var cite in chunk.Citations)
+                    {
+                        if (!allCitations.Any(c => c.Uri == cite.Uri))
+                        {
+                            allCitations.Add(cite);
+                        }
+                    }
+                }
+
                 await onUpdate(new ChatStreamUpdate(
                     responseBuilder.ToString(),
-                    thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null));
+                    thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null,
+                    allCitations.Count > 0 ? allCitations : null));
             }
 
             var response = responseBuilder.ToString();
@@ -71,7 +84,7 @@ public class ChatOrchestrator
                     thinking);
             }
 
-            return new ChatSendResult(conversationId, response, thinking, true, null);
+            return new ChatSendResult(conversationId, response, thinking, true, null, allCitations.Count > 0 ? allCitations : null);
         }
         catch (Exception ex)
         {
@@ -82,7 +95,8 @@ public class ChatOrchestrator
                 responseBuilder.ToString(),
                 thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null,
                 false,
-                ChatErrorMapper.ToUserMessage(ex));
+                ChatErrorMapper.ToUserMessage(ex),
+                allCitations.Count > 0 ? allCitations : null);
         }
         finally
         {

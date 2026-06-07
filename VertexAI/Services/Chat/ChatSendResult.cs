@@ -5,4 +5,5 @@ public sealed record ChatSendResult(
     string Content,
     string? ThinkingContent,
     bool Succeeded,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    List<SearchCitation>? Citations = null);

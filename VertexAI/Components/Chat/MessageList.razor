@@ -41,6 +41,7 @@
                 ThinkingContent="@msg.ThinkingContent"
                 IsStreaming="@msg.IsStreaming"
                 Attachments="@msg.Attachments"
+                Citations="@msg.Citations"
                 OnImageClick="OnImageClick"
                 MarkdownHtml="@(msg.IsUser ? "" : Markdown.ToHtml(msg.Content))" />
         }

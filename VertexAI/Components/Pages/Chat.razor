@@ -90,6 +90,8 @@ else
                 IsLoading="@_isLoading"
                 PendingImages="@_pendingImages"
                 PendingImagesChanged="@((images) => _pendingImages = images)"
+                EnableSearch="@_enableSearch"
+                EnableSearchChanged="@((v) => _enableSearch = v)"
                 OnFilesSelected="HandleFilesSelected"
                 OnSendMessage="SendMessage" />
         </div>

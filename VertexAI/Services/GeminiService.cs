@@ -35,15 +35,9 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     public ThinkingLevel CurrentThinkingLevel => _thinkingLevel;
     public string CurrentModelName => _modelName;
 
-    // 预设列表（向后兼容）
-    public static List<SystemPromptPreset> Presets => SystemPromptPresets.All;
-    public static IReadOnlyList<GeminiModelOption> ModelOptions { get; } =
-    [
-        new("Gemini 3.5 Flash", "gemini-3.5-flash", "旗舰速度模型，提供极佳的响应速度与多模态能力"),
-        new("Gemini 3.1 Flash Lite", "gemini-3.1-flash-lite", "超低延迟、极度轻量级，适合日常高频交互"),
-        new("Gemini 3 Flash (Preview)", "gemini-3-flash-preview", "第三代快速原型预览，均衡的多模态多任务模型"),
-        new("Gemini 3.1 Pro (Preview)", "gemini-3.1-pro-preview", "深度推理版预览，适合复杂的代码逻辑和长文本深度思考")
-    ];
+    // 预设列表与模型选项（已从 appsettings.json 配置解耦并动态加载）
+    public List<PresetItemConfig> Presets { get; } = [];
+    public IReadOnlyList<GeminiModelOption> ModelOptions { get; } = [];
 
     public GeminiService(IOptions<GeminiSettings> settings, ILogger<GeminiService> logger)
     {
@@ -51,7 +45,35 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         var config = settings.Value;
         _projectId = config.ProjectId;
         _modelName = config.ModelName;
-        _currentSystemPrompt = config.SystemPrompt ?? SystemPromptPresets.All[0].Prompt;
+
+        // 绑定并初始化动态配置的 Presets
+        Presets = config.Presets ?? [];
+        if (Presets.Count == 0)
+        {
+            Presets = SystemPromptPresets.All.Select(p => new PresetItemConfig
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Prompt = p.Prompt,
+                Description = p.Description ?? ""
+            }).ToList();
+        }
+
+        // 绑定并初始化动态配置的 ModelOptions
+        ModelOptions = config.Models ?? [];
+        if (ModelOptions.Count == 0)
+        {
+            ModelOptions = new List<GeminiModelOption>
+            {
+                new() { Name = "Gemini 3.5 Flash", ModelName = "gemini-3.5-flash", Description = "旗舰速度模型，提供极佳的响应速度与多模态能力", SupportsThinking = false, MaxTokens = 1048576 },
+                new() { Name = "Gemini 3.1 Flash Lite", ModelName = "gemini-3.1-flash-lite", Description = "超低延迟、极度轻量级，适合日常高频交互", SupportsThinking = false, MaxTokens = 1048576 },
+                new() { Name = "Gemini 3 Flash (Preview)", ModelName = "gemini-3-flash-preview", Description = "第三代快速原型预览，均衡的多模态多任务模型", SupportsThinking = false, MaxTokens = 1048576 },
+                new() { Name = "Gemini 3.1 Pro (Preview)", ModelName = "gemini-3.1-pro-preview", Description = "深度推理版预览，适合复杂的代码逻辑和长文本深度思考", SupportsThinking = true, MaxTokens = 2097152 }
+            };
+        }
+
+        var defaultPreset = Presets.FirstOrDefault(p => p.Id == "default") ?? Presets.FirstOrDefault();
+        _currentSystemPrompt = config.SystemPrompt ?? defaultPreset?.Prompt ?? "";
 
         // 初始化 Vertex AI 客户端
         _client = new Client(
@@ -77,9 +99,10 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     {
         _currentPresetId = presetId;
 
+        var matchedPreset = Presets.FirstOrDefault(p => p.Id == presetId);
         _currentSystemPrompt = presetId == "custom" && !string.IsNullOrWhiteSpace(customPrompt)
             ? customPrompt
-            : SystemPromptPresets.GetById(presetId).Prompt;
+            : matchedPreset?.Prompt ?? "";
 
         _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
         ClearHistory();
@@ -117,14 +140,30 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// </summary>
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage)
     {
-        var parts = new List<Part> { new Part { Text = userMessage } };
-        return StreamChatAsync(parts);
+        return StreamChatAsync(userMessage, false);
     }
 
     /// <summary>
-    /// 流式发送消息并返回响应（多模态：文本+图片）
+    /// 流式发送消息并返回响应（纯文本，可选联网搜索）
     /// </summary>
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage, bool enableSearch)
+    {
+        var parts = new List<Part> { new Part { Text = userMessage } };
+        return StreamChatAsync(parts, enableSearch);
+    }
+
+    /// <summary>
+    /// 兼容接口：流式发送消息并返回响应（多模态：文本+图片）
+    /// </summary>
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts)
+    {
+        return StreamChatAsync(userParts, false);
+    }
+
+    /// <summary>
+    /// 流式发送消息并返回响应（多模态：文本+图片，包含 Google 联网搜索支持）
+    /// </summary>
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts, bool enableSearch)
     {
         EnsureConfigured();
 
@@ -137,8 +176,8 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         var hasImage = userParts.Any(p => p.InlineData != null);
 
         _logger.LogInformation(
-            "Chat 请求开始, MessageLength={Length}, HasImage={HasImage}, ThinkingLevel={Level}, PresetId={Preset}",
-            textPart.Length, hasImage, thinkingLevel, _currentPresetId);
+            "Chat 请求开始, MessageLength={Length}, HasImage={HasImage}, ThinkingLevel={Level}, PresetId={Preset}, EnableSearch={EnableSearch}",
+            textPart.Length, hasImage, thinkingLevel, _currentPresetId, enableSearch);
 
         // 添加用户消息
         _historyManager.AddUserMessage(userParts);
@@ -153,21 +192,69 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         var responseBuilder = new System.Text.StringBuilder();
         var thinkingBuilder = new System.Text.StringBuilder();
 
+        // 动态克隆或构建本次请求的 Config，不污染全局的 _config 实例，保障线程安全性
+        var requestConfig = new GenerateContentConfig
+        {
+            SystemInstruction = _config.SystemInstruction,
+            ThinkingConfig = _config.ThinkingConfig,
+            MaxOutputTokens = _config.MaxOutputTokens,
+            Temperature = _config.Temperature,
+            TopP = _config.TopP,
+            SafetySettings = _config.SafetySettings
+        };
+
+        if (enableSearch)
+        {
+            requestConfig.Tools = new List<Tool>
+            {
+                new Tool { GoogleSearch = new GoogleSearch() }
+            };
+        }
+
         await foreach (var response in _client.Models.GenerateContentStreamAsync(
             model: _modelName,
             contents: contentsToSend,
-            config: _config))
+            config: requestConfig))
         {
             if (response.Candidates is not { Count: > 0 }) continue;
 
             var candidate = response.Candidates[0];
             var parts = candidate.Content?.Parts;
 
+            // 提取 Grounding 引用信息 (Google Search Citations)
+            List<SearchCitation>? citations = null;
+            if (candidate.GroundingMetadata?.GroundingChunks != null)
+            {
+                foreach (var chunkItem in candidate.GroundingMetadata.GroundingChunks)
+                {
+                    if (chunkItem.Web != null)
+                    {
+                        citations ??= new List<SearchCitation>();
+                        citations.Add(new SearchCitation
+                        {
+                            Title = chunkItem.Web.Title ?? "",
+                            Uri = chunkItem.Web.Uri ?? ""
+                        });
+                    }
+                }
+            }
+
+            if (parts == null && citations != null)
+            {
+                yield return new ChatChunk
+                {
+                    Text = "",
+                    IsThinking = false,
+                    Citations = citations
+                };
+                continue;
+            }
+
             if (parts == null) continue;
 
             foreach (var part in parts)
             {
-                if (string.IsNullOrEmpty(part.Text)) continue;
+                if (string.IsNullOrEmpty(part.Text) && citations == null) continue;
 
                 // 累积内容
                 if (part.Thought == true)
@@ -181,9 +268,13 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
                 yield return new ChatChunk
                 {
-                    Text = part.Text,
-                    IsThinking = part.Thought == true
+                    Text = part.Text ?? "",
+                    IsThinking = part.Thought == true,
+                    Citations = citations
                 };
+
+                // 每次用完，把 citations 清空以防后续重复发送
+                citations = null;
             }
         }
 
@@ -193,7 +284,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         {
             var responseParts = new List<Part> { new Part { Text = responseText } };
 
-            // 如果有 thinking 内容，也加入（用于更准确的 Token 计数）
+            // 如果有 thinking内容，也加入（用于更准确的 Token 计数）
             var thinkingText = thinkingBuilder.ToString();
             if (!string.IsNullOrEmpty(thinkingText))
             {

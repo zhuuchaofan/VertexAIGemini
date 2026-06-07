@@ -1,3 +1,5 @@
+using VertexAI.Services;
+
 namespace VertexAI.Components.Chat;
 
 /// <summary>
@@ -14,6 +16,11 @@ public class ChatMessageModel
     /// 附加的图片列表
     /// </summary>
     public List<ImageAttachment>? Attachments { get; set; }
+
+    /// <summary>
+    /// 来源引用
+    /// </summary>
+    public List<SearchCitation>? Citations { get; set; }
 }
 
 /// <summary>

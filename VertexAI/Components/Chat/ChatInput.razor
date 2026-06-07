@@ -22,6 +22,15 @@
                 </svg>
             </label>
 
+            @* 连网搜索 Toggle 开关 *@
+            <button type="button" @onclick="ToggleSearch"
+                    class="h-9 w-9 rounded-xl cursor-pointer transition-all flex items-center justify-center flex-shrink-0 @(EnableSearch ? "bg-emerald-100 text-emerald-800 shadow-inner ring-1 ring-emerald-200/50" : "text-slate-500 hover:text-slate-800 hover:bg-slate-200/60")"
+                    title="开启连网搜索">
+                <svg class="w-5 h-5 @(EnableSearch ? "animate-[spin_15s_linear_infinite] text-emerald-600" : "")" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.905 0-5.62-.515-8.129-1.418m16.258 0A11.947 11.947 0 0112 21c-2.905 0-5.62-.515-8.129-1.418" />
+                </svg>
+            </button>
+
             <div class="flex-1 min-w-0">
                 <textarea @ref="_textareaRef"
                           @bind="BoundValue"
@@ -75,6 +84,12 @@
     [Parameter] public EventCallback<string> InputValueChanged { get; set; }
     [Parameter] public bool IsLoading { get; set; }
     [Parameter] public EventCallback OnSendMessage { get; set; }
+
+    /// <summary>
+    /// 是否开启连网搜索
+    /// </summary>
+    [Parameter] public bool EnableSearch { get; set; }
+    [Parameter] public EventCallback<bool> EnableSearchChanged { get; set; }
 
     /// <summary>
     /// 待发送的图片列表
@@ -184,6 +199,11 @@
     {
         _errorMessage = message;
         StateHasChanged();
+    }
+
+    private async Task ToggleSearch()
+    {
+        await EnableSearchChanged.InvokeAsync(!EnableSearch);
     }
 
     private async Task OnSend()

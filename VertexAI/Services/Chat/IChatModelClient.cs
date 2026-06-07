@@ -8,5 +8,5 @@ public interface IChatModelClient
     string CurrentPresetId { get; }
     string CurrentCustomPrompt { get; }
 
-    IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts);
+    IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts, bool enableSearch = false);
 }

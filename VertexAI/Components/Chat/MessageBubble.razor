@@ -49,6 +49,30 @@
                 }
             </div>
 
+            @* 连网搜索来源引用 *@
+            @if (Citations?.Count > 0)
+            {
+                <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-2 animate-[fadeIn_0.3s_ease-out]">
+                    <span class="text-xs text-slate-400 font-medium flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                        来源引用:
+                    </span>
+                    @foreach (var cite in Citations)
+                    {
+                        <a href="@cite.Uri" target="_blank" rel="noopener noreferrer"
+                           class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 rounded-full text-xs text-slate-600 font-medium transition-all max-w-[200px] truncate"
+                           title="@cite.Title">
+                            <span class="truncate">@cite.Title</span>
+                            <svg class="w-2.5 h-2.5 flex-shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                    }
+                </div>
+            }
+
             @* 复制按钮 - AI 消息专属 *@
             @if (!IsStreaming && !string.IsNullOrEmpty(Content))
             {
@@ -94,6 +118,7 @@
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string MarkdownHtml { get; set; } = "";
     [Parameter] public List<ImageAttachment>? Attachments { get; set; }
+    [Parameter] public List<SearchCitation>? Citations { get; set; }
     [Parameter] public EventCallback<string> OnImageClick { get; set; }
 
     private bool _copied;
