@@ -112,6 +112,7 @@ public class AuthWorkflowService
         _cookies.SignIn(context, session.Token);
         _rateLimiter.Reset(context);
 
+        _logger.LogInformation("[DEV-FALLBACK] 新注册用户。激活链接: http://localhost:8880/verify-email?token={Token}", user.VerificationToken);
         SendVerificationEmailInBackground(user.Email, user.VerificationToken);
 
         return AuthWorkflowResult.Ok(user: ToUserInfo(user));
@@ -170,6 +171,7 @@ public class AuthWorkflowService
             await db.SaveChangesAsync();
 
             _logger.LogInformation("Password reset token generated, Email={Email}", email);
+            _logger.LogInformation("[DEV-FALLBACK] 找回密码请求。重置密码链接: http://localhost:8880/login?mode=reset&token={Token}", user.PasswordResetToken);
             SendPasswordResetEmailInBackground(user.Email, user.PasswordResetToken);
         }
 

@@ -12,7 +12,7 @@ public class SmtpSettings
     public int Port { get; set; } = 587;
     public string User { get; set; } = "";
     public string Password { get; set; } = "";
-    public string FromName { get; set; } = "Gemini Chat";
+    public string FromName { get; set; } = "Antigravity Studio";
     public string BaseUrl { get; set; } = "http://localhost:8880";
 }
 
@@ -36,13 +36,13 @@ public class EmailService
     public async Task<bool> SendVerificationEmailAsync(string toEmail, string token)
     {
         var verifyUrl = $"{_settings.BaseUrl}/verify-email?token={Uri.EscapeDataString(token)}";
-        var subject = "验证您的邮箱 - Gemini Chat";
+        var subject = "验证您的邮箱 - Antigravity Studio";
         var body = BuildEmailTemplate(
             "验证您的邮箱",
-            "感谢您注册 Gemini Chat！请点击下方按钮验证您的邮箱地址。",
+            "感谢您注册 Antigravity Studio！请点击下方按钮验证您的邮箱地址。",
             "验证邮箱",
             verifyUrl,
-            "此链接将在 24 小时后失效。如果您没有注册过 Gemini Chat，请忽略此邮件。"
+            "此链接将在 24 小时后失效。如果您没有注册过 Antigravity Studio，请忽略此邮件。"
         );
 
         return await SendEmailAsync(toEmail, subject, body);
@@ -54,7 +54,7 @@ public class EmailService
     public async Task<bool> SendPasswordResetEmailAsync(string toEmail, string token)
     {
         var resetUrl = $"{_settings.BaseUrl}/login?mode=reset&token={Uri.EscapeDataString(token)}";
-        var subject = "重置您的密码 - Gemini Chat";
+        var subject = "重置您的密码 - Antigravity Studio";
         var body = BuildEmailTemplate(
             "重置您的密码",
             "我们收到了重置您密码的请求。请点击下方按钮设置新密码。",

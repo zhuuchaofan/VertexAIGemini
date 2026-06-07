@@ -46,18 +46,46 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         _projectId = config.ProjectId;
         _modelName = config.ModelName;
 
-        // 绑定并初始化动态配置的 Presets
-        Presets = config.Presets ?? [];
-        if (Presets.Count == 0)
+        // 动态合并并初始化 Presets (基础内置预设 + appsettings 扩展/覆盖配置)
+        var basePresets = SystemPromptPresets.All.Select(p => new PresetItemConfig
         {
-            Presets = SystemPromptPresets.All.Select(p => new PresetItemConfig
+            Id = p.Id,
+            Name = p.Name,
+            Prompt = p.Prompt,
+            Description = p.Description ?? ""
+        }).ToList();
+
+        if (config.Presets != null && config.Presets.Count > 0)
+        {
+            foreach (var cfgPreset in config.Presets)
             {
-                Id = p.Id,
-                Name = p.Name,
-                Prompt = p.Prompt,
-                Description = p.Description ?? ""
-            }).ToList();
+                var existing = basePresets.FirstOrDefault(p => p.Id == cfgPreset.Id);
+                if (existing != null)
+                {
+                    existing.Name = cfgPreset.Name;
+                    existing.Prompt = cfgPreset.Prompt;
+                    if (!string.IsNullOrWhiteSpace(cfgPreset.Description))
+                    {
+                        existing.Description = cfgPreset.Description;
+                    }
+                }
+                else
+                {
+                    // 插入到 "custom" 之前以保持自定义在最后
+                    var customIdx = basePresets.FindIndex(p => p.Id == "custom");
+                    if (customIdx >= 0)
+                    {
+                        basePresets.Insert(customIdx, cfgPreset);
+                    }
+                    else
+                    {
+                        basePresets.Add(cfgPreset);
+                    }
+                }
+            }
         }
+
+        Presets = basePresets;
 
         // 绑定并初始化动态配置的 ModelOptions
         ModelOptions = config.Models ?? [];

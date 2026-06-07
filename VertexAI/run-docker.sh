@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Gemini Chat Docker Compose 一键部署脚本
+# Antigravity Studio Docker Compose 一键部署脚本
 # 用法: ./run-docker.sh [--down] [--logs]
 
 GCP_KEY_PATH="${GCP_KEY_PATH:-./GCPKey/copper-affinity-467409-k7-9f51b539bf0f.json}"
@@ -39,7 +39,7 @@ esac
 
 echo ""
 echo "========================================="
-echo " Gemini Chat 已启动"
+echo "       Antigravity Studio 已启动"
 echo "========================================="
 echo " 访问: http://localhost:8880"
 echo ""

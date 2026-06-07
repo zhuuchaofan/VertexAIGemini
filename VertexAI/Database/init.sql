@@ -1,4 +1,4 @@
--- PostgreSQL bootstrap script for Gemini Chat.
+-- PostgreSQL bootstrap script for Antigravity Studio.
 -- Run this manually only when you need to prepare an external database.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

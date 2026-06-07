@@ -1,4 +1,4 @@
-// Gemini Chat - Auth Helper
+// Antigravity Studio - Auth Helper
 // 用于在浏览器端发起认证请求，以正确处理 HttpOnly Cookie
 
 window.authFetch = async function (endpoint, email, password) {

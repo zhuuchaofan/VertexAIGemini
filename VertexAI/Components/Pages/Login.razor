@@ -9,10 +9,10 @@
         <div class="bg-white rounded-xl shadow-sm p-6 sm:p-8 border border-slate-200">
             <div class="text-center mb-8">
                 <div class="w-12 h-12 rounded-xl bg-slate-950 text-white flex items-center justify-center mx-auto mb-4">
-                    <span class="font-semibold">G</span>
+                    <span class="font-semibold">A</span>
                 </div>
-                <h1 class="text-3xl font-semibold text-slate-950">Gemini Chat</h1>
-                <p class="text-slate-500 mt-2">@ViewTitle</p>
+                <h1 class="text-3xl font-extrabold text-slate-950">AG Studio</h1>
+                <p class="text-slate-400 text-xs mt-2.5">@ViewTitle</p>
             </div>
 
             @if (!string.IsNullOrEmpty(_error))
@@ -55,7 +55,7 @@
                                    @bind="_password"
                                    required
                                    minlength="6"
-                                   placeholder="@(_viewMode == ViewMode.Login ? "输入密码" : "至少 6 个字符，需包含字母和数字")"
+                                   placeholder="输入密码"
                                    class="w-full px-4 py-3 pr-12 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 text-slate-700 transition-all" />
                             <button type="button"
                                     @onclick="() => _showPassword = !_showPassword"
@@ -77,12 +77,7 @@
                                 }
                             </button>
                         </div>
-                        @if (_viewMode == ViewMode.Register && _password.Length > 0)
-                        {
-                            <p class="mt-1.5 text-xs @(_password.Length >= 6 ? "text-emerald-500" : "text-slate-400")">
-                                @_password.Length/6 字符最低要求
-                            </p>
-                        }
+
                     </div>
 
                     <button type="submit"
@@ -165,13 +160,23 @@
             @if (_viewMode == ViewMode.ResetPassword)
             {
                 <form @onsubmit="HandleResetPassword" class="space-y-5">
+                    @if (!string.IsNullOrEmpty(_resetToken) && _success != null && _success.Contains("自动填充"))
+                    {
+                        <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs flex items-center gap-2 animate-pulse shadow-sm">
+                            <svg class="w-4 h-4 text-emerald-600 animate-[spin_5s_linear_infinite] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                            </svg>
+                            <span>@_success</span>
+                        </div>
+                    }
+
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1.5">重置码</label>
                         <input type="text"
                                @bind="_resetToken"
                                required
-                               placeholder="粘贴您收到的重置码"
-                               class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 text-slate-700 transition-all font-mono text-sm" />
+                               placeholder="重置码"
+                               class="w-full px-4 py-3 bg-slate-50 border @(!string.IsNullOrEmpty(_resetToken) && _success != null && _success.Contains("自动填充") ? "border-emerald-400 ring-2 ring-emerald-400/20 bg-emerald-50/10" : "border-slate-200") rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 text-slate-700 transition-all font-mono text-sm" />
                     </div>
 
                     <div>
@@ -180,7 +185,7 @@
                                @bind="_newPassword"
                                required
                                minlength="6"
-                               placeholder="至少 6 个字符，需包含字母和数字"
+                               placeholder="新密码"
                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 text-slate-700 transition-all" />
                     </div>
 
@@ -190,7 +195,7 @@
                                @bind="_confirmPassword"
                                required
                                minlength="6"
-                               placeholder="再次输入新密码"
+                               placeholder="再次输入"
                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-slate-400 text-slate-700 transition-all" />
                     </div>
 
@@ -221,9 +226,6 @@
             }
         </div>
 
-        <p class="mt-6 text-center text-slate-400 text-sm">
-            基于 Vertex AI Gemini 构建
-        </p>
     </div>
 </div>
 
@@ -256,9 +258,9 @@
 
     private string ViewTitle => _viewMode switch
     {
-        ViewMode.Login => "登录您的账户",
-        ViewMode.Register => "创建新账户",
-        ViewMode.ForgotPassword => "重置密码",
+        ViewMode.Login => "登录",
+        ViewMode.Register => "注册",
+        ViewMode.ForgotPassword => "密码重置",
         ViewMode.ResetPassword => "设置新密码",
         _ => ""
     };
@@ -270,7 +272,29 @@
         if (Auth.IsAuthenticated)
         {
             Navigation.NavigateTo("/");
+            return;
         }
+
+        // 解析 URL 参数实现自动跳转与填充
+        try
+        {
+            var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var mode = query["mode"];
+            var token = query["token"];
+
+            if (mode == "reset" && !string.IsNullOrEmpty(token))
+            {
+                _viewMode = ViewMode.ResetPassword;
+                _resetToken = token;
+                _success = "✨ 已自动填充重置码";
+            }
+            else if (mode == "register")
+            {
+                _viewMode = ViewMode.Register;
+            }
+        }
+        catch (Exception) { /* 忽略预渲染或解析异常 */ }
     }
 
     private async Task HandleSubmit()

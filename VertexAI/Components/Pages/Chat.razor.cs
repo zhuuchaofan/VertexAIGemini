@@ -65,6 +65,18 @@ public partial class Chat : ComponentBase
     {
         if (firstRender)
         {
+            // 检测是否为移动端视口，如果是，则默认关闭侧边栏以避免挤占或遮挡空间
+            try
+            {
+                var isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth < 768");
+                if (isMobile)
+                {
+                    _showSidebar = false;
+                    StateHasChanged();
+                }
+            }
+            catch (Exception) { /* 忽略 SSR/预渲染期间 JS 报错 */ }
+
             // 从 localStorage 恢复思考模式设置
             await RestoreThinkingLevelAsync();
             await RestoreModelAsync();

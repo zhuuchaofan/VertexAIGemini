@@ -11,7 +11,7 @@ Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
     .WriteTo.File(
-        path: "logs/gemini-chat-.json",
+        path: "logs/antigravity-studio-.json",
         rollingInterval: RollingInterval.Day,
         formatter: new Serilog.Formatting.Compact.CompactJsonFormatter())
     .CreateLogger();
@@ -27,7 +27,7 @@ try
     await app.InitializeVertexApplicationAsync();
     app.UseVertexPipeline();
 
-    Log.Information("Gemini Chat started");
+    Log.Information("Antigravity Studio started");
     app.Run();
 }
 catch (Exception ex)
