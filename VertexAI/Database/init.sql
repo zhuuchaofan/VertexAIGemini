@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(200),
+    provider_id VARCHAR(50) NOT NULL DEFAULT 'gemini',
+    model_name VARCHAR(100) NOT NULL DEFAULT '',
     preset_id VARCHAR(50) NOT NULL DEFAULT 'default',
     custom_prompt TEXT,
     history_summary TEXT,
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role VARCHAR(20) NOT NULL,
     content TEXT NOT NULL,
     thinking_content TEXT,
+    attachments_json TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

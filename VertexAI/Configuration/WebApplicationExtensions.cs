@@ -36,7 +36,11 @@ public static class WebApplicationExtensions
         }
 
         app.UseStaticFiles();
-        app.UseAntiforgery();
+
+        if (ShouldEnableLegacyBlazor(app.Configuration))
+        {
+            app.UseAntiforgery();
+        }
 
         app.MapHealthChecks("/health/live", new()
         {
@@ -48,13 +52,22 @@ public static class WebApplicationExtensions
         });
 
         app.MapAuthEndpoints();
+        app.MapChatEndpoints();
+        app.MapConversationEndpoints();
+        app.MapWorkspaceEndpoints();
         app.MapExportEndpoints();
 
-        app.MapRazorComponents<App>()
-            .AddInteractiveServerRenderMode();
+        if (ShouldEnableLegacyBlazor(app.Configuration))
+        {
+            app.MapRazorComponents<App>()
+                .AddInteractiveServerRenderMode();
+        }
 
         return app;
     }
+
+    private static bool ShouldEnableLegacyBlazor(IConfiguration configuration) =>
+        configuration.GetValue("Workspace:EnableLegacyBlazor", true);
 
     private static bool ShouldUseHttpsRedirection(IConfiguration configuration)
     {

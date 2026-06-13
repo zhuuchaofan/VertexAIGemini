@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Components;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
 using VertexAI.Services.Auth;
@@ -10,11 +11,13 @@ namespace VertexAI.Services;
 /// 本地认证服务 - 基于 PostgreSQL + BCrypt 密码哈希 + HttpOnly Cookie 持久化
 /// 注意：此服务现在只维护当前用户状态，实际的登录/登出由 API 端点完成
 /// </summary>
-public class AuthService
+public class AuthService : IDisposable
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IAuthCookieService _cookies;
+    private readonly PersistentComponentState _persistentState;
+    private readonly PersistingComponentStateSubscription _subscription;
     private readonly ILogger<AuthService> _logger;
     private CurrentUser _currentUser = new();
 
@@ -27,12 +30,29 @@ public class AuthService
         IDbContextFactory<AppDbContext> dbFactory,
         IHttpContextAccessor httpContextAccessor,
         IAuthCookieService cookies,
+        PersistentComponentState persistentState,
         ILogger<AuthService> logger)
     {
         _dbFactory = dbFactory;
         _httpContextAccessor = httpContextAccessor;
         _cookies = cookies;
+        _persistentState = persistentState;
         _logger = logger;
+
+        _subscription = _persistentState.RegisterOnPersisting(PersistData);
+    }
+
+    private Task PersistData()
+    {
+        if (IsAuthenticated)
+        {
+            _persistentState.PersistAsJson("currentUser", new UserInfo(
+                _currentUser.Id,
+                _currentUser.Email,
+                _currentUser.EmailVerified
+            ));
+        }
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -42,10 +62,20 @@ public class AuthService
     {
         try
         {
+            // 1. 优先从持久化组件状态中获取已保存的会话（交互式阶段接管）
+            if (_persistentState.TryTakeFromJson<UserInfo>("currentUser", out var userInfo) && userInfo != null)
+            {
+                SetAuthenticatedUser(userInfo);
+                _logger.LogInformation("会话已从持久化组件状态成功恢复, UserId={UserId}, Email={Email}",
+                    userInfo.Id, userInfo.Email);
+                return;
+            }
+
+            // 2. 如果不存在持久化状态，再通过 Cookie 与数据库进行鉴权（预渲染阶段）
             var httpContext = _httpContextAccessor.HttpContext;
             if (httpContext == null)
             {
-                _logger.LogDebug("HttpContext 不可用 (SignalR 连接后期)");
+                _logger.LogDebug("HttpContext 不可用 (SignalR 连接后期且未找到持久化状态)");
                 return;
             }
 
@@ -64,7 +94,7 @@ public class AuthService
             if (session?.User != null)
             {
                 SetCurrentUser(session.User);
-                _logger.LogInformation("会话恢复成功, UserId={UserId}, Email={Email}",
+                _logger.LogInformation("会话从 Cookie 恢复成功, UserId={UserId}, Email={Email}",
                     session.User.Id, session.User.Email);
             }
             else
@@ -121,6 +151,11 @@ public class AuthService
             IsAuthenticated = true
         };
         OnAuthStateChanged?.Invoke();
+    }
+
+    public void Dispose()
+    {
+        _subscription.Dispose();
     }
 }
 

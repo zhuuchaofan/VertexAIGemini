@@ -27,6 +27,12 @@ public static class DatabaseInitializer
     {
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS token_count INTEGER DEFAULT 0");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS provider_id VARCHAR(50) NOT NULL DEFAULT 'gemini'");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS model_name VARCHAR(100) NOT NULL DEFAULT ''");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments_json TEXT");
 
         await db.Database.ExecuteSqlRawAsync("""
             DO $$

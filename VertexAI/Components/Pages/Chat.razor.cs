@@ -16,7 +16,7 @@ public partial class Chat : ComponentBase
     private readonly List<ChatMessageModel> _messages = [];
     private List<ConversationItem> _conversationItems = [];
     private List<PresetItem> _presetItems = [];
-    private List<GeminiModelOption> _modelItems = [];
+    private List<ChatModelOption> _modelItems = [];
     private List<ImageAttachment> _pendingImages = new();
     private Guid? _currentConversationId;
     private string _inputMessage = "";

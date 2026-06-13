@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
 using VertexAI.Services;
+using VertexAI.Services.Auth;
+using VertexAI.Services.Chat;
 
 namespace VertexAI.Api;
 
@@ -22,9 +24,9 @@ public static class ExportEndpoints
         Guid conversationId,
         HttpContext httpContext,
         IDbContextFactory<AppDbContext> dbFactory,
-        AuthService authService)  // 这里的 AuthService 仅用于获取辅助方法，实际认证看 Cookie
+        IAuthCookieService cookies)
     {
-        var user = await GetUserFromCookieAsync(httpContext, dbFactory);
+        var user = await GetUserFromCookieAsync(httpContext, dbFactory, cookies);
         if (user == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
@@ -39,18 +41,29 @@ public static class ExportEndpoints
 
         var sb = new StringBuilder();
         sb.AppendLine($"# {conversation.Title ?? "未命名对话"}");
-        sb.AppendLine($"> 导出时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss} | 模型: {conversation.PresetId}");
+        sb.AppendLine($"> 导出时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss} | 提供商: {conversation.ProviderId} | 模型: {conversation.ModelName} | 预设: {conversation.PresetId}");
         sb.AppendLine();
         sb.AppendLine("---");
         sb.AppendLine();
 
         foreach (var msg in conversation.Messages.OrderBy(m => m.CreatedAt))
         {
-            var roleName = msg.Role == "user" ? "**用户**" : "**Gemini**";
+            var roleName = msg.Role == "user" ? "**用户**" : "**助手**";
+            var attachments = DeserializeAttachments(msg.AttachmentsJson);
             sb.AppendLine($"{roleName}:");
             sb.AppendLine();
             sb.AppendLine(msg.Content);
             sb.AppendLine();
+
+            if (attachments.Count > 0)
+            {
+                sb.AppendLine($"> 附件: {attachments.Count} 张图片");
+                foreach (var attachment in attachments)
+                {
+                    sb.AppendLine($"> - {attachment.FileName} ({attachment.MimeType})");
+                }
+                sb.AppendLine();
+            }
 
             if (!string.IsNullOrWhiteSpace(msg.ThinkingContent))
             {
@@ -76,9 +89,10 @@ public static class ExportEndpoints
     private static async Task<IResult> ExportJsonAsync(
         Guid conversationId,
         HttpContext httpContext,
-        IDbContextFactory<AppDbContext> dbFactory)
+        IDbContextFactory<AppDbContext> dbFactory,
+        IAuthCookieService cookies)
     {
-        var user = await GetUserFromCookieAsync(httpContext, dbFactory);
+        var user = await GetUserFromCookieAsync(httpContext, dbFactory, cookies);
         if (user == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
@@ -99,23 +113,23 @@ public static class ExportEndpoints
         };
 
         // 构造一个导出对象，包含元数据
-        var exportData = new
-        {
-            Metadata = new
-            {
-                Title = conversation.Title,
-                ExportedAt = DateTime.UtcNow,
-                TokenCount = conversation.TokenCount,
-                PresetId = conversation.PresetId
-            },
-            Messages = conversation.Messages.OrderBy(m => m.CreatedAt).Select(m => new
-            {
-                m.Role,
-                m.Content,
-                m.ThinkingContent,
-                m.CreatedAt
-            })
-        };
+        var exportData = new ExportConversationResponse(
+            new ExportMetadata(
+                conversation.Title,
+                DateTime.UtcNow,
+                conversation.TokenCount,
+                conversation.ProviderId,
+                conversation.ModelName,
+                conversation.PresetId),
+            conversation.Messages
+                .OrderBy(m => m.CreatedAt)
+                .Select(m => new ExportMessage(
+                    m.Role,
+                    m.Content,
+                    m.ThinkingContent,
+                    DeserializeAttachments(m.AttachmentsJson),
+                    m.CreatedAt))
+                .ToList());
 
         var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(exportData, options);
         var fileName = SanitizeFileName($"{conversation.Title ?? "conversation"}_{DateTime.Now:yyyyMMdd}.json");
@@ -123,11 +137,30 @@ public static class ExportEndpoints
         return Results.File(jsonBytes, "application/json", fileName);
     }
 
-    // 辅助方法：从 Cookie 获取用户（复用 AuthEndpoints 的逻辑或直接查库）
-    // 为了保持 Minimal API 的独立性，这里简单重新实现一个基于 Cookie 的查找
-    private static async Task<User?> GetUserFromCookieAsync(HttpContext context, IDbContextFactory<AppDbContext> dbFactory)
+    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
     {
-        if (!context.Request.Cookies.TryGetValue("gemini_auth", out var token)) return null;
+        if (string.IsNullOrWhiteSpace(attachmentsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static async Task<User?> GetUserFromCookieAsync(
+        HttpContext context,
+        IDbContextFactory<AppDbContext> dbFactory,
+        IAuthCookieService cookies)
+    {
+        var token = cookies.ReadSessionToken(context);
+        if (string.IsNullOrWhiteSpace(token)) return null;
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var session = await db.Sessions
@@ -141,4 +174,23 @@ public static class ExportEndpoints
     {
         return string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
     }
+
+    private sealed record ExportConversationResponse(
+        ExportMetadata Metadata,
+        IReadOnlyList<ExportMessage> Messages);
+
+    private sealed record ExportMetadata(
+        string? Title,
+        DateTime ExportedAt,
+        int TokenCount,
+        string ProviderId,
+        string ModelName,
+        string PresetId);
+
+    private sealed record ExportMessage(
+        string Role,
+        string Content,
+        string? ThinkingContent,
+        IReadOnlyList<ChatImageAttachment> Attachments,
+        DateTime CreatedAt);
 }

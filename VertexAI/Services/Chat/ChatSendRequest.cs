@@ -5,4 +5,5 @@ public sealed record ChatSendRequest(
     Guid UserId,
     string Message,
     IReadOnlyCollection<ChatImageAttachment> Images,
-    bool EnableSearch = false);
+    bool EnableSearch = false,
+    ChatSessionOptions? Options = null);

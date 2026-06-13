@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
 using VertexAI.Services.Chat;
@@ -71,7 +72,12 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 创建新对话
     /// </summary>
-    public async Task<Conversation?> CreateConversationAsync(Guid userId, string presetId, string? customPrompt = null)
+    public async Task<Conversation?> CreateConversationAsync(
+        Guid userId,
+        string providerId,
+        string modelName,
+        string presetId,
+        string? customPrompt = null)
     {
         if (!_dbAvailable) return null;
 
@@ -81,6 +87,8 @@ public class ConversationService : IConversationStore
             var conversation = new Conversation
             {
                 UserId = userId,
+                ProviderId = providerId,
+                ModelName = modelName,
                 PresetId = presetId,
                 CustomPrompt = customPrompt
             };
@@ -88,8 +96,9 @@ public class ConversationService : IConversationStore
             db.Conversations.Add(conversation);
             await db.SaveChangesAsync();
 
-            _logger.LogInformation("创建对话, ConversationId={ConversationId}, UserId={UserId}, PresetId={PresetId}",
-                conversation.Id, userId, presetId);
+            _logger.LogInformation(
+                "创建对话, ConversationId={ConversationId}, UserId={UserId}, ProviderId={ProviderId}, Model={Model}, PresetId={PresetId}",
+                conversation.Id, userId, providerId, modelName, presetId);
 
             return conversation;
         }
@@ -98,6 +107,51 @@ public class ConversationService : IConversationStore
             _logger.LogError(ex, "创建对话失败, UserId={UserId}", userId);
             _dbAvailable = false;
             return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId)
+    {
+        if (!_dbAvailable) return [];
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var conversationExists = await db.Conversations
+                .AsNoTracking()
+                .AnyAsync(c => c.Id == conversationId && c.UserId == userId);
+
+            if (!conversationExists)
+            {
+                return [];
+            }
+
+            var messages = await db.Messages
+                .Where(m => m.ConversationId == conversationId)
+                .OrderBy(m => m.CreatedAt)
+                .AsNoTracking()
+                .Select(m => new
+                {
+                    m.Role,
+                    m.Content,
+                    m.ThinkingContent,
+                    m.AttachmentsJson
+                })
+                .ToListAsync();
+
+            return messages
+                .Select(m => new ChatHistoryEntry(
+                    m.Role,
+                    m.Content,
+                    m.ThinkingContent,
+                    DeserializeAttachments(m.AttachmentsJson)))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取对话历史失败, ConversationId={ConversationId}, UserId={UserId}", conversationId, userId);
+            _dbAvailable = false;
+            return [];
         }
     }
 
@@ -135,7 +189,8 @@ public class ConversationService : IConversationStore
         Guid userId,
         string role,
         string content,
-        string? thinkingContent = null)
+        string? thinkingContent = null,
+        IReadOnlyCollection<ChatImageAttachment>? attachments = null)
     {
         if (!_dbAvailable) return null;
 
@@ -158,7 +213,10 @@ public class ConversationService : IConversationStore
                 ConversationId = conversationId,
                 Role = role,
                 Content = content,
-                ThinkingContent = thinkingContent
+                ThinkingContent = thinkingContent,
+                AttachmentsJson = attachments is { Count: > 0 }
+                    ? JsonSerializer.Serialize(attachments)
+                    : null
             };
 
             db.Messages.Add(message);
@@ -166,7 +224,11 @@ public class ConversationService : IConversationStore
 
             if (string.IsNullOrEmpty(conversation.Title) && role == "user")
             {
-                conversation.Title = content.Length > 50 ? content[..50] + "..." : content;
+                var fallbackTitle = attachments is { Count: > 0 }
+                    ? $"Image request ({attachments.Count})"
+                    : "Untitled";
+                var titleSource = string.IsNullOrWhiteSpace(content) ? fallbackTitle : content;
+                conversation.Title = titleSource.Length > 50 ? titleSource[..50] + "..." : titleSource;
             }
 
             await db.SaveChangesAsync();
@@ -177,6 +239,23 @@ public class ConversationService : IConversationStore
             _logger.LogError(ex, "添加消息失败, ConversationId={ConversationId}", conversationId);
             _dbAvailable = false;
             return null;
+        }
+    }
+
+    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(attachmentsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 
@@ -289,4 +368,3 @@ public class ConversationService : IConversationStore
         }
     }
 }
-

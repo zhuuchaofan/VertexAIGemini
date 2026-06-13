@@ -16,102 +16,96 @@
 
             @* 模型选择器 *@
             <div class="relative flex-shrink-0">
-                <button @onclick="ToggleModelMenu"
+                <button onclick="window.dropdownHelper.toggle('model-menu', event)"
                         class="h-9 flex items-center gap-2 px-3 bg-slate-950 hover:bg-slate-800 rounded-lg text-white text-xs font-medium transition-all">
-                    <span class="truncate max-w-[116px]">@GetCurrentModelLabel()</span>
+                    <span id="current-model-label" class="truncate max-w-[116px]">@GetCurrentModelLabel()</span>
                     <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-300" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
-                @if (_showModelMenu)
-                {
-                    <div class="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-                        @foreach (var model in Models)
-                        {
-                            <button @onclick="() => SelectModel(model.ModelName)"
-                                    class="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentModelName == model.ModelName ? "bg-slate-50" : "")">
-                                <span class="mt-1 h-2 w-2 rounded-full @(CurrentModelName == model.ModelName ? "bg-emerald-500" : "bg-slate-300")"></span>
-                                <span class="flex-1 min-w-0">
-                                    <span class="block text-sm font-semibold text-slate-800">@model.Name</span>
-                                    <span class="block text-xs text-slate-500 mt-0.5">@model.Description</span>
-                                    <span class="block text-[11px] font-mono text-slate-400 mt-1">@model.ModelName</span>
-                                </span>
-                            </button>
-                        }
-                    </div>
-                }
+                <div id="model-menu" onclick="this.classList.add('hidden')" class="hidden absolute top-full left-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                    @foreach (var model in Models)
+                    {
+                        <button @onclick="() => SelectModel(model.ModelName)"
+                                onpointerdown="window.dropdownHelper.selectModel(this)"
+                                data-model-option
+                                data-model-name="@model.ModelName"
+                                data-model-label="@model.Name"
+                                class="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentModelName == model.ModelName ? "bg-slate-50" : "")">
+                            <span data-model-dot class="mt-1 h-2 w-2 rounded-full @(CurrentModelName == model.ModelName ? "bg-emerald-500" : "bg-slate-300")"></span>
+                            <span class="flex-1 min-w-0">
+                                <span class="block text-sm font-semibold text-slate-800">@model.Name</span>
+                                <span class="block text-xs text-slate-500 mt-0.5">@model.Description</span>
+                                <span class="block text-[11px] font-mono text-slate-400 mt-1">@model.ModelName</span>
+                            </span>
+                        </button>
+                    }
+                </div>
             </div>
 
             @* 预设选择器 *@
             <div class="relative flex-shrink-0">
-                <button @onclick="TogglePresetMenu"
+                <button onclick="window.dropdownHelper.toggle('preset-menu', event)"
                         class="h-9 flex items-center gap-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 text-xs font-medium transition-all">
                     <span class="truncate max-w-[110px]">@CurrentPresetName</span>
                     <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
-                @if (_showPresetMenu)
-                {
-                    <div class="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[60vh] overflow-y-auto">
-                        @foreach (var preset in Presets.Where(p => p.Id != "custom"))
-                        {
-                            <button @onclick="() => SelectPreset(preset.Id)"
-                                    class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentPresetId == preset.Id ? "bg-slate-50" : "")">
-                                <div class="flex-1 min-w-0">
-                                    <div class="font-semibold text-sm text-slate-800">@preset.Name</div>
-                                    <div class="text-xs text-slate-500 truncate">@preset.Description</div>
-                                </div>
-                            </button>
-                        }
-                        <hr class="border-slate-200" />
-                        <button @onclick="OnShowCustomPrompt"
-                                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors">
-                            <div class="flex-1">
-                                <div class="font-semibold text-sm text-slate-800">自定义提示词</div>
+                <div id="preset-menu" onclick="this.classList.add('hidden')" class="hidden absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[60vh] overflow-y-auto">
+                    @foreach (var preset in Presets.Where(p => p.Id != "custom"))
+                    {
+                        <button @onclick="() => SelectPreset(preset.Id)"
+                                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors @(CurrentPresetId == preset.Id ? "bg-slate-50" : "")">
+                            <div class="flex-1 min-w-0">
+                                <div class="font-semibold text-sm text-slate-800">@preset.Name</div>
+                                <div class="text-xs text-slate-500 truncate">@preset.Description</div>
                             </div>
                         </button>
-                    </div>
-                }
+                    }
+                    <hr class="border-slate-200" />
+                    <button @onclick="ShowCustomPrompt"
+                            class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-colors">
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-slate-800">自定义提示词</div>
+                        </div>
+                    </button>
+                </div>
             </div>
 
             @* 思考模式选择器 *@
             <div class="relative flex-shrink-0 hidden sm:block">
-                <button @onclick="ToggleThinkingMenu"
+                <button onclick="window.dropdownHelper.toggle('thinking-menu', event)"
                         class="h-9 flex items-center gap-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 text-xs font-medium transition-all">
                     <span class="truncate max-w-[72px]">@GetThinkingLevelName()</span>
                     <svg class="w-3.5 h-3.5 flex-shrink-0 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
-                @if (_showThinkingMenu)
-                {
-                    <div class="absolute top-full left-0 mt-2 w-40 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-                        @foreach (var level in ThinkingLevels)
-                        {
-                            <button @onclick="() => SelectThinkingLevel(level.Value)"
-                                    class="w-full px-4 py-2.5 text-left hover:bg-slate-50 text-sm transition-colors @(CurrentThinkingLevel == level.Value ? "bg-slate-50 text-slate-950 font-semibold" : "text-slate-600")">
-                                @level.Name
-                            </button>
-                        }
-                    </div>
-                }
+                <div id="thinking-menu" onclick="this.classList.add('hidden')" class="hidden absolute top-full left-0 mt-2 w-40 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                    @foreach (var level in ThinkingLevels)
+                    {
+                        <button @onclick="() => SelectThinkingLevel(level.Value)"
+                                class="w-full px-4 py-2.5 text-left hover:bg-slate-50 text-sm transition-colors @(CurrentThinkingLevel == level.Value ? "bg-slate-50 text-slate-950 font-semibold" : "text-slate-600")">
+                            @level.Name
+                        </button>
+                    }
+                </div>
             </div>
 
             @* 导出按钮 *@
             <div class="relative flex-shrink-0 ml-1 hidden sm:block">
-                <button @onclick="ToggleExportMenu"
+                <button onclick="window.dropdownHelper.toggle('export-menu', event)"
                         class="h-9 w-9 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all flex items-center justify-center"
                         title="导出对话">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                 </button>
-                @if (_showExportMenu)
-                {
-                    <div class="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
-                        <button @onclick="@(() => SelectExport("markdown"))" class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
-                            <span class="font-medium">导出 Markdown</span>
-                        </button>
-                        <button @onclick="@(() => SelectExport("json"))" class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
-                            <span class="font-medium">导出 JSON</span>
-                        </button>
-                    </div>
-                }
+                <div id="export-menu" onclick="this.classList.add('hidden')" class="hidden absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
+                    <button @onclick="@(() => SelectExport("markdown"))"
+                            class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
+                        <span class="font-medium">导出 Markdown</span>
+                    </button>
+                    <button @onclick="@(() => SelectExport("json"))"
+                            class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700 transition-colors">
+                        <span class="font-medium">导出 JSON</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -159,7 +153,7 @@
     [Parameter] public string CurrentPresetName { get; set; } = "默认助手";
     [Parameter] public List<PresetItem> Presets { get; set; } = [];
     [Parameter] public string CurrentModelName { get; set; } = "";
-    [Parameter] public List<GeminiModelOption> Models { get; set; } = [];
+    [Parameter] public List<ChatModelOption> Models { get; set; } = [];
     [Parameter] public ThinkingLevel CurrentThinkingLevel { get; set; }
     [Parameter] public int TokenCount { get; set; }
     [Parameter] public int MaxTokens { get; set; }
@@ -172,10 +166,6 @@
     [Parameter] public EventCallback OnNewChat { get; set; }
     [Parameter] public EventCallback<string> OnExport { get; set; }
 
-    private bool _showPresetMenu;
-    private bool _showModelMenu;
-    private bool _showThinkingMenu;
-    private bool _showExportMenu;
     private bool _dismissedVerifyBanner;
     private bool _resendingEmail;
     private string? _resendMessage;
@@ -188,40 +178,56 @@
         ("高级思考", ThinkingLevel.HIGH)
     ];
 
-    private void ToggleModelMenu() { _showModelMenu = !_showModelMenu; _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
-    private void TogglePresetMenu() { _showPresetMenu = !_showPresetMenu; _showModelMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
-    private void ToggleThinkingMenu() { _showThinkingMenu = !_showThinkingMenu; _showModelMenu = false; _showPresetMenu = false; _showExportMenu = false; }
-    private void ToggleExportMenu() { _showExportMenu = !_showExportMenu; _showModelMenu = false; _showPresetMenu = false; _showThinkingMenu = false; }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("window.dropdownHelper.initGlobalClose");
+            }
+            catch { /* 忽略预渲染或初始化 JS 未加载时的报错 */ }
+        }
+    }
 
     private void SelectModel(string modelName)
     {
         OnSelectModel.InvokeAsync(modelName);
-        _showModelMenu = false;
+        CloseMenus();
     }
 
     private void SelectPreset(string presetId)
     {
         OnSelectPreset.InvokeAsync(presetId);
-        _showPresetMenu = false;
+        CloseMenus();
     }
 
     private void SelectThinkingLevel(ThinkingLevel level)
     {
         OnSelectThinkingLevel.InvokeAsync(level);
-        _showThinkingMenu = false;
+        CloseMenus();
     }
 
     private void SelectExport(string format)
     {
         OnExport.InvokeAsync(format);
-        _showExportMenu = false;
+        CloseMenus();
+    }
+
+    private void ShowCustomPrompt()
+    {
+        OnShowCustomPrompt.InvokeAsync();
+        CloseMenus();
     }
 
     private string GetThinkingLevelName() => ThinkingLevels.FirstOrDefault(l => l.Value == CurrentThinkingLevel).Name ?? "中级思考";
     private string GetCurrentModelLabel() => Models.FirstOrDefault(m => m.ModelName == CurrentModelName)?.Name ?? CurrentModelName;
     private static string FormatTokenCount(int count) => count >= 1000 ? $"{count / 1000}K" : count.ToString();
 
-    public void CloseMenus() { _showModelMenu = false; _showPresetMenu = false; _showThinkingMenu = false; _showExportMenu = false; }
+    public void CloseMenus()
+    {
+        _ = JS.InvokeVoidAsync("window.dropdownHelper.toggle", "", null);
+    }
 
     private record ResendResult(bool Success, string? Error);
 

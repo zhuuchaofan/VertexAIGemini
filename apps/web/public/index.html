@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>球球布丁工作室</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="auth-screen" id="auth-screen">
+      <section class="auth-card" aria-label="账户">
+        <div class="auth-brand">
+          <div class="brand-mark">球</div>
+          <div>
+            <h1>球球布丁工作室</h1>
+            <p>登录后进入聊天工作台</p>
+          </div>
+        </div>
+
+        <div class="segmented" role="tablist">
+          <button id="login-tab" class="active" type="button">登录</button>
+          <button id="register-tab" type="button">注册</button>
+        </div>
+        <form id="auth-form">
+          <label>
+            邮箱
+            <input id="email" name="email" autocomplete="email" type="email" required />
+          </label>
+          <label>
+            密码
+            <input id="password" name="password" autocomplete="current-password" type="password" required />
+          </label>
+          <button id="auth-submit" class="primary" type="submit">登录</button>
+        </form>
+        <p id="auth-message" class="status-line"></p>
+      </section>
+    </main>
+
+    <div class="workspace-shell hidden" id="workspace-shell">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <div class="brand-block">
+            <div class="brand-mark">球</div>
+            <div>
+              <h1>球球布丁工作室</h1>
+              <p id="session-label">未登录</p>
+            </div>
+          </div>
+          <button id="collapse-sidebar" class="icon-button" type="button" title="隐藏侧栏" aria-label="隐藏侧栏">
+            ‹
+          </button>
+        </div>
+
+        <button id="logout-button" class="ghost hidden" type="button">退出登录</button>
+
+        <section class="workspace-settings" aria-label="会话设置">
+          <label>
+            提供商
+            <select id="provider-select"></select>
+          </label>
+          <label>
+            模型
+            <select id="model-select"></select>
+          </label>
+          <label>
+            提示词预设
+            <select id="preset-select"></select>
+          </label>
+          <label id="custom-prompt-label" class="hidden">
+            自定义提示词
+            <textarea id="custom-prompt" rows="4" placeholder="输入本次会话的 system prompt"></textarea>
+          </label>
+          <label class="toggle-row">
+            <input id="enable-search" type="checkbox" />
+            <span>联网搜索</span>
+          </label>
+          <button id="new-chat" class="ghost" type="button">新对话</button>
+        </section>
+
+        <section class="conversation-panel" aria-label="会话">
+          <div class="panel-heading">
+            <h2>会话</h2>
+            <button id="refresh-conversations" class="icon-button" type="button" title="刷新会话">↻</button>
+          </div>
+          <div id="conversation-list" class="conversation-list"></div>
+          <p id="conversation-empty" class="status-line">登录后显示历史会话</p>
+        </section>
+      </aside>
+
+      <main class="chat-surface">
+        <header class="chat-header">
+          <div class="chat-title-row">
+            <button id="expand-sidebar" class="icon-button sidebar-toggle-open" type="button" title="显示侧栏" aria-label="显示侧栏">
+              ›
+            </button>
+            <div>
+              <p class="eyebrow">Model-neutral API client</p>
+              <h2>智能聊天</h2>
+            </div>
+          </div>
+          <div class="connection-state" id="connection-state">API 未连接</div>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite"></section>
+
+        <form id="chat-form" class="composer">
+          <div class="composer-main">
+            <div id="attachment-preview" class="attachment-preview hidden"></div>
+            <textarea
+              id="message-input"
+              rows="1"
+              maxlength="10000"
+              placeholder="输入消息"
+            ></textarea>
+          </div>
+          <div class="composer-actions">
+            <label class="attach-button" title="添加图片">
+              <input id="image-input" type="file" accept="image/*" multiple />
+              <span>＋</span>
+            </label>
+            <button id="send-button" class="send-button" type="submit">发送</button>
+          </div>
+        </form>
+      </main>
+    </div>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-role"></div>
+        <div class="message-attachments hidden"></div>
+        <div class="message-content"></div>
+        <details class="thinking hidden">
+          <summary>思考过程</summary>
+          <pre></pre>
+        </details>
+        <div class="citations hidden"></div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

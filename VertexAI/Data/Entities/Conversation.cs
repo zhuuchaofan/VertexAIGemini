@@ -23,6 +23,18 @@ public class Conversation
     public string? Title { get; set; }
 
     /// <summary>
+    /// 使用的模型提供商 ID
+    /// </summary>
+    [MaxLength(50)]
+    public string ProviderId { get; set; } = "gemini";
+
+    /// <summary>
+    /// 使用的模型名称
+    /// </summary>
+    [MaxLength(100)]
+    public string ModelName { get; set; } = "";
+
+    /// <summary>
     /// 使用的预设 ID
     /// </summary>
     [MaxLength(50)]

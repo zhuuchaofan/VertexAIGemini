@@ -9,20 +9,24 @@ public interface IAuthCookieService
 
 public sealed class AuthCookieService : IAuthCookieService
 {
-    public const string SessionCookieName = "gemini_auth";
+    public const string SessionCookieName = "vertex_auth";
+    public const string LegacySessionCookieName = "gemini_auth";
     private static readonly TimeSpan SessionCookieLifetime = TimeSpan.FromDays(7);
 
     public string? ReadSessionToken(HttpContext context) =>
-        context.Request.Cookies[SessionCookieName];
+        context.Request.Cookies[SessionCookieName]
+        ?? context.Request.Cookies[LegacySessionCookieName];
 
     public void SignIn(HttpContext context, string token)
     {
         context.Response.Cookies.Append(SessionCookieName, token, CreateOptions(context));
+        context.Response.Cookies.Delete(LegacySessionCookieName);
     }
 
     public void SignOut(HttpContext context)
     {
         context.Response.Cookies.Delete(SessionCookieName);
+        context.Response.Cookies.Delete(LegacySessionCookieName);
     }
 
     private static CookieOptions CreateOptions(HttpContext context) => new()

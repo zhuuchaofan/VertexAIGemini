@@ -1,4 +1,4 @@
-using VertexAI.Services;
+using VertexAI.Services.Chat;
 
 namespace VertexAI.Components.Chat;
 
@@ -56,4 +56,3 @@ public class PresetItem
     public string Name { get; set; } = "";
     public string? Description { get; set; }
 }
-

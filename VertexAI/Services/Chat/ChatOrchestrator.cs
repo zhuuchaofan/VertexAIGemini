@@ -5,16 +5,16 @@ namespace VertexAI.Services.Chat;
 
 public class ChatOrchestrator
 {
-    private readonly IChatModelClient _gemini;
+    private readonly IChatProviderCatalog _providers;
     private readonly IConversationStore _conversations;
     private readonly ILogger<ChatOrchestrator> _logger;
 
     public ChatOrchestrator(
-        IChatModelClient gemini,
+        IChatProviderCatalog providers,
         IConversationStore conversations,
         ILogger<ChatOrchestrator> logger)
     {
-        _gemini = gemini;
+        _providers = providers;
         _conversations = conversations;
         _logger = logger;
     }
@@ -23,27 +23,43 @@ public class ChatOrchestrator
         ChatSendRequest request,
         Func<ChatStreamUpdate, Task> onUpdate)
     {
-        var conversationId = await EnsureConversationAsync(request);
-        var message = request.Message.Trim();
-
-        if (conversationId.HasValue)
-        {
-            await _conversations.AddMessageAsync(
-                conversationId.Value,
-                request.UserId,
-                "user",
-                message);
-        }
-
+        IChatModelClient? model = null;
+        Guid? conversationId = request.ConversationId;
         var responseBuilder = new StringBuilder();
         var thinkingBuilder = new StringBuilder();
         var allCitations = new List<SearchCitation>();
 
         try
         {
-            var parts = GeminiPartFactory.CreateParts(message, request.Images);
+            var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
+            model = _providers.CreateClient(providerId);
+            await model.ConfigureAsync(request.Options);
 
-            await foreach (var chunk in _gemini.StreamChatAsync(parts, request.EnableSearch))
+            conversationId = await EnsureConversationAsync(request, providerId, model);
+            var message = request.Message.Trim();
+
+            if (conversationId.HasValue && request.ConversationId.HasValue)
+            {
+                var history = await _conversations.GetHistoryAsync(conversationId.Value, request.UserId);
+                await model.LoadHistoryAsync(history);
+            }
+
+            if (conversationId.HasValue)
+            {
+                await _conversations.AddMessageAsync(
+                    conversationId.Value,
+                    request.UserId,
+                    "user",
+                    message,
+                    attachments: request.Images);
+            }
+
+            var modelRequest = new ChatModelRequest(
+                message,
+                request.Images,
+                request.EnableSearch);
+
+            await foreach (var chunk in model.StreamChatAsync(modelRequest))
             {
                 if (chunk.IsThinking)
                 {
@@ -100,17 +116,20 @@ public class ChatOrchestrator
         }
         finally
         {
-            if (conversationId.HasValue)
+            if (conversationId.HasValue && model != null)
             {
                 await _conversations.UpdateTokenCountAsync(
                     conversationId.Value,
                     request.UserId,
-                    _gemini.CurrentTokenCount);
+                    model.CurrentTokenCount);
             }
         }
     }
 
-    private async Task<Guid?> EnsureConversationAsync(ChatSendRequest request)
+    private async Task<Guid?> EnsureConversationAsync(
+        ChatSendRequest request,
+        string providerId,
+        IChatModelClient model)
     {
         if (request.ConversationId.HasValue)
         {
@@ -119,8 +138,10 @@ public class ChatOrchestrator
 
         var conversation = await _conversations.CreateConversationAsync(
             request.UserId,
-            _gemini.CurrentPresetId,
-            _gemini.CurrentCustomPrompt);
+            providerId,
+            model.CurrentModelName,
+            model.CurrentPresetId,
+            model.CurrentCustomPrompt);
 
         return conversation?.Id;
     }

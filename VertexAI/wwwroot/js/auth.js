@@ -105,3 +105,65 @@ window.downloadFile = (url, fileName) => {
   anchor.click();
   document.body.removeChild(anchor);
 };
+
+// 下拉菜单辅助控制 - 避免 Blazor Server 的 WebSocket 往返延迟导致下拉菜单慢半拍
+window.dropdownHelper = {
+  toggle: function (menuId, event) {
+    if (event) {
+      event.stopPropagation();
+    }
+    const menus = ['model-menu', 'preset-menu', 'thinking-menu', 'export-menu'];
+    menus.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        if (id === menuId) {
+          el.classList.toggle('hidden');
+        } else {
+          el.classList.add('hidden');
+        }
+      }
+    });
+  },
+  selectModel: function (button) {
+    if (!button || !button.dataset) return;
+
+    const modelName = button.dataset.modelName;
+    const modelLabel = button.dataset.modelLabel || modelName;
+    if (!modelName) return;
+
+    const label = document.getElementById('current-model-label');
+    if (label) {
+      label.textContent = modelLabel;
+    }
+
+    document.querySelectorAll('[data-model-option]').forEach(option => {
+      const isSelected = option.dataset.modelName === modelName;
+      option.classList.toggle('bg-slate-50', isSelected);
+
+      const dot = option.querySelector('[data-model-dot]');
+      if (dot) {
+        dot.classList.toggle('bg-emerald-500', isSelected);
+        dot.classList.toggle('bg-slate-300', !isSelected);
+      }
+    });
+
+    try {
+      localStorage.setItem('geminiModel', modelName);
+    } catch {
+      // localStorage may be unavailable in private or restricted contexts.
+    }
+  },
+  initGlobalClose: function () {
+    if (window.dropdownHelper._hasInit) return;
+    window.dropdownHelper._hasInit = true;
+    document.addEventListener('click', function () {
+      const menus = ['model-menu', 'preset-menu', 'thinking-menu', 'export-menu'];
+      menus.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add('hidden');
+        }
+      });
+    });
+  }
+};

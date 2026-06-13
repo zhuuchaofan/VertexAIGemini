@@ -34,6 +34,11 @@ public class Message
     /// </summary>
     public string? ThinkingContent { get; set; }
 
+    /// <summary>
+    /// User message attachments serialized as JSON.
+    /// </summary>
+    public string? AttachmentsJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // 导航属性

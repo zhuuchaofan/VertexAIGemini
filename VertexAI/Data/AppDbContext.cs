@@ -32,6 +32,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.Title).HasColumnName("title");
+            entity.Property(e => e.ProviderId).HasColumnName("provider_id").HasDefaultValue("gemini");
+            entity.Property(e => e.ModelName).HasColumnName("model_name").HasDefaultValue("");
             entity.Property(e => e.PresetId).HasColumnName("preset_id");
             entity.Property(e => e.CustomPrompt).HasColumnName("custom_prompt");
             entity.Property(e => e.HistorySummary).HasColumnName("history_summary");
@@ -57,6 +59,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Role).HasColumnName("role");
             entity.Property(e => e.Content).HasColumnName("content");
             entity.Property(e => e.ThinkingContent).HasColumnName("thinking_content");
+            entity.Property(e => e.AttachmentsJson).HasColumnName("attachments_json");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
 
             entity.HasOne(e => e.Conversation)

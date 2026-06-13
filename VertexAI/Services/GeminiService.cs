@@ -3,6 +3,7 @@ using Google.GenAI.Types;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using System.Text.Json;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
@@ -36,69 +37,17 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     public string CurrentModelName => _modelName;
 
     // 预设列表与模型选项（已从 appsettings.json 配置解耦并动态加载）
-    public List<PresetItemConfig> Presets { get; } = [];
-    public IReadOnlyList<GeminiModelOption> ModelOptions { get; } = [];
+    public IReadOnlyList<PromptPresetConfig> Presets { get; } = [];
+    public IReadOnlyList<ChatModelOption> ModelOptions { get; } = [];
 
     public GeminiService(IOptions<GeminiSettings> settings, ILogger<GeminiService> logger)
     {
         _logger = logger;
         var config = settings.Value;
         _projectId = config.ProjectId;
-        _modelName = config.ModelName;
-
-        // 动态合并并初始化 Presets (基础内置预设 + appsettings 扩展/覆盖配置)
-        var basePresets = SystemPromptPresets.All.Select(p => new PresetItemConfig
-        {
-            Id = p.Id,
-            Name = p.Name,
-            Prompt = p.Prompt,
-            Description = p.Description ?? ""
-        }).ToList();
-
-        if (config.Presets != null && config.Presets.Count > 0)
-        {
-            foreach (var cfgPreset in config.Presets)
-            {
-                var existing = basePresets.FirstOrDefault(p => p.Id == cfgPreset.Id);
-                if (existing != null)
-                {
-                    existing.Name = cfgPreset.Name;
-                    existing.Prompt = cfgPreset.Prompt;
-                    if (!string.IsNullOrWhiteSpace(cfgPreset.Description))
-                    {
-                        existing.Description = cfgPreset.Description;
-                    }
-                }
-                else
-                {
-                    // 插入到 "custom" 之前以保持自定义在最后
-                    var customIdx = basePresets.FindIndex(p => p.Id == "custom");
-                    if (customIdx >= 0)
-                    {
-                        basePresets.Insert(customIdx, cfgPreset);
-                    }
-                    else
-                    {
-                        basePresets.Add(cfgPreset);
-                    }
-                }
-            }
-        }
-
-        Presets = basePresets;
-
-        // 绑定并初始化动态配置的 ModelOptions
-        ModelOptions = config.Models ?? [];
-        if (ModelOptions.Count == 0)
-        {
-            ModelOptions = new List<GeminiModelOption>
-            {
-                new() { Name = "Gemini 3.5 Flash", ModelName = "gemini-3.5-flash", Description = "旗舰速度模型，提供极佳的响应速度与多模态能力", SupportsThinking = false, MaxTokens = 1048576 },
-                new() { Name = "Gemini 3.1 Flash Lite", ModelName = "gemini-3.1-flash-lite", Description = "超低延迟、极度轻量级，适合日常高频交互", SupportsThinking = false, MaxTokens = 1048576 },
-                new() { Name = "Gemini 3 Flash (Preview)", ModelName = "gemini-3-flash-preview", Description = "第三代快速原型预览，均衡的多模态多任务模型", SupportsThinking = false, MaxTokens = 1048576 },
-                new() { Name = "Gemini 3.1 Pro (Preview)", ModelName = "gemini-3.1-pro-preview", Description = "深度推理版预览，适合复杂的代码逻辑和长文本深度思考", SupportsThinking = true, MaxTokens = 2097152 }
-            };
-        }
+        ModelOptions = GeminiCatalog.CreateModelOptions(config);
+        _modelName = GeminiCatalog.ResolveModelName(config.ModelName, ModelOptions);
+        Presets = GeminiCatalog.CreatePresets(config);
 
         var defaultPreset = Presets.FirstOrDefault(p => p.Id == "default") ?? Presets.FirstOrDefault();
         _currentSystemPrompt = config.SystemPrompt ?? defaultPreset?.Prompt ?? "";
@@ -163,6 +112,26 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         _logger.LogInformation("Gemini model switched, Model={Model}", _modelName);
     }
 
+    public Task ConfigureAsync(ChatSessionOptions? options)
+    {
+        if (options == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ModelName))
+        {
+            SetModel(options.ModelName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.PresetId))
+        {
+            SetSystemPrompt(options.PresetId, options.CustomPrompt);
+        }
+
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// 流式发送消息并返回响应（纯文本）
     /// </summary>
@@ -176,8 +145,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// </summary>
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage, bool enableSearch)
     {
-        var parts = new List<Part> { new Part { Text = userMessage } };
-        return StreamChatAsync(parts, enableSearch);
+        return StreamChatAsync(new ChatModelRequest(userMessage, []), enableSearch);
     }
 
     /// <summary>
@@ -186,6 +154,23 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts)
     {
         return StreamChatAsync(userParts, false);
+    }
+
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    {
+        return StreamChatAsync(request, request.EnableSearch);
+    }
+
+    public Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages)
+    {
+        ImportHistory(messages);
+        return Task.CompletedTask;
+    }
+
+    private IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, bool enableSearch)
+    {
+        var userParts = GeminiPartFactory.CreateParts(request.Message, request.Images);
+        return StreamChatAsync(userParts, enableSearch);
     }
 
     /// <summary>
@@ -357,12 +342,22 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// </summary>
     public void ImportHistory(IEnumerable<VertexAI.Data.Entities.Message> messages)
     {
+        ImportHistory(messages.Select(msg => new ChatHistoryEntry(
+            msg.Role,
+            msg.Content,
+            msg.ThinkingContent,
+            DeserializeAttachments(msg.AttachmentsJson))));
+    }
+
+    public void ImportHistory(IEnumerable<ChatHistoryEntry> messages)
+    {
         _historyManager.Clear();
         foreach (var msg in messages)
         {
             if (msg.Role == "user")
             {
-                _historyManager.AddUserMessage(msg.Content);
+                _historyManager.AddUserMessage(
+                    GeminiPartFactory.CreateParts(msg.Content, msg.Attachments ?? []));
             }
             else if (msg.Role == "model")
             {
@@ -379,6 +374,23 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
                     Parts = parts
                 });
             }
+        }
+    }
+
+    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(attachmentsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 

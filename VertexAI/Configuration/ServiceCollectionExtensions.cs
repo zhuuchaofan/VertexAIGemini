@@ -14,9 +14,16 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.Configure<GeminiSettings>(configuration.GetSection("VertexAI"));
+        services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
+        services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.AddDatabase(configuration);
         services.AddApplicationServices(configuration);
-        services.AddBlazorExperience();
+
+        if (ShouldEnableLegacyBlazor(configuration))
+        {
+            services.AddBlazorExperience();
+        }
+
         services.AddHealthChecks()
             .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
 
@@ -41,9 +48,16 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
+        services.AddHttpClient<OpenAICompatibleChatModelClient>();
 
         services.AddScoped<GeminiService>();
-        services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<GeminiService>());
+        services.AddScoped<IChatModelProvider, GeminiProvider>();
+        if (configuration.GetValue("OpenAICompatible:Enabled", false))
+        {
+            services.AddScoped<IChatModelProvider, OpenAICompatibleProvider>();
+        }
+        services.AddScoped<IChatProviderCatalog, ChatProviderCatalog>();
+        services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
         services.AddScoped<AuthService>();
         services.AddSingleton<IAuthRateLimiter, AuthRateLimiter>();
         services.AddSingleton<IAuthTokenGenerator, AuthTokenGenerator>();
@@ -60,11 +74,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(CreateSmtpSettings(configuration));
         services.AddSingleton<EmailService>();
 
-        services.AddScoped(sp =>
+        if (ShouldEnableLegacyBlazor(configuration))
         {
-            var navigationManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
-            return new HttpClient { BaseAddress = new Uri(navigationManager.BaseUri) };
-        });
+            services.AddScoped(sp =>
+            {
+                var navigationManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+                return new HttpClient { BaseAddress = new Uri(navigationManager.BaseUri) };
+            });
+        }
 
         return services;
     }
@@ -81,6 +98,9 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    private static bool ShouldEnableLegacyBlazor(IConfiguration configuration) =>
+        configuration.GetValue("Workspace:EnableLegacyBlazor", true);
 
     private static SmtpSettings CreateSmtpSettings(IConfiguration configuration)
     {

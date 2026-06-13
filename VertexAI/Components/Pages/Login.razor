@@ -4,6 +4,19 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
+@if (_checkingAuth)
+{
+    <div class="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div class="text-center">
+            <div class="w-12 h-12 rounded-xl bg-slate-950 text-white flex items-center justify-center mx-auto mb-4">
+                <span class="font-semibold">A</span>
+            </div>
+            <p class="text-slate-500 text-sm">正在进入工作台...</p>
+        </div>
+    </div>
+}
+else
+{
 <div class="min-h-screen flex items-center justify-center bg-slate-50 px-4">
     <div class="w-full max-w-md">
         <div class="bg-white rounded-xl shadow-sm p-6 sm:p-8 border border-slate-200">
@@ -228,6 +241,7 @@
 
     </div>
 </div>
+}
 
 <style>
     .animate-shake {
@@ -252,6 +266,7 @@
     private string _confirmPassword = "";
     private ViewMode _viewMode = ViewMode.Login;
     private bool _isLoading;
+    private bool _checkingAuth = true;
     private bool _showPassword;
     private string? _error;
     private string? _success;
@@ -271,9 +286,11 @@
 
         if (Auth.IsAuthenticated)
         {
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/", replace: true);
             return;
         }
+
+        _checkingAuth = false;
 
         // 解析 URL 参数实现自动跳转与填充
         try
