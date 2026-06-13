@@ -1,17 +1,17 @@
 # 球球布丁工作室
 
-A model-neutral AI workspace in transition from a Blazor Server Gemini chat app to a split frontend/API architecture. It supports local authentication, persisted conversations, streaming responses, thinking output display, image attachments, email verification, export endpoints, and Docker-based PostgreSQL setup.
+A model-neutral AI workspace with a standalone web frontend and an ASP.NET Core API backend. It supports local authentication, persisted conversations, streaming responses, thinking output display, image attachments, email verification, export endpoints, and Docker-based PostgreSQL setup.
 
 ## What Is Included
 
 - Standalone web workspace under `apps/web` that talks to the backend through HTTP APIs and SSE.
-- ASP.NET Core API host with streaming model responses; the legacy Blazor UI can be enabled only as a transition path.
+- ASP.NET Core API host with streaming model responses.
 - Model-neutral chat contracts and provider catalog with Google.GenAI / Vertex AI implemented as the current provider adapter.
 - Local email/password authentication with HttpOnly cookies.
 - PostgreSQL persistence for users, sessions, conversations, messages, and token counts.
 - Conversation management APIs for listing, loading, renaming, and deleting workspace sessions.
 - Conversation export endpoints.
-- Image validation and compression before sending multimodal prompts.
+- Image validation before sending multimodal prompts.
 - SMTP hooks for verification and password reset emails.
 - Docker Compose setup for the web client, API host, and PostgreSQL.
 
@@ -37,7 +37,6 @@ Important settings:
 | `VertexAI:ProjectId` | Google Cloud project id |
 | `VertexAI:Location` | Vertex AI location, defaults to `global` |
 | `VertexAI:ModelName` | Gemini model name |
-| `Workspace:EnableLegacyBlazor` | Enables the old Blazor UI host when `true`; Docker/production split deployments set this to `false` |
 | `Workspace:DefaultProviderId` / `DEFAULT_PROVIDER_ID` | Default provider shown by the standalone web client, for example `gemini`; falls back to the first registered provider if misconfigured |
 | `OpenAICompatible:*` / `OPENAI_COMPATIBLE_*` | Optional OpenAI-compatible chat completions provider |
 | `SMTP_USER` / `SMTP_PASSWORD` | Optional SMTP credentials |
@@ -53,7 +52,7 @@ $env:VertexAI__ProjectId="your-google-cloud-project"
 dotnet run --project VertexAI\VertexAI.csproj --urls "http://localhost:5000"
 ```
 
-Open `http://localhost:5000`.
+The backend exposes APIs and health checks on `http://localhost:5000`.
 
 For the standalone web workspace:
 
@@ -86,8 +85,7 @@ docker compose up --build
 ```
 
 Open `http://localhost:8880`.
-The standalone web workspace is served on the same external port as the legacy app. API calls are proxied internally from the web container to `app:8880`.
-The API container sets `Workspace__EnableLegacyBlazor=false`, so Docker runs the backend as an API host instead of exposing the transitional Blazor UI. The sample `.env` defaults `DEFAULT_PROVIDER_ID=gemini`; make sure the mounted Google credential file and project id are ready before using the Gemini provider.
+The standalone web workspace is served on the external port, and API calls are proxied internally from the web container to `app:8880`. The sample `.env` defaults `DEFAULT_PROVIDER_ID=gemini`; make sure the mounted Google credential file and project id are ready before using the Gemini provider.
 
 Docker checks `http://localhost:5173/` inside the web container and `http://localhost:8880/health/live` inside the API container. Use `/health/ready` when you need to verify database connectivity before routing traffic.
 
@@ -138,19 +136,17 @@ apps/
 
 VertexAI/
   Api/                 Minimal API endpoints
-  Components/          Legacy Blazor pages and chat components, kept behind Workspace:EnableLegacyBlazor
   Configuration/       Service registration and HTTP pipeline setup
   Data/                EF Core context, entities, database initialization
   Database/            Optional SQL bootstrap script
   Services/            Application services and Gemini integration
   Services/Auth/       Auth workflows, cookies, sessions, token generation, validation, and rate limiting
   Services/Chat/       Chat orchestration, request models, and error mapping
-  wwwroot/             Browser JavaScript assets
 ```
 
 ## Current Architecture Direction
 
-The startup path is intentionally split:
+The startup path is intentionally split between the standalone frontend and API backend:
 
 - `Program.cs` is the composition root.
 - `Configuration/ServiceCollectionExtensions.cs` owns dependency registration.

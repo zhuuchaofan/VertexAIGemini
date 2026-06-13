@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using VertexAI.Api;
-using VertexAI.Components;
 using VertexAI.Data;
 
 namespace VertexAI.Configuration;
@@ -35,13 +34,6 @@ public static class WebApplicationExtensions
             }
         }
 
-        app.UseStaticFiles();
-
-        if (ShouldEnableLegacyBlazor(app.Configuration))
-        {
-            app.UseAntiforgery();
-        }
-
         app.MapHealthChecks("/health/live", new()
         {
             Predicate = _ => false
@@ -57,17 +49,8 @@ public static class WebApplicationExtensions
         app.MapWorkspaceEndpoints();
         app.MapExportEndpoints();
 
-        if (ShouldEnableLegacyBlazor(app.Configuration))
-        {
-            app.MapRazorComponents<App>()
-                .AddInteractiveServerRenderMode();
-        }
-
         return app;
     }
-
-    private static bool ShouldEnableLegacyBlazor(IConfiguration configuration) =>
-        configuration.GetValue("Workspace:EnableLegacyBlazor", true);
 
     private static bool ShouldUseHttpsRedirection(IConfiguration configuration)
     {

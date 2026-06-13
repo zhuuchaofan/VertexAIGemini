@@ -10,8 +10,6 @@
 | ------------- | ---------- | ---------------------------- |
 | `.cs` 服务类  | **300 行** | 超出应拆分为多个职责单一的类 |
 | `.cs` 模型类  | **150 行** | 包含 DTO、Entity、配置类     |
-| `.razor` 页面 | **400 行** | 超出应提取子组件             |
-| `.razor` 组件 | **200 行** | 可复用 UI 组件               |
 
 > **原则**: 每个文件只做一件事。看到超限立即重构。
 
@@ -30,17 +28,6 @@
 | 公共属性 | PascalCase        | `CurrentTokenCount`  |
 | 常量     | PascalCase        | `MaxRetryCount`      |
 | 异步方法 | 后缀 `Async`      | `SendMessageAsync()` |
-
-### Blazor 组件
-
-| 类型     | 规范        | 示例                    |
-| -------- | ----------- | ----------------------- |
-| 页面组件 | 名词 + Page | `ChatPage.razor`        |
-| UI 组件  | 功能描述    | `MessageBubble.razor`   |
-| 参数     | PascalCase  | `[Parameter] IsLoading` |
-| 私有状态 | \_camelCase | `_messages`             |
-
----
 
 ## 3. 代码结构
 
@@ -75,44 +62,6 @@ public class XxxService : IAsyncDisposable
 }
 ```
 
-### Razor 组件模板
-
-```razor
-@* 1. 指令 *@
-@page "/xxx"
-@rendermode InteractiveServer
-@inject IService Service
-
-@* 2. HTML 模板（尽量简洁） *@
-<div class="container">
-    @* 内容 *@
-</div>
-
-@* 3. CSS（仅组件特有的样式） *@
-<style>
-    .container { }
-</style>
-
-@* 4. C# 代码块 *@
-@code {
-    // 参数
-    [Parameter] public string Title { get; set; } = "";
-
-    // 私有状态
-    private bool _isLoading;
-
-    // 生命周期
-    protected override async Task OnInitializedAsync() { }
-
-    // 事件处理
-    private async Task OnClick() { }
-
-    // 帮助方法（提取到服务更佳）
-}
-```
-
----
-
 ## 4. 注释规范
 
 | 场景        | 要求                         |
@@ -129,14 +78,14 @@ public class XxxService : IAsyncDisposable
 ### 分层依赖
 
 ```
-Components/Pages  →  Services  →  外部 API
-         ↓             ↓
-    Components/UI   Models/DTO
+apps/web  →  Api  →  Services  →  外部 API
+                    ↓
+                 Data/DTO
 ```
 
 ### 禁止
 
-- ❌ Page 直接调用外部 API
+- ❌ Web 前端绕过后端直接调用模型 API
 - ❌ Service 持有 UI 状态
 - ❌ 硬编码配置值（用 `appsettings.json`）
 
@@ -145,7 +94,7 @@ Components/Pages  →  Services  →  外部 API
 ## 6. 安全规范
 
 - 🔒 敏感配置使用环境变量 / Secret Manager
-- 🔒 Markdown 渲染前清理 XSS（当前使用 Markdig 需注意）
+- 🔒 Markdown 渲染必须避免直接注入不可信 HTML
 - 🔒 所有 API 输入必须验证
 - 🔒 日志禁止打印敏感信息
 

@@ -11,7 +11,7 @@ public class Conversation
     public Guid Id { get; set; } = Guid.NewGuid();
 
     /// <summary>
-    /// 用户 ID (来自 Supabase Auth)
+    /// 用户 ID
     /// </summary>
     [Required]
     public Guid UserId { get; set; }

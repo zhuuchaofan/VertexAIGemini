@@ -9,7 +9,7 @@ namespace VertexAI.Services;
 
 /// <summary>
 /// 对话服务 - 管理用户对话和消息的持久化
-/// 使用 IDbContextFactory 避免 Blazor Server 中的并发问题
+/// 使用 IDbContextFactory 控制每次操作的 DbContext 生命周期
 /// </summary>
 public class ConversationService : IConversationStore
 {

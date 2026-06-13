@@ -1,149 +1,61 @@
-# Gemini Chat - Blazor Web App
+# 球球布丁工作室
 
-## Project Overview
+This project is a split web/API AI workspace:
 
-Gemini Chat is a production-grade Blazor Web Application that provides a real-time chat interface for Google's Vertex AI Gemini 3 models. It features streaming responses, collapsible "thinking" process visualization, robust chat history management, and system prompt customization. The application is designed with a Backend-for-Frontend (BFF) architecture using Blazor Server and .NET 10.
+- `apps/web`: standalone browser client served by a small Node proxy server.
+- `VertexAI`: ASP.NET Core API host for auth, workspace config, streaming chat, conversations, export, health checks, and provider integration.
+- `VertexAI/Database` and `VertexAI/Data`: PostgreSQL schema and EF Core persistence.
 
-## Technology Stack
+The only supported UI is the Docker web client in `apps/web`. Do not add new UI work under the API project.
 
-### Core
-*   **Framework**: .NET 10 (ASP.NET Core)
-*   **Frontend**: Blazor Server (InteractiveServer Render Mode)
-*   **Language**: C# 13+
-*   **Styling**: Tailwind CSS (Atomic CSS)
-*   **Database**: PostgreSQL (via EF Core 9) / Supabase
+## Runtime Shape
 
-### AI & Integration
-*   **SDK**: `Google.GenAI` (v0.14.0+)
-*   **Platform**: Google Vertex AI
-*   **Models**: Gemini 3 Flash / Pro (Preview)
+Docker Compose runs three services:
 
-### Infrastructure
-*   **Containerization**: Docker & Docker Compose
-*   **Logging**: Serilog (Console & File)
-*   **Authentication**: JWT / Cookie-based (Bcrypt for hashing)
+- `web`: serves `apps/web/public` and proxies `/api/*` to the API container.
+- `app`: ASP.NET Core API listening on port `8880` inside the Docker network.
+- `db`: PostgreSQL.
 
-## Architecture
+The browser should open the web service, normally `http://localhost:8880`.
 
-The project follows a **Modular Monolith** style with a **BFF (Backend for Frontend)** pattern suited for Blazor Server.
+## Backend Boundaries
 
-```mermaid
-graph TB
-    subgraph Client
-        Browser["Browser (Blazor Client)"]
-    end
+- `Api`: minimal API endpoint groups.
+- `Services/Auth`: authentication workflow, cookies, sessions, validation, rate limiting, and token generation.
+- `Services/Chat`: chat request contracts, model provider abstraction, streaming orchestration, attachment validation, persistence coordination, and error mapping.
+- `Services`: external integrations such as Gemini, OpenAI-compatible providers, conversation persistence, and email.
+- `Configuration`: dependency registration and middleware/endpoint composition.
+- `Data`: EF Core context, entities, and startup database initialization.
 
-    subgraph Server["Blazor Server Container"]
-        SignalR["SignalR Hub"]
-        
-        subgraph Components
-            Pages["Pages (e.g., Chat.razor)"]
-            UI["UI Components (e.g., MessageBubble)"]
-        end
+Keep endpoint handlers thin. Put application behavior in services and provider-specific logic behind `IChatModelProvider` / `IChatModelClient`.
 
-        subgraph Services["Service Layer (Business Logic)"]
-            Gemini["GeminiService (AI Integration)"]
-            History["ChatHistoryManager (State)"]
-            Auth["AuthService (Security)"]
-            Data["ConversationService (Persistence)"]
-        end
+## Frontend Boundaries
 
-        subgraph DataAccess
-            EF["EF Core (AppDbContext)"]
-        end
-    end
+The frontend is vanilla HTML/CSS/JavaScript in `apps/web/public`:
 
-    subgraph External
-        Vertex["Vertex AI API"]
-        Postgres["PostgreSQL DB"]
-    end
+- `index.html`: static shell and message template.
+- `app.js`: auth, provider selection, SSE chat streaming, history, attachments, export, and Markdown rendering.
+- `styles.css`: responsive workspace layout and message presentation.
 
-    Browser <-->|WebSocket| SignalR
-    SignalR --> Components
-    Components --> Services
-    Services --> EF
-    Services --> Vertex
-    EF --> Postgres
-```
+The frontend consumes only the API contract exposed by the backend. Do not call model providers directly from browser code.
 
-### Key Directories
+## Development Checks
 
-*   `VertexAI/Components/`: Blazor UI components (`Pages/` for routes, `Chat/` for feature-specific UI).
-*   `VertexAI/Services/`: Business logic and external integrations (`GeminiService.cs`, `AuthService.cs`).
-*   `VertexAI/Data/`: EF Core context (`AppDbContext.cs`) and Entities (`Conversation.cs`, `User.cs`).
-*   `VertexAI/GCPKey/`: Service account credentials (ignored in git).
-*   `VertexAI/wwwroot/`: Static assets (JS interop, CSS).
-
-## Operational Commands
-
-### Local Development
-Prerequisites: .NET 10 SDK, PostgreSQL running locally.
+Use these from the `VertexAI/` directory:
 
 ```bash
-# Set Google Credentials
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
-
-# Run the application
-cd VertexAI
-ASPNETCORE_ENVIRONMENT=Development dotnet run --urls "http://localhost:5000"
+dotnet restore VertexAI.slnx
+dotnet build VertexAI.slnx --no-restore
+dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-restore
 ```
 
-### Docker Deployment
-The project includes a helper script `run-docker.sh` for easy deployment.
+For Docker verification:
 
 ```bash
 cd VertexAI
-
-# Build and Run
-./run-docker.sh
-
-# Run without rebuilding (if image exists)
-./run-docker.sh -s
-
-# Run with Custom Config
-GCP_KEY_PATH=./key.json PROJECT_ID=my-project ./run-docker.sh
+docker compose build
+docker compose up -d
+docker compose ps
 ```
 
-## Configuration (Environment Variables)
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP Service Account JSON | Required |
-| `DATABASE_URL` | PostgreSQL Connection String | `ConnectionStrings:Default` |
-| `VertexAI__ProjectId` | GCP Project ID | - |
-| `VertexAI__Location` | Vertex AI Region | `global` |
-| `VertexAI__ModelName` | Gemini Model ID | `gemini-3-flash-preview` |
-
-## Coding Standards & Conventions
-
-Refer to `CODING_STANDARDS.md` for full details.
-
-*   **File Size**: Keep files small (Services < 300 lines, Components < 200 lines).
-*   **Naming**: `PascalCase` for public members, `_camelCase` for private fields.
-*   **Async**: All I/O bound operations must be `async/await`.
-*   **Comments**: XML documentation required for public APIs.
-*   **Safety**:
-    *   No hardcoded secrets (use `.env` or `appsettings.json`).
-    *   Sanitize Markdown inputs.
-    *   No logic in Razor Pages (delegate to Services).
-
-## Key Features
-
-1.  **Streaming Responses**: Real-time token streaming from Vertex AI.
-2.  **Thinking Process**: Visual toggle for "Chain of Thought" data if provided by the model.
-3.  **System Presets**: Pre-configured personas (Assistant, Translator, Coder).
-4.  **Auto-Summarization**: Logic in `ChatHistoryManager` compresses context when token limits are reached.
-5.  **Multi-Session**: Users can create and switch between multiple conversation threads.
-
-## Current State & Roadmap
-
-*   **Current Phase**: Phase 1 (User System & Persistence).
-*   **Recent Updates**:
-    *   Added `TokenCount` column to `conversations` table.
-    *   Implemented `GeminiService` with `Google.GenAI` SDK.
-    *   Set up basic Docker support.
-
-*   **Next Steps**:
-    *   Refine User Authentication (JWT/Cookie polish).
-    *   Implement Multi-tenancy (Phase 2).
-    *   Add RAG (Retrieval-Augmented Generation) support (Phase 3).
+The API health checks are `/health/live` and `/health/ready`.

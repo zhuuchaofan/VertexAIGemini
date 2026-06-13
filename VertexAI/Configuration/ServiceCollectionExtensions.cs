@@ -19,11 +19,6 @@ public static class ServiceCollectionExtensions
         services.AddDatabase(configuration);
         services.AddApplicationServices(configuration);
 
-        if (ShouldEnableLegacyBlazor(configuration))
-        {
-            services.AddBlazorExperience();
-        }
-
         services.AddHealthChecks()
             .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
 
@@ -58,7 +53,6 @@ public static class ServiceCollectionExtensions
         }
         services.AddScoped<IChatProviderCatalog, ChatProviderCatalog>();
         services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
-        services.AddScoped<AuthService>();
         services.AddSingleton<IAuthRateLimiter, AuthRateLimiter>();
         services.AddSingleton<IAuthTokenGenerator, AuthTokenGenerator>();
         services.AddScoped<IAuthCookieService, AuthCookieService>();
@@ -68,39 +62,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ConversationService>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<ConversationService>());
         services.AddScoped<ChatOrchestrator>();
-        services.AddSingleton<MarkdownService>();
-        services.AddScoped<ImageService>();
 
         services.AddSingleton(CreateSmtpSettings(configuration));
         services.AddSingleton<EmailService>();
 
-        if (ShouldEnableLegacyBlazor(configuration))
-        {
-            services.AddScoped(sp =>
-            {
-                var navigationManager = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
-                return new HttpClient { BaseAddress = new Uri(navigationManager.BaseUri) };
-            });
-        }
-
         return services;
     }
-
-    private static IServiceCollection AddBlazorExperience(this IServiceCollection services)
-    {
-        services.AddRazorComponents()
-            .AddInteractiveServerComponents();
-
-        services.AddSignalR(options =>
-        {
-            options.MaximumReceiveMessageSize = 5 * 1024 * 1024;
-        });
-
-        return services;
-    }
-
-    private static bool ShouldEnableLegacyBlazor(IConfiguration configuration) =>
-        configuration.GetValue("Workspace:EnableLegacyBlazor", true);
 
     private static SmtpSettings CreateSmtpSettings(IConfiguration configuration)
     {

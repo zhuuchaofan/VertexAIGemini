@@ -19,7 +19,7 @@ services:
     ports:
       - "5454:5432"
 
-  # === AI Workspace API / legacy Blazor host ===
+  # === AI Workspace API ===
   app:
     build: .
     container_name: vertex-ai-api
@@ -31,7 +31,6 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
       - VertexAI__ProjectId=${PROJECT_ID:-}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
-      - Workspace__EnableLegacyBlazor=false
       - Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID:-gemini}
       - OpenAICompatible__Enabled=${OPENAI_COMPATIBLE_ENABLED:-false}
       - OpenAICompatible__Endpoint=${OPENAI_COMPATIBLE_ENDPOINT:-https://api.openai.com/v1/chat/completions}
