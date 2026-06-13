@@ -389,6 +389,39 @@ button:disabled {
   height: 18px;
 }
 
+.thinking-settings {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.thinking-heading {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.thinking-row {
+  display: grid;
+  gap: 8px;
+}
+
+.thinking-row.two-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.thinking-readonly {
+  border: 1px solid #a7d8c6;
+  border-radius: 8px;
+  background: var(--soft);
+  color: #0f513c;
+  font-size: 13px;
+  padding: 9px 10px;
+}
+
 .chat-surface {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;

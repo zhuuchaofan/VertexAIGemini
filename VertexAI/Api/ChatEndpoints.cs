@@ -62,7 +62,10 @@ public static class ChatEndpoints
                     request.ProviderId,
                     request.ModelName,
                     request.PresetId,
-                    request.CustomPrompt)),
+                    request.CustomPrompt,
+                    request.ThinkingEnabled,
+                    request.ThinkingLevel,
+                    request.ThinkingBudget)),
             update => WriteEventAsync(context, "update", update));
 
         await WriteEventAsync(context, "final", new ApiChatFinalResponse(
@@ -90,7 +93,10 @@ public static class ChatEndpoints
         string? ProviderId,
         string? ModelName,
         string? PresetId,
-        string? CustomPrompt)
+        string? CustomPrompt,
+        bool? ThinkingEnabled,
+        string? ThinkingLevel,
+        int? ThinkingBudget)
     {
         public IReadOnlyCollection<ChatImageAttachment> Images { get; init; } = Images ?? [];
     }

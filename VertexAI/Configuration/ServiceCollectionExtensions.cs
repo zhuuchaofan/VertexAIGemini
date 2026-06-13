@@ -43,13 +43,16 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
-        services.AddHttpClient<OpenAICompatibleChatModelClient>();
+        services.AddHttpClient(nameof(OpenAICompatibleChatModelClient));
 
         services.AddScoped<GeminiService>();
         services.AddScoped<IChatModelProvider, GeminiProvider>();
-        if (configuration.GetValue("OpenAICompatible:Enabled", false))
+        foreach (var providerSettings in LoadOpenAICompatibleProviders(configuration))
         {
-            services.AddScoped<IChatModelProvider, OpenAICompatibleProvider>();
+            services.AddScoped<IChatModelProvider>(sp =>
+                new OpenAICompatibleProvider(
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    providerSettings));
         }
         services.AddScoped<IChatProviderCatalog, ChatProviderCatalog>();
         services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
@@ -67,6 +70,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EmailService>();
 
         return services;
+    }
+
+    private static IReadOnlyList<OpenAICompatibleProviderSettings> LoadOpenAICompatibleProviders(
+        IConfiguration configuration)
+    {
+        var settings = configuration.GetSection("OpenAICompatible").Get<OpenAICompatibleSettings>()
+            ?? new OpenAICompatibleSettings();
+
+        return OpenAICompatibleCatalog.CreateEnabledProviderSettings(settings);
     }
 
     private static SmtpSettings CreateSmtpSettings(IConfiguration configuration)

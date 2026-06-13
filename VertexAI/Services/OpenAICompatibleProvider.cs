@@ -1,22 +1,22 @@
-using Microsoft.Extensions.Options;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
 public sealed class OpenAICompatibleProvider : IChatModelProvider
 {
-    private readonly IServiceProvider _services;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly OpenAICompatibleProviderSettings _settings;
 
     public OpenAICompatibleProvider(
-        IServiceProvider services,
-        IOptions<OpenAICompatibleSettings> settings)
+        IHttpClientFactory httpClientFactory,
+        OpenAICompatibleProviderSettings settings)
     {
-        _services = services;
-        var config = settings.Value;
-        Info = new ChatProviderInfo(config.ProviderId, config.Name, config.Description);
-        ModelOptions = OpenAICompatibleCatalog.CreateModelOptions(config);
-        Presets = OpenAICompatibleCatalog.CreatePresets(config);
-        DefaultModelName = OpenAICompatibleCatalog.ResolveModelName(config.ModelName, ModelOptions);
+        _httpClientFactory = httpClientFactory;
+        _settings = settings;
+        Info = new ChatProviderInfo(settings.ProviderId, settings.Name, settings.Description);
+        ModelOptions = OpenAICompatibleCatalog.CreateModelOptions(settings);
+        Presets = OpenAICompatibleCatalog.CreatePresets(settings);
+        DefaultModelName = OpenAICompatibleCatalog.ResolveModelName(settings.ModelName, ModelOptions);
         DefaultPresetId = GeminiCatalog.ResolvePresetId(Presets);
     }
 
@@ -27,5 +27,7 @@ public sealed class OpenAICompatibleProvider : IChatModelProvider
     public string DefaultPresetId { get; }
 
     public IChatModelClient CreateClient() =>
-        _services.GetRequiredService<OpenAICompatibleChatModelClient>();
+        new OpenAICompatibleChatModelClient(
+            _httpClientFactory.CreateClient(nameof(OpenAICompatibleChatModelClient)),
+            _settings);
 }

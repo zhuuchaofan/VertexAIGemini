@@ -36,6 +36,12 @@ services:
       - OpenAICompatible__Endpoint=${OPENAI_COMPATIBLE_ENDPOINT:-https://api.openai.com/v1/chat/completions}
       - OpenAICompatible__ApiKey=${OPENAI_COMPATIBLE_API_KEY:-}
       - OpenAICompatible__ModelName=${OPENAI_COMPATIBLE_MODEL:-gpt-4.1-mini}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - XIAOMI_MIMO_API_KEY=${XIAOMI_MIMO_API_KEY:-}
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8880}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}

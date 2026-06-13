@@ -9,7 +9,7 @@ public class GeminiSettings
 {
     public string ProjectId { get; set; } = "";
     public string Location { get; set; } = "global";
-    public string ModelName { get; set; } = "gemini-3-flash-preview";
+    public string ModelName { get; set; } = "gemini-3.5-flash";
     public string? SystemPrompt { get; set; }
 
     // 历史管理配置

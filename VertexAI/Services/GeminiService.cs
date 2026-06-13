@@ -23,7 +23,9 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     // 当前系统提示词状态
     private string _currentSystemPrompt;
     private string _currentPresetId = "default";
-    private ThinkingLevel _thinkingLevel = ThinkingLevel.MEDIUM;
+    private bool? _thinkingEnabled;
+    private string? _thinkingLevel;
+    private int? _thinkingBudget;
 
     // 公开属性 - 委托给 HistoryManager
     public int CurrentTokenCount => _historyManager.CurrentTokenCount;
@@ -33,7 +35,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     // 当前预设信息
     public string CurrentPresetId => _currentPresetId;
     public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
-    public ThinkingLevel CurrentThinkingLevel => _thinkingLevel;
+    public string? CurrentThinkingLevel => _thinkingLevel;
     public string CurrentModelName => _modelName;
 
     // 预设列表与模型选项（已从 appsettings.json 配置解耦并动态加载）
@@ -63,7 +65,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         _historyManager = new ChatHistoryManager(_client, _modelName, config);
 
         // 配置生成参数
-        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
+        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
 
         _logger.LogInformation("GeminiService 初始化完成, Model={Model}, Project={Project}",
             _modelName, _projectId);
@@ -81,7 +83,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             ? customPrompt
             : matchedPreset?.Prompt ?? "";
 
-        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
+        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
         ClearHistory();
     }
 
@@ -90,8 +92,9 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// </summary>
     public void SetThinkingLevel(ThinkingLevel level)
     {
-        _thinkingLevel = level;
-        _config = BuildConfig(_currentSystemPrompt, _thinkingLevel);
+        _thinkingLevel = ToThinkingLevelValue(level);
+        _thinkingEnabled = _thinkingLevel != "off";
+        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
     }
 
     /// <summary>
@@ -109,6 +112,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             : ModelOptions[0].ModelName;
 
         _historyManager.SetModel(_modelName);
+        ApplyThinkingOptions(null);
         _logger.LogInformation("Gemini model switched, Model={Model}", _modelName);
     }
 
@@ -128,6 +132,8 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         {
             SetSystemPrompt(options.PresetId, options.CustomPrompt);
         }
+
+        ApplyThinkingOptions(options);
 
         return Task.CompletedTask;
     }
@@ -399,11 +405,66 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// <summary>
     /// 构建生成配置
     /// </summary>
-    private static GenerateContentConfig BuildConfig(string systemPrompt, ThinkingLevel thinkingLevel)
+    private ChatThinkingConfig? GetCurrentThinking() =>
+        ModelOptions.FirstOrDefault(model => model.ModelName == _modelName)?.Thinking;
+
+    private void ApplyThinkingOptions(ChatSessionOptions? options)
     {
-        // 禁用思考: ThinkingBudget=0, IncludeThoughts=false
-        // 启用思考: 使用 ThinkingLevel 控制强度
-        var isThinkingDisabled = thinkingLevel == ThinkingLevel.THINKING_LEVEL_UNSPECIFIED;
+        var thinking = GetCurrentThinking();
+        if (thinking == null)
+        {
+            _thinkingEnabled = null;
+            _thinkingLevel = null;
+            _thinkingBudget = null;
+            _config = BuildConfig(_currentSystemPrompt, thinking, _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+            return;
+        }
+
+        _thinkingEnabled = thinking.FixedEnabled
+            ? true
+            : options?.ThinkingEnabled ?? thinking.Default != "off";
+        _thinkingLevel = NormalizeThinkingLevel(thinking, options?.ThinkingLevel);
+        _thinkingBudget = thinking.Budgets.Count > 0
+            ? NormalizeThinkingBudget(thinking, options?.ThinkingBudget)
+            : null;
+
+        _config = BuildConfig(_currentSystemPrompt, thinking, _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+    }
+
+    private static string? NormalizeThinkingLevel(ChatThinkingConfig thinking, string? requested)
+    {
+        if (thinking.Options.Count == 0)
+        {
+            return thinking.Default;
+        }
+
+        if (!string.IsNullOrWhiteSpace(requested)
+            && thinking.Options.Any(option => option.Value == requested))
+        {
+            return requested;
+        }
+
+        return thinking.Default;
+    }
+
+    private static int? NormalizeThinkingBudget(ChatThinkingConfig thinking, int? requested)
+    {
+        if (requested is > 0)
+        {
+            return requested;
+        }
+
+        return thinking.DefaultBudget ?? thinking.Budgets.FirstOrDefault();
+    }
+
+    private static GenerateContentConfig BuildConfig(
+        string systemPrompt,
+        ChatThinkingConfig? thinking,
+        bool? thinkingEnabled,
+        string? thinkingLevel,
+        int? thinkingBudget)
+    {
+        var isThinkingDisabled = thinking == null || thinkingEnabled == false || thinkingLevel == "off";
 
         return new GenerateContentConfig
         {
@@ -411,12 +472,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             {
                 Parts = [new Part { Text = systemPrompt }]
             },
-            ThinkingConfig = new ThinkingConfig
-            {
-                ThinkingBudget = isThinkingDisabled ? 0 : null,  // 0=禁用, null=使用 ThinkingLevel
-                ThinkingLevel = isThinkingDisabled ? null : thinkingLevel,
-                IncludeThoughts = !isThinkingDisabled
-            },
+            ThinkingConfig = BuildThinkingConfig(thinking, isThinkingDisabled, thinkingLevel, thinkingBudget),
             MaxOutputTokens = 4096,
             Temperature = 1,
             TopP = 0.9,
@@ -429,6 +485,62 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             ]
         };
     }
+
+    private static ThinkingConfig? BuildThinkingConfig(
+        ChatThinkingConfig? thinking,
+        bool isThinkingDisabled,
+        string? thinkingLevel,
+        int? thinkingBudget)
+    {
+        if (thinking == null)
+        {
+            return null;
+        }
+
+        if (isThinkingDisabled)
+        {
+            return new ThinkingConfig
+            {
+                ThinkingBudget = 0,
+                IncludeThoughts = false
+            };
+        }
+
+        var config = new ThinkingConfig
+        {
+            IncludeThoughts = thinking.IncludeThoughts
+        };
+
+        if (thinking.Kind == "gemini-budget")
+        {
+            config.ThinkingBudget = thinkingBudget ?? thinking.DefaultBudget;
+        }
+        else
+        {
+            config.ThinkingLevel = ToGeminiThinkingLevel(thinkingLevel ?? thinking.Default);
+        }
+
+        return config;
+    }
+
+    private static ThinkingLevel ToGeminiThinkingLevel(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            "minimal" => ThinkingLevel.MINIMAL,
+            "low" => ThinkingLevel.LOW,
+            "high" => ThinkingLevel.HIGH,
+            _ => ThinkingLevel.MEDIUM
+        };
+
+    private static string ToThinkingLevelValue(ThinkingLevel level) =>
+        level.ToString() switch
+        {
+            "MINIMAL" => "minimal",
+            "LOW" => "low",
+            "HIGH" => "high",
+            "THINKING_LEVEL_UNSPECIFIED" => "off",
+            _ => "medium"
+        };
 
     private void EnsureConfigured()
     {

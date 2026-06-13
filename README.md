@@ -38,7 +38,9 @@ Important settings:
 | `VertexAI:Location` | Vertex AI location, defaults to `global` |
 | `VertexAI:ModelName` | Gemini model name |
 | `Workspace:DefaultProviderId` / `DEFAULT_PROVIDER_ID` | Default provider shown by the standalone web client, for example `gemini`; falls back to the first registered provider if misconfigured |
-| `OpenAICompatible:*` / `OPENAI_COMPATIBLE_*` | Optional OpenAI-compatible chat completions provider |
+| `OpenAICompatible:*` / `OPENAI_COMPATIBLE_*` | Optional single OpenAI-compatible chat completions provider |
+| `OpenAICompatible:Providers` | Optional provider templates for DeepSeek, Kimi, Qwen, Zhipu, OpenRouter, Xiaomi MiMo, or custom OpenAI-compatible gateways |
+| `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `ZHIPU_API_KEY`, `OPENROUTER_API_KEY`, `XIAOMI_MIMO_API_KEY` | Optional provider keys. Setting a key enables the matching configured provider when its endpoint is present |
 | `SMTP_USER` / `SMTP_PASSWORD` | Optional SMTP credentials |
 | `APP_BASE_URL` | Base URL used in email links |
 | `DATABASE_URL` | Optional override for the database connection |
@@ -75,6 +77,11 @@ APP_BASE_URL=http://localhost:8880
 WEB_PORT=8880
 DEFAULT_PROVIDER_ID=gemini
 OPENAI_COMPATIBLE_ENABLED=false
+DEEPSEEK_API_KEY=
+MOONSHOT_API_KEY=
+DASHSCOPE_API_KEY=
+ZHIPU_API_KEY=
+OPENROUTER_API_KEY=
 ```
 
 Then run:
@@ -110,14 +117,20 @@ Run these checks before publishing a deployment image; CI can use the same comma
 
 ### Provider Configuration
 
-The workspace exposes provider capabilities through `GET /api/workspace/config`. Gemini is registered by default, and an OpenAI-compatible provider can be enabled through configuration:
+The workspace exposes provider capabilities through `GET /api/workspace/config`. Gemini is registered by default. OpenAI-compatible providers are enabled from `OpenAICompatible:Providers` when they have an endpoint, model, and API key. The bundled templates cover several common providers:
 
 | Provider | Purpose |
 | --- | --- |
 | `gemini` | Google GenAI / Vertex AI Gemini adapter |
-| `openai-compatible` | Optional provider for OpenAI-compatible `/chat/completions` APIs such as OpenAI, LiteLLM, vLLM gateways, or local adapters |
+| `deepseek` | DeepSeek OpenAI-compatible API |
+| `kimi` | Moonshot Kimi OpenAI-compatible API |
+| `qwen` | Alibaba Cloud Model Studio / DashScope OpenAI-compatible API |
+| `zhipu` | Zhipu GLM OpenAI-compatible API |
+| `openrouter` | OpenRouter OpenAI-compatible gateway |
+| `xiaomi-mimo` | Xiaomi MiMo placeholder; configure the endpoint when using Xiaomi's official API or a compatible gateway |
+| `openai-compatible` | Optional legacy single provider for OpenAI-compatible `/chat/completions` APIs such as OpenAI, LiteLLM, vLLM gateways, or local adapters |
 
-Enable the OpenAI-compatible provider with `OPENAI_COMPATIBLE_ENABLED=true`, `OPENAI_COMPATIBLE_ENDPOINT`, `OPENAI_COMPATIBLE_API_KEY`, and `OPENAI_COMPATIBLE_MODEL`.
+To enable a bundled provider, set the matching API key in `.env` and rebuild/restart Docker. To add another OpenAI-compatible provider, add a new object under `OpenAICompatible:Providers` with `ProviderId`, `Name`, `Endpoint`, `ApiKeyEnv`, `ModelName`, and `Models`. Keep secrets in environment variables, not in `appsettings.json`.
 
 Health endpoints:
 

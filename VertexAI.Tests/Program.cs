@@ -18,6 +18,7 @@ var tests = new (string Name, Action Test)[]
     ("AuthCookieService uses workspace cookie and reads legacy cookie", AuthCookieServiceTests.WorkspaceAndLegacyCookies),
     ("AuthWorkflowResult maps common statuses", AuthWorkflowResultTests.MapStatuses),
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
+    ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatErrorMapper maps common exceptions", ChatErrorMapperTests.MapCommonExceptions),
     ("ChatOrchestrator streams and persists successful responses", ChatOrchestratorTests.StreamsAndPersistsSuccess),
@@ -28,7 +29,12 @@ var tests = new (string Name, Action Test)[]
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
-    ("OpenAICompatibleChatModelClient streams SSE response", OpenAICompatibleChatModelClientTests.StreamsSseResponse)
+    ("OpenAICompatibleCatalog enables providers from environment keys", OpenAICompatibleCatalogTests.EnablesProvidersFromEnvironmentKeys),
+    ("OpenAICompatibleCatalog preserves legacy single provider", OpenAICompatibleCatalogTests.PreservesLegacySingleProvider),
+    ("OpenAICompatibleChatModelClient streams SSE response", OpenAICompatibleChatModelClientTests.StreamsSseResponse),
+    ("OpenAICompatibleChatModelClient applies thinking options", OpenAICompatibleChatModelClientTests.AppliesThinkingOptions),
+    ("OpenAICompatibleChatModelClient applies provider thinking options", OpenAICompatibleChatModelClientTests.AppliesProviderThinkingOptions),
+    ("OpenAICompatibleChatModelClient streams reasoning chunks", OpenAICompatibleChatModelClientTests.StreamsReasoningChunks)
 };
 
 var failures = new List<string>();
@@ -215,6 +221,24 @@ internal static class GeminiPartFactoryTests
         var imageOnly = GeminiPartFactory.CreateParts("   ", [image]);
         Assert.Equal(1, imageOnly.Count);
         Assert.NotNull(imageOnly[0].InlineData);
+    }
+}
+
+internal static class GeminiCatalogTests
+{
+    public static void ExposesThinkingLevels()
+    {
+        var models = GeminiCatalog.CreateModelOptions(new GeminiSettings());
+        var flash = models.First(model => model.ModelName == "gemini-3.5-flash");
+        var pro = models.First(model => model.ModelName == "gemini-3.1-pro-preview");
+
+        Assert.True(flash.SupportsThinking);
+        Assert.Equal("medium", flash.Thinking?.Default);
+        Assert.True(flash.Thinking?.Options.Any(option => option.Value == "minimal") ?? false);
+
+        Assert.True(pro.SupportsThinking);
+        Assert.False(pro.Thinking?.CanDisable ?? true);
+        Assert.False(pro.Thinking?.Options.Any(option => option.Value == "off") ?? true);
     }
 }
 
@@ -526,13 +550,15 @@ internal static class OpenAICompatibleChatModelClientTests
             "data: [DONE]\n\n");
         var client = new OpenAICompatibleChatModelClient(
             new HttpClient(handler),
-            Options.Create(new OpenAICompatibleSettings
+            new OpenAICompatibleProviderSettings
             {
                 Enabled = true,
+                ProviderId = "test",
+                Name = "Test Provider",
                 ApiKey = "test-key",
                 Endpoint = "https://provider.example/v1/chat/completions",
                 ModelName = "test-model"
-            }));
+            });
 
         Run(client.LoadHistoryAsync([
             new ChatHistoryEntry(
@@ -555,6 +581,98 @@ internal static class OpenAICompatibleChatModelClientTests
         Assert.True(client.CurrentTokenCount > 0);
     }
 
+    public static void AppliesThinkingOptions()
+    {
+        var handler = new CapturingHandler(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+            "data: [DONE]\n\n");
+        var client = new OpenAICompatibleChatModelClient(
+            new HttpClient(handler),
+            new OpenAICompatibleProviderSettings
+            {
+                Enabled = true,
+                ProviderId = "deepseek",
+                Name = "DeepSeek",
+                ApiKey = "test-key",
+                Endpoint = "https://provider.example/v1/chat/completions",
+                ModelName = "deepseek-v4-pro",
+                Models =
+                [
+                    new()
+                    {
+                        Name = "DeepSeek V4 Pro",
+                        ModelName = "deepseek-v4-pro",
+                        SupportsThinking = true
+                    }
+                ]
+            });
+
+        Run(client.ConfigureAsync(new ChatSessionOptions(
+            ProviderId: "deepseek",
+            ModelName: "deepseek-v4-pro",
+            ThinkingEnabled: true,
+            ThinkingLevel: "max")));
+        Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+
+        Assert.Contains("\"thinking\":{\"type\":\"enabled\"}", handler.RequestBody ?? "");
+        Assert.Contains("\"reasoning_effort\":\"max\"", handler.RequestBody ?? "");
+    }
+
+    public static void AppliesProviderThinkingOptions()
+    {
+        var deepSeek = CaptureRequestBody(
+            "deepseek",
+            "deepseek-v4-pro",
+            new ChatSessionOptions("deepseek", "deepseek-v4-pro", ThinkingEnabled: false, ThinkingLevel: "off"));
+        Assert.Contains("\"thinking\":{\"type\":\"disabled\"}", deepSeek);
+
+        var kimi = CaptureRequestBody(
+            "kimi",
+            "kimi-k2.7-code",
+            new ChatSessionOptions("kimi", "kimi-k2.7-code", ThinkingEnabled: true));
+        Assert.Contains("\"thinking\":{\"type\":\"enabled\",\"keep\":\"all\"}", kimi);
+
+        var qwen = CaptureRequestBody(
+            "qwen",
+            "qwen-plus",
+            new ChatSessionOptions("qwen", "qwen-plus", ThinkingEnabled: true, ThinkingBudget: 2000));
+        Assert.Contains("\"enable_thinking\":true", qwen);
+        Assert.Contains("\"thinking_budget\":2000", qwen);
+
+        var zhipu = CaptureRequestBody(
+            "zhipu",
+            "glm-5.1",
+            new ChatSessionOptions("zhipu", "glm-5.1", ThinkingEnabled: false, ThinkingLevel: "off"));
+        Assert.Contains("\"thinking\":{\"type\":\"disabled\"}", zhipu);
+    }
+
+    public static void StreamsReasoningChunks()
+    {
+        var handler = new CapturingHandler(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"plan\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n" +
+            "data: [DONE]\n\n");
+        var client = new OpenAICompatibleChatModelClient(
+            new HttpClient(handler),
+            new OpenAICompatibleProviderSettings
+            {
+                Enabled = true,
+                ProviderId = "test",
+                Name = "Test Provider",
+                ApiKey = "test-key",
+                Endpoint = "https://provider.example/v1/chat/completions",
+                ModelName = "test-model"
+            });
+
+        var chunks = Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+
+        Assert.Equal(2, chunks.Count);
+        Assert.True(chunks[0].IsThinking);
+        Assert.Equal("plan", chunks[0].Text);
+        Assert.False(chunks[1].IsThinking);
+        Assert.Equal("answer", chunks[1].Text);
+    }
+
     private static async Task<List<ChatChunk>> ReadAllAsync(IAsyncEnumerable<ChatChunk> chunks)
     {
         var result = new List<ChatChunk>();
@@ -571,6 +689,118 @@ internal static class OpenAICompatibleChatModelClientTests
 
     private static void Run(Task task) =>
         task.GetAwaiter().GetResult();
+
+    private static string CaptureRequestBody(
+        string providerId,
+        string modelName,
+        ChatSessionOptions options)
+    {
+        var handler = new CapturingHandler(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+            "data: [DONE]\n\n");
+        var client = new OpenAICompatibleChatModelClient(
+            new HttpClient(handler),
+            new OpenAICompatibleProviderSettings
+            {
+                Enabled = true,
+                ProviderId = providerId,
+                Name = providerId,
+                ApiKey = "test-key",
+                Endpoint = "https://provider.example/v1/chat/completions",
+                ModelName = modelName,
+                Models =
+                [
+                    new()
+                    {
+                        Name = modelName,
+                        ModelName = modelName,
+                        SupportsThinking = true
+                    }
+                ]
+            });
+
+        Run(client.ConfigureAsync(options));
+        Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+
+        return handler.RequestBody ?? "";
+    }
+}
+
+internal static class OpenAICompatibleCatalogTests
+{
+    public static void EnablesProvidersFromEnvironmentKeys()
+    {
+        const string envName = "VERTEX_TEST_PROVIDER_API_KEY";
+        Environment.SetEnvironmentVariable(envName, "env-test-key");
+        try
+        {
+            var providers = OpenAICompatibleCatalog.CreateEnabledProviderSettings(new OpenAICompatibleSettings
+            {
+                Providers =
+                [
+                    new()
+                    {
+                        ProviderId = "configured",
+                        Name = "Configured",
+                        Endpoint = "https://provider.example/v1/chat/completions",
+                        ApiKeyEnv = envName,
+                        ModelName = "configured-model"
+                    },
+                    new()
+                    {
+                        ProviderId = "missing-key",
+                        Name = "Missing Key",
+                        Endpoint = "https://missing.example/v1/chat/completions",
+                        ApiKeyEnv = "VERTEX_MISSING_PROVIDER_API_KEY",
+                        ModelName = "missing-model"
+                    },
+                    new()
+                    {
+                        ProviderId = "missing-endpoint",
+                        Name = "Missing Endpoint",
+                        ApiKey = "test-key",
+                        ModelName = "missing-endpoint-model"
+                    }
+                ]
+            });
+
+            Assert.Equal(1, providers.Count);
+            Assert.Equal("configured", providers[0].ProviderId);
+            Assert.Equal("env-test-key", providers[0].ApiKey);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envName, null);
+        }
+    }
+
+    public static void PreservesLegacySingleProvider()
+    {
+        var providers = OpenAICompatibleCatalog.CreateEnabledProviderSettings(new OpenAICompatibleSettings
+        {
+            Enabled = true,
+            ProviderId = "openai-compatible",
+            Name = "OpenAI Compatible",
+            Endpoint = "https://provider.example/v1/chat/completions",
+            ApiKey = "legacy-key",
+            ModelName = "legacy-model",
+            Providers =
+            [
+                new()
+                {
+                    ProviderId = "template",
+                    Name = "Template",
+                    Endpoint = "https://template.example/v1/chat/completions",
+                    ApiKeyEnv = "VERTEX_MISSING_PROVIDER_API_KEY",
+                    ModelName = "template-model"
+                }
+            ]
+        });
+
+        Assert.Equal(1, providers.Count);
+        Assert.Equal("openai-compatible", providers[0].ProviderId);
+        Assert.Equal("legacy-key", providers[0].ApiKey);
+    }
 }
 
 internal sealed class CapturingHandler : HttpMessageHandler

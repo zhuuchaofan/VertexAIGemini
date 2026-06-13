@@ -2,7 +2,6 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
@@ -10,18 +9,19 @@ namespace VertexAI.Services;
 public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 {
     private readonly HttpClient _httpClient;
-    private readonly OpenAICompatibleSettings _settings;
+    private readonly OpenAICompatibleProviderSettings _settings;
     private readonly List<ChatHistoryEntry> _history = [];
     private string _modelName;
     private string _currentPresetId = "default";
     private string _currentSystemPrompt = "";
+    private ChatSessionOptions? _options;
 
     public OpenAICompatibleChatModelClient(
         HttpClient httpClient,
-        IOptions<OpenAICompatibleSettings> settings)
+        OpenAICompatibleProviderSettings settings)
     {
         _httpClient = httpClient;
-        _settings = settings.Value;
+        _settings = settings;
         ModelOptions = OpenAICompatibleCatalog.CreateModelOptions(_settings);
         Presets = OpenAICompatibleCatalog.CreatePresets(_settings);
         _modelName = OpenAICompatibleCatalog.ResolveModelName(_settings.ModelName, ModelOptions);
@@ -52,6 +52,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
                 : Presets.FirstOrDefault(p => p.Id == options.PresetId)?.Prompt ?? "";
         }
 
+        _options = options;
         return Task.CompletedTask;
     }
 
@@ -71,7 +72,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
     {
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
-            throw new InvalidOperationException("OpenAI-compatible provider is enabled but no API key is configured.");
+            throw new InvalidOperationException($"OpenAI-compatible provider '{_settings.ProviderId}' is enabled but no API key is configured.");
         }
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _settings.Endpoint);
@@ -110,18 +111,18 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
                 break;
             }
 
-            var text = ExtractDeltaText(data);
-            if (string.IsNullOrEmpty(text))
+            var chunk = ExtractDelta(data);
+            if (string.IsNullOrEmpty(chunk.Text))
             {
                 continue;
             }
 
-            CurrentTokenCount += EstimateTokens(text);
-            yield return new ChatChunk { Text = text };
+            CurrentTokenCount += EstimateTokens(chunk.Text);
+            yield return chunk;
         }
     }
 
-    private object BuildRequestBody(ChatModelRequest request)
+    private Dictionary<string, object?> BuildRequestBody(ChatModelRequest request)
     {
         var messages = new List<object>();
 
@@ -146,12 +147,114 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
         CurrentTokenCount = messages.Sum(message => EstimateTokens(JsonSerializer.Serialize(message)));
 
-        return new
+        var body = new Dictionary<string, object?>
         {
-            model = _modelName,
-            stream = true,
-            messages
+            ["model"] = _modelName,
+            ["stream"] = true,
+            ["messages"] = messages
         };
+
+        ApplyThinkingOptions(body);
+        return body;
+    }
+
+    private void ApplyThinkingOptions(Dictionary<string, object?> body)
+    {
+        var model = ModelOptions.FirstOrDefault(item => item.ModelName == _modelName);
+        var thinking = model?.Thinking;
+        if (thinking == null)
+        {
+            return;
+        }
+
+        var enabled = thinking.FixedEnabled
+            || (_options?.ThinkingEnabled ?? thinking.Default != "off");
+        var requestedLevel = NormalizeThinkingLevel(thinking, _options?.ThinkingLevel);
+        var budget = NormalizeThinkingBudget(thinking, _options?.ThinkingBudget);
+
+        switch (thinking.Kind)
+        {
+            case "deepseek-effort":
+                if (!enabled || requestedLevel == "off")
+                {
+                    body["thinking"] = new Dictionary<string, object?> { ["type"] = "disabled" };
+                    return;
+                }
+
+                body["thinking"] = new Dictionary<string, object?> { ["type"] = "enabled" };
+                body["reasoning_effort"] = requestedLevel == "max" ? "max" : "high";
+                return;
+
+            case "qwen-budget":
+                body["enable_thinking"] = enabled;
+                if (enabled && budget is > 0)
+                {
+                    body["thinking_budget"] = budget;
+                }
+                return;
+
+            case "zhipu-toggle":
+                body["thinking"] = new Dictionary<string, object?>
+                {
+                    ["type"] = enabled ? "enabled" : "disabled"
+                };
+                return;
+
+            case "kimi-fixed":
+                body["thinking"] = new Dictionary<string, object?>
+                {
+                    ["type"] = "enabled",
+                    ["keep"] = "all"
+                };
+                return;
+
+            case "kimi-toggle":
+                if (!enabled)
+                {
+                    body["thinking"] = new Dictionary<string, object?> { ["type"] = "disabled" };
+                    return;
+                }
+
+                body["thinking"] = new Dictionary<string, object?>
+                {
+                    ["type"] = "enabled",
+                    ["keep"] = "all"
+                };
+                return;
+
+            case "openai-effort":
+                if (enabled && requestedLevel != "off")
+                {
+                    body["reasoning_effort"] = requestedLevel ?? thinking.Default ?? "medium";
+                }
+                return;
+        }
+    }
+
+    private static string? NormalizeThinkingLevel(ChatThinkingConfig thinking, string? requested)
+    {
+        if (thinking.Options.Count == 0)
+        {
+            return thinking.Default;
+        }
+
+        if (!string.IsNullOrWhiteSpace(requested)
+            && thinking.Options.Any(option => option.Value == requested))
+        {
+            return requested;
+        }
+
+        return thinking.Default;
+    }
+
+    private static int? NormalizeThinkingBudget(ChatThinkingConfig thinking, int? requested)
+    {
+        if (requested is > 0)
+        {
+            return requested;
+        }
+
+        return thinking.DefaultBudget ?? thinking.Budgets.FirstOrDefault();
     }
 
     private static object BuildUserContent(
@@ -184,23 +287,46 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         return content;
     }
 
-    private static string ExtractDeltaText(string data)
+    private static ChatChunk ExtractDelta(string data)
     {
         using var document = JsonDocument.Parse(data);
         if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
         {
-            return "";
+            return new ChatChunk { Text = "" };
         }
 
         var choice = choices[0];
         if (!choice.TryGetProperty("delta", out var delta))
         {
-            return "";
+            return new ChatChunk { Text = "" };
         }
 
-        return delta.TryGetProperty("content", out var content)
-            ? content.GetString() ?? ""
-            : "";
+        if (delta.TryGetProperty("reasoning_content", out var reasoningContent)
+            && reasoningContent.ValueKind == JsonValueKind.String)
+        {
+            return new ChatChunk
+            {
+                Text = reasoningContent.GetString() ?? "",
+                IsThinking = true
+            };
+        }
+
+        if (delta.TryGetProperty("reasoning", out var reasoning)
+            && reasoning.ValueKind == JsonValueKind.String)
+        {
+            return new ChatChunk
+            {
+                Text = reasoning.GetString() ?? "",
+                IsThinking = true
+            };
+        }
+
+        return new ChatChunk
+        {
+            Text = delta.TryGetProperty("content", out var content)
+                ? content.GetString() ?? ""
+                : ""
+        };
     }
 
     private static int EstimateTokens(string text) =>
