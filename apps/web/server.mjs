@@ -98,11 +98,21 @@ async function serveStatic(req, res) {
   try {
     const body = await readFile(fileUrl);
     const type = contentTypes[extname(fileUrl.pathname)] ?? "application/octet-stream";
-    res.writeHead(200, { "content-type": type });
+    res.writeHead(200, {
+      "content-type": type,
+      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "pragma": "no-cache",
+      "expires": "0"
+    });
     res.end(body);
   } catch {
     const fallback = await readFile(new URL("index.html", publicDir));
-    res.writeHead(200, { "content-type": contentTypes[".html"] });
+    res.writeHead(200, {
+      "content-type": contentTypes[".html"],
+      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "pragma": "no-cache",
+      "expires": "0"
+    });
     res.end(fallback);
   }
 }
