@@ -1,4 +1,4 @@
--- PostgreSQL bootstrap script for Antigravity Studio.
+-- PostgreSQL bootstrap script for 球球布丁工作室.
 -- Run this manually only when you need to prepare an external database.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

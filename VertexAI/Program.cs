@@ -27,7 +27,7 @@ try
     await app.InitializeVertexApplicationAsync();
     app.UseVertexPipeline();
 
-    Log.Information("Antigravity Studio started");
+    Log.Information("球球布丁工作室 started");
     app.Run();
 }
 catch (Exception ex)
