@@ -175,7 +175,6 @@ function startNewChat() {
   clearPendingImages();
   renderConversations();
   elements.messages.replaceChildren();
-  appendMessage("system", "新的球球布丁工作室会话已就绪。登录后发送消息会通过 /api/chat/stream 调用后端模型。");
   if (state.user) {
     elements.messageInput.focus();
   }
