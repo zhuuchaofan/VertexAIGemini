@@ -116,7 +116,10 @@ public class ConversationService : IConversationStore
         }
     }
 
-    public async Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId)
+    public async Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(
+        Guid conversationId,
+        Guid userId,
+        int maxMessages)
     {
         if (!_dbAvailable) return [];
 
@@ -132,8 +135,11 @@ public class ConversationService : IConversationStore
                 return [];
             }
 
+            var take = Math.Max(1, maxMessages);
             var messages = await db.Messages
                 .Where(m => m.ConversationId == conversationId)
+                .OrderByDescending(m => m.CreatedAt)
+                .Take(take)
                 .OrderBy(m => m.CreatedAt)
                 .AsNoTracking()
                 .Select(m => new

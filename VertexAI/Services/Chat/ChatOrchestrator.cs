@@ -1,22 +1,28 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace VertexAI.Services.Chat;
 
 public class ChatOrchestrator
 {
+    private const int DefaultMaxHistoryMessages = 40;
+
     private readonly IChatProviderCatalog _providers;
     private readonly IConversationStore _conversations;
     private readonly ILogger<ChatOrchestrator> _logger;
+    private readonly int _maxHistoryMessages;
 
     public ChatOrchestrator(
         IChatProviderCatalog providers,
         IConversationStore conversations,
-        ILogger<ChatOrchestrator> logger)
+        ILogger<ChatOrchestrator> logger,
+        IOptions<GeminiSettings>? geminiSettings = null)
     {
         _providers = providers;
         _conversations = conversations;
         _logger = logger;
+        _maxHistoryMessages = ResolveMaxHistoryMessages(geminiSettings?.Value);
     }
 
     public async Task<ChatSendResult> SendAsync(
@@ -40,7 +46,10 @@ public class ChatOrchestrator
 
             if (conversationId.HasValue && request.ConversationId.HasValue)
             {
-                var history = await _conversations.GetHistoryAsync(conversationId.Value, request.UserId);
+                var history = await _conversations.GetHistoryAsync(
+                    conversationId.Value,
+                    request.UserId,
+                    _maxHistoryMessages);
                 await model.LoadHistoryAsync(history);
             }
 
@@ -144,5 +153,15 @@ public class ChatOrchestrator
             model.CurrentCustomPrompt);
 
         return conversation?.Id;
+    }
+
+    private static int ResolveMaxHistoryMessages(GeminiSettings? settings)
+    {
+        if (settings?.MaxHistoryRounds is > 0)
+        {
+            return settings.MaxHistoryRounds * 2;
+        }
+
+        return DefaultMaxHistoryMessages;
     }
 }

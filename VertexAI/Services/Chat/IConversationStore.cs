@@ -11,7 +11,7 @@ public interface IConversationStore
         string presetId,
         string? customPrompt = null);
 
-    Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId);
+    Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId, int maxMessages);
 
     Task<Message?> AddMessageAsync(
         Guid conversationId,

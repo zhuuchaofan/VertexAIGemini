@@ -411,6 +411,7 @@ internal static class ChatOrchestratorTests
             _ => Task.CompletedTask));
 
         Assert.True(result.Succeeded);
+        Assert.Equal(40, store.LastHistoryMaxMessages);
         Assert.Equal(2, model.LoadedHistory.Count);
         Assert.Equal(history[0], model.LoadedHistory[0]);
         Assert.Equal(history[1], model.LoadedHistory[1]);
@@ -916,6 +917,7 @@ internal sealed class FakeConversationStore : IConversationStore
     public string? CreatedCustomPrompt { get; private set; }
     public List<FakeStoredMessage> Messages { get; } = [];
     public IReadOnlyList<ChatHistoryEntry> History { get; init; } = [];
+    public int? LastHistoryMaxMessages { get; private set; }
     public List<(Guid ConversationId, Guid UserId, int TokenCount)> TokenUpdates { get; } = [];
 
     public Task<Conversation?> CreateConversationAsync(
@@ -941,8 +943,11 @@ internal sealed class FakeConversationStore : IConversationStore
         });
     }
 
-    public Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId) =>
-        Task.FromResult(History);
+    public Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId, int maxMessages)
+    {
+        LastHistoryMaxMessages = maxMessages;
+        return Task.FromResult(History.TakeLast(maxMessages).ToList() as IReadOnlyList<ChatHistoryEntry>);
+    }
 
     public Task<Message?> AddMessageAsync(
         Guid conversationId,
