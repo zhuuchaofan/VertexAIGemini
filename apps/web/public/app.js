@@ -6,6 +6,13 @@ const state = {
   user: null,
   conversationId: null,
   conversations: [],
+  conversationOffset: 0,
+  conversationPageSize: 30,
+  conversationsHasMore: false,
+  conversationsLoading: false,
+  loadedConversationMessages: [],
+  visibleMessageStart: 0,
+  messagePageSize: 80,
   workspaceConfig: null,
   pendingImages: [],
   streaming: false,
@@ -13,6 +20,7 @@ const state = {
 };
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const STREAM_RENDER_INTERVAL_MS = 80;
 
 const elements = {
   authScreen: document.querySelector("#auth-screen"),
@@ -37,6 +45,7 @@ const elements = {
   newChat: document.querySelector("#new-chat"),
   refreshConversations: document.querySelector("#refresh-conversations"),
   conversationList: document.querySelector("#conversation-list"),
+  loadMoreConversations: document.querySelector("#load-more-conversations"),
   conversationEmpty: document.querySelector("#conversation-empty"),
   chatForm: document.querySelector("#chat-form"),
   messageInput: document.querySelector("#message-input"),
@@ -57,12 +66,14 @@ elements.newChat.addEventListener("click", () => {
   startNewChat();
   collapseSidebarOnMobile();
 });
-elements.refreshConversations.addEventListener("click", refreshConversations);
+elements.refreshConversations.addEventListener("click", () => refreshConversations());
+elements.loadMoreConversations.addEventListener("click", () => loadMoreConversations());
 elements.conversationList.addEventListener("click", handleConversationClick);
 elements.providerSelect.addEventListener("change", renderProviderCatalog);
 elements.modelSelect.addEventListener("change", renderThinkingSettings);
 elements.presetSelect.addEventListener("change", renderCustomPromptState);
 elements.chatForm.addEventListener("submit", sendMessage);
+elements.messages.addEventListener("click", handleMessagesClick);
 elements.imageInput.addEventListener("change", handleImageSelection);
 elements.attachmentPreview.addEventListener("click", removePendingImage);
 elements.messageInput.addEventListener("keydown", event => {
@@ -137,6 +148,8 @@ async function logout() {
   state.user = null;
   state.conversationId = null;
   state.conversations = [];
+  state.conversationOffset = 0;
+  state.conversationsHasMore = false;
   renderSession();
   renderConversations();
   startNewChat();
@@ -174,6 +187,8 @@ function renderSession() {
 
 function startNewChat() {
   state.conversationId = null;
+  state.loadedConversationMessages = [];
+  state.visibleMessageStart = 0;
   clearPendingImages();
   renderConversations();
   elements.messages.replaceChildren();
@@ -417,22 +432,56 @@ function getThinkingPayload() {
 async function refreshConversations() {
   if (!state.user) {
     state.conversations = [];
+    state.conversationOffset = 0;
+    state.conversationsHasMore = false;
     renderConversations();
     return;
   }
 
-  const response = await fetch("/api/conversations/");
-  if (!response.ok) {
-    elements.conversationEmpty.textContent = "无法加载会话";
+  state.conversationOffset = 0;
+  await fetchConversationsPage(false);
+}
+
+async function loadMoreConversations() {
+  if (!state.user || state.conversationsLoading || !state.conversationsHasMore) {
     return;
   }
 
-  state.conversations = await response.json();
+  await fetchConversationsPage(true);
+}
+
+async function fetchConversationsPage(append) {
+  state.conversationsLoading = true;
+  elements.loadMoreConversations.disabled = true;
+
+  const params = new URLSearchParams({
+    offset: String(append ? state.conversationOffset : 0),
+    limit: String(state.conversationPageSize)
+  });
+  const response = await fetch(`/api/conversations/?${params}`);
+  if (!response.ok) {
+    elements.conversationEmpty.textContent = "无法加载会话";
+    elements.conversationEmpty.classList.remove("hidden");
+    state.conversationsLoading = false;
+    elements.loadMoreConversations.disabled = false;
+    return;
+  }
+
+  const page = await response.json();
+  const items = Array.isArray(page) ? page : page.items ?? [];
+  state.conversations = append ? [...state.conversations, ...items] : items;
+  state.conversationOffset = state.conversations.length;
+  state.conversationsHasMore = Array.isArray(page)
+    ? items.length === state.conversationPageSize
+    : Boolean(page.hasMore);
+  state.conversationsLoading = false;
   renderConversations();
 }
 
 function renderConversations() {
   elements.conversationList.replaceChildren();
+  elements.loadMoreConversations.classList.add("hidden");
+  elements.loadMoreConversations.disabled = state.conversationsLoading;
 
   if (!state.user) {
     elements.conversationEmpty.textContent = "登录后显示历史会话";
@@ -450,6 +499,9 @@ function renderConversations() {
   for (const conversation of state.conversations) {
     elements.conversationList.append(createConversationItem(conversation));
   }
+
+  elements.loadMoreConversations.classList.toggle("hidden", !state.conversationsHasMore);
+  elements.loadMoreConversations.textContent = state.conversationsLoading ? "加载中..." : "加载更多";
 }
 
 function createConversationItem(conversation) {
@@ -543,24 +595,57 @@ async function loadConversation(conversationId) {
   }
 
   state.conversationId = conversation.id;
+  state.loadedConversationMessages = conversation.messages ?? [];
+  state.visibleMessageStart = Math.max(0, state.loadedConversationMessages.length - state.messagePageSize);
   applyConversationSettings(conversation);
-  elements.messages.replaceChildren();
-  for (const message of conversation.messages) {
-    const node = appendMessage(message.role === "user" ? "user" : "assistant", message.content, {
-      attachments: message.attachments ?? []
-    });
-    if (message.thinkingContent) {
-      updateAssistant(node, {
-        content: message.content,
-        thinkingContent: message.thinkingContent
-      });
-    }
-  }
+  renderLoadedConversationMessages();
 
   renderConversations();
   setConnection("ready", "会话已加载");
   collapseSidebarOnMobile();
   elements.messageInput.focus();
+}
+
+function handleMessagesClick(event) {
+  const actionTarget = event.target.closest("[data-action]");
+  if (actionTarget?.dataset.action !== "load-older-messages") {
+    return;
+  }
+
+  const previousScrollHeight = elements.messages.scrollHeight;
+  state.visibleMessageStart = Math.max(0, state.visibleMessageStart - state.messagePageSize);
+  renderLoadedConversationMessages({ preserveTop: true, previousScrollHeight });
+}
+
+function renderLoadedConversationMessages(options = {}) {
+  const fragment = document.createDocumentFragment();
+
+  if (state.visibleMessageStart > 0) {
+    const loadOlder = document.createElement("button");
+    loadOlder.type = "button";
+    loadOlder.className = "ghost load-older-messages";
+    loadOlder.dataset.action = "load-older-messages";
+    loadOlder.textContent = "加载更早消息";
+    fragment.append(loadOlder);
+  }
+
+  for (const message of state.loadedConversationMessages.slice(state.visibleMessageStart)) {
+    fragment.append(createMessageNode(
+      message.role === "user" ? "user" : "assistant",
+      message.content,
+      {
+        attachments: message.attachments ?? [],
+        thinkingContent: message.thinkingContent
+      }));
+  }
+
+  elements.messages.replaceChildren(fragment);
+
+  if (options.preserveTop) {
+    elements.messages.scrollTop = elements.messages.scrollHeight - options.previousScrollHeight;
+  } else {
+    elements.messages.scrollTop = elements.messages.scrollHeight;
+  }
 }
 
 function applyConversationSettings(conversation) {
@@ -645,6 +730,7 @@ async function sendMessage(event) {
 
   appendMessage("user", message, { attachments: images });
   const assistant = appendMessage("assistant", "");
+  const assistantRenderer = createAssistantRenderer(assistant);
   setConnection("ready", "正在生成");
 
   try {
@@ -670,10 +756,10 @@ async function sendMessage(event) {
     }
 
     await readEventStream(response.body, {
-      update: payload => updateAssistant(assistant, payload),
+      update: payload => assistantRenderer.update(payload),
       final: payload => {
         state.conversationId = payload.conversationId ?? state.conversationId;
-        updateAssistant(assistant, {
+        assistantRenderer.flush({
           content: payload.succeeded ? payload.content : payload.errorMessage ?? payload.content,
           thinkingContent: payload.thinkingContent,
           citations: payload.citations
@@ -684,7 +770,7 @@ async function sendMessage(event) {
     await refreshConversations();
     setConnection("ready", "API 已连接");
   } catch (error) {
-    updateAssistant(assistant, { content: error.message });
+    assistantRenderer.flush({ content: error.message });
     setConnection("error", "请求失败");
   } finally {
     state.streaming = false;
@@ -693,14 +779,54 @@ async function sendMessage(event) {
   }
 }
 
+function createAssistantRenderer(node) {
+  let latestPayload = null;
+  let timerId = null;
+
+  const renderLatest = () => {
+    timerId = null;
+    if (!latestPayload) return;
+    updateAssistant(node, latestPayload);
+  };
+
+  return {
+    update(payload) {
+      latestPayload = payload;
+      if (timerId == null) {
+        timerId = window.setTimeout(renderLatest, STREAM_RENDER_INTERVAL_MS);
+      }
+    },
+    flush(payload) {
+      latestPayload = payload ?? latestPayload;
+      if (timerId != null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+      renderLatest();
+    }
+  };
+}
+
 function appendMessage(role, content, options = {}) {
+  const node = createMessageNode(role, content, options);
+  elements.messages.append(node);
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+  return node;
+}
+
+function createMessageNode(role, content, options = {}) {
   const node = elements.template.content.firstElementChild.cloneNode(true);
   node.classList.add(role);
   node.querySelector(".message-role").textContent = role === "user" ? "YOU" : role === "assistant" ? "ASSISTANT" : "SYSTEM";
   renderMessageContent(node.querySelector(".message-content"), content, role);
   renderMessageAttachments(node, options.attachments ?? []);
-  elements.messages.append(node);
-  elements.messages.scrollTop = elements.messages.scrollHeight;
+
+  if (options.thinkingContent) {
+    const thinking = node.querySelector(".thinking");
+    thinking.classList.remove("hidden");
+    thinking.querySelector("pre").textContent = options.thinkingContent;
+  }
+
   return node;
 }
 

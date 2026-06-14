@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
             entity.ToTable("conversations");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => new { e.UserId, e.UpdatedAt }).IsDescending(false, true);
             entity.HasIndex(e => e.CreatedAt);
 
             entity.Property(e => e.Id).HasColumnName("id");

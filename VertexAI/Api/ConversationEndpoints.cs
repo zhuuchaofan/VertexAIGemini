@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
@@ -21,6 +22,8 @@ public static class ConversationEndpoints
     }
 
     private static async Task<IResult> ListAsync(
+        [FromQuery] int? offset,
+        [FromQuery] int? limit,
         HttpContext context,
         IDbContextFactory<AppDbContext> dbFactory,
         IAuthCookieService cookies,
@@ -29,8 +32,16 @@ public static class ConversationEndpoints
         var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
         if (userId == null) return Results.Unauthorized();
 
-        var items = await conversations.GetUserConversationsAsync(userId.Value);
-        return Results.Ok(items.Select(ToSummary));
+        var pageOffset = Math.Max(0, offset ?? 0);
+        var pageLimit = Math.Clamp(limit ?? 30, 1, 100);
+        var items = await conversations.GetUserConversationsAsync(userId.Value, pageOffset, pageLimit + 1);
+        var hasMore = items.Count > pageLimit;
+
+        return Results.Ok(new ConversationListResponse(
+            items.Take(pageLimit).Select(ToSummary).ToList(),
+            pageOffset,
+            pageLimit,
+            hasMore));
     }
 
     private static async Task<IResult> GetAsync(
@@ -148,6 +159,12 @@ public static class ConversationEndpoints
         int TokenCount,
         DateTime CreatedAt,
         DateTime UpdatedAt);
+
+    private sealed record ConversationListResponse(
+        IReadOnlyList<ConversationSummaryResponse> Items,
+        int Offset,
+        int Limit,
+        bool HasMore);
 
     private sealed record ConversationDetailResponse(
         Guid Id,

@@ -26,7 +26,10 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 获取用户的所有对话（按更新时间倒序）
     /// </summary>
-    public async Task<List<Conversation>> GetUserConversationsAsync(Guid userId)
+    public Task<List<Conversation>> GetUserConversationsAsync(Guid userId) =>
+        GetUserConversationsAsync(userId, 0, 100);
+
+    public async Task<List<Conversation>> GetUserConversationsAsync(Guid userId, int offset, int limit)
     {
         if (!_dbAvailable) return [];
 
@@ -36,6 +39,9 @@ public class ConversationService : IConversationStore
             return await db.Conversations
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.UpdatedAt)
+                .ThenByDescending(c => c.Id)
+                .Skip(offset)
+                .Take(limit)
                 .AsNoTracking()
                 .ToListAsync();
         }

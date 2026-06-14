@@ -33,6 +33,8 @@ public static class DatabaseInitializer
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS model_name VARCHAR(100) NOT NULL DEFAULT ''");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments_json TEXT");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS ix_conversations_user_id_updated_at ON conversations (user_id, updated_at DESC)");
 
         await db.Database.ExecuteSqlRawAsync("""
             DO $$
