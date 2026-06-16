@@ -53,4 +53,7 @@ public class User
 
     [Column("last_login_at")]
     public DateTime? LastLoginAt { get; set; }
+
+    [Column("default_assistant_prompt")]
+    public string? DefaultAssistantPrompt { get; set; }
 }

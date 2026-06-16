@@ -51,6 +51,8 @@ public static class ChatEndpoints
         context.Response.Headers.Connection = "keep-alive";
         context.Response.ContentType = "text/event-stream; charset=utf-8";
 
+        var defaultAssistantPrompt = await GetDefaultAssistantPromptAsync(dbFactory, userId.Value);
+
         var result = await chat.SendAsync(
             new ChatSendRequest(
                 request.ConversationId,
@@ -65,7 +67,8 @@ public static class ChatEndpoints
                     request.CustomPrompt,
                     request.ThinkingEnabled,
                     request.ThinkingLevel,
-                    request.ThinkingBudget)),
+                    request.ThinkingBudget,
+                    defaultAssistantPrompt)),
             update => WriteEventAsync(context, "update", update));
 
         await WriteEventAsync(context, "final", new ApiChatFinalResponse(
@@ -83,6 +86,18 @@ public static class ChatEndpoints
         await context.Response.WriteAsync($"event: {eventName}\n");
         await context.Response.WriteAsync($"data: {json}\n\n");
         await context.Response.Body.FlushAsync();
+    }
+
+    private static async Task<string?> GetDefaultAssistantPromptAsync(
+        IDbContextFactory<AppDbContext> dbFactory,
+        Guid userId)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        return await db.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => user.DefaultAssistantPrompt)
+            .FirstOrDefaultAsync();
     }
 
     private sealed record ApiChatSendRequest(

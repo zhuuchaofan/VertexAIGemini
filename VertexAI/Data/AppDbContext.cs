@@ -75,6 +75,7 @@ public class AppDbContext : DbContext
             entity.ToTable("users");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.Property(e => e.DefaultAssistantPrompt).HasColumnName("default_assistant_prompt");
         });
 
         // 会话表配置

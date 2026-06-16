@@ -7,4 +7,5 @@ public sealed record ChatSessionOptions(
     string? CustomPrompt = null,
     bool? ThinkingEnabled = null,
     string? ThinkingLevel = null,
-    int? ThinkingBudget = null);
+    int? ThinkingBudget = null,
+    string? DefaultAssistantPrompt = null);

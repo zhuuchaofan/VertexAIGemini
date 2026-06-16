@@ -74,14 +74,12 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// <summary>
     /// 切换系统提示词
     /// </summary>
-    public void SetSystemPrompt(string presetId, string? customPrompt = null)
+    public void SetSystemPrompt(string presetId, string? customPrompt = null, string? defaultAssistantPrompt = null)
     {
         _currentPresetId = presetId;
 
         var matchedPreset = Presets.FirstOrDefault(p => p.Id == presetId);
-        _currentSystemPrompt = presetId == "custom" && !string.IsNullOrWhiteSpace(customPrompt)
-            ? customPrompt
-            : matchedPreset?.Prompt ?? "";
+        _currentSystemPrompt = ResolveSystemPrompt(presetId, matchedPreset, customPrompt, defaultAssistantPrompt);
 
         _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
         ClearHistory();
@@ -130,7 +128,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
         if (!string.IsNullOrWhiteSpace(options.PresetId))
         {
-            SetSystemPrompt(options.PresetId, options.CustomPrompt);
+            SetSystemPrompt(options.PresetId, options.CustomPrompt, options.DefaultAssistantPrompt);
         }
 
         ApplyThinkingOptions(options);
@@ -177,6 +175,25 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     {
         var userParts = GeminiPartFactory.CreateParts(request.Message, request.Images);
         return StreamChatAsync(userParts, enableSearch);
+    }
+
+    private static string ResolveSystemPrompt(
+        string presetId,
+        PromptPresetConfig? matchedPreset,
+        string? customPrompt,
+        string? defaultAssistantPrompt)
+    {
+        if (presetId == "custom" && !string.IsNullOrWhiteSpace(customPrompt))
+        {
+            return customPrompt;
+        }
+
+        if (presetId == "default" && !string.IsNullOrWhiteSpace(defaultAssistantPrompt))
+        {
+            return defaultAssistantPrompt;
+        }
+
+        return matchedPreset?.Prompt ?? "";
     }
 
     /// <summary>

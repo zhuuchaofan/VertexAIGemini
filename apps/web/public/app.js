@@ -1,5 +1,7 @@
 const mobileQuery = window.matchMedia("(max-width: 820px)");
 const savedSidebarState = localStorage.getItem("vertex-sidebar-collapsed");
+const WORKSPACE_PREFERENCES_KEY = "vertex-workspace-preferences";
+const workspacePreferences = loadWorkspacePreferences();
 
 const state = {
   mode: "login",
@@ -14,6 +16,7 @@ const state = {
   visibleMessageStart: 0,
   messagePageSize: 80,
   workspaceConfig: null,
+  userSettings: null,
   pendingImages: [],
   streaming: false,
   sidebarCollapsed: mobileQuery.matches ? true : savedSidebarState === "true"
@@ -23,6 +26,7 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const STREAM_RENDER_INTERVAL_MS = 80;
 
 const elements = {
+  appLoading: document.querySelector("#app-loading"),
   authScreen: document.querySelector("#auth-screen"),
   workspaceShell: document.querySelector("#workspace-shell"),
   collapseSidebar: document.querySelector("#collapse-sidebar"),
@@ -33,6 +37,13 @@ const elements = {
   authSubmit: document.querySelector("#auth-submit"),
   authMessage: document.querySelector("#auth-message"),
   logoutButton: document.querySelector("#logout-button"),
+  settingsButton: document.querySelector("#settings-button"),
+  settingsModal: document.querySelector("#settings-modal"),
+  settingsClose: document.querySelector("#settings-close"),
+  settingsForm: document.querySelector("#settings-form"),
+  settingsReset: document.querySelector("#settings-reset"),
+  defaultAssistantPrompt: document.querySelector("#default-assistant-prompt"),
+  settingsMessage: document.querySelector("#settings-message"),
   sessionLabel: document.querySelector("#session-label"),
   connectionState: document.querySelector("#connection-state"),
   providerSelect: document.querySelector("#provider-select"),
@@ -62,6 +73,15 @@ elements.loginTab.addEventListener("click", () => setAuthMode("login"));
 elements.registerTab.addEventListener("click", () => setAuthMode("register"));
 elements.authForm.addEventListener("submit", submitAuth);
 elements.logoutButton.addEventListener("click", logout);
+elements.settingsButton.addEventListener("click", openSettings);
+elements.settingsClose.addEventListener("click", closeSettings);
+elements.settingsModal.addEventListener("click", event => {
+  if (event.target === elements.settingsModal) {
+    closeSettings();
+  }
+});
+elements.settingsForm.addEventListener("submit", saveUserSettings);
+elements.settingsReset.addEventListener("click", resetUserSettings);
 elements.newChat.addEventListener("click", () => {
   startNewChat();
   collapseSidebarOnMobile();
@@ -69,9 +89,24 @@ elements.newChat.addEventListener("click", () => {
 elements.refreshConversations.addEventListener("click", () => refreshConversations());
 elements.loadMoreConversations.addEventListener("click", () => loadMoreConversations());
 elements.conversationList.addEventListener("click", handleConversationClick);
-elements.providerSelect.addEventListener("change", renderProviderCatalog);
-elements.modelSelect.addEventListener("change", renderThinkingSettings);
-elements.presetSelect.addEventListener("change", renderCustomPromptState);
+elements.providerSelect.addEventListener("change", () => {
+  saveWorkspacePreference("providerId", elements.providerSelect.value);
+  renderProviderCatalog();
+});
+elements.modelSelect.addEventListener("change", () => {
+  saveSelectedModelPreference();
+  renderThinkingSettings();
+});
+elements.presetSelect.addEventListener("change", () => {
+  saveSelectedPresetPreference();
+  renderCustomPromptState();
+});
+elements.customPrompt.addEventListener("input", () => {
+  saveWorkspacePreference("customPrompt", elements.customPrompt.value);
+});
+elements.enableSearch.addEventListener("change", () => {
+  saveWorkspacePreference("enableSearch", elements.enableSearch.checked);
+});
 elements.chatForm.addEventListener("submit", sendMessage);
 elements.messages.addEventListener("click", handleMessagesClick);
 elements.imageInput.addEventListener("change", handleImageSelection);
@@ -138,6 +173,7 @@ async function submitAuth(event) {
 
   state.user = result.user;
   renderSession();
+  await loadUserSettings();
   await refreshConversations();
   setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
   setConnection("ready", "API 已连接");
@@ -150,9 +186,11 @@ async function logout() {
   state.conversations = [];
   state.conversationOffset = 0;
   state.conversationsHasMore = false;
+  state.userSettings = null;
   renderSession();
   renderConversations();
   startNewChat();
+  closeSettings();
   setAuthMessage("已退出登录");
   setConnection("", "API 未连接");
 }
@@ -163,6 +201,7 @@ async function refreshSession() {
   if (response.ok && result?.success) {
     state.user = result.user;
     setConnection("ready", "API 已连接");
+    await loadUserSettings();
     await refreshConversations();
   }
 
@@ -170,6 +209,7 @@ async function refreshSession() {
 }
 
 function renderSession() {
+  elements.appLoading.classList.add("hidden");
   elements.authForm.classList.remove("hidden");
 
   if (state.user) {
@@ -183,6 +223,76 @@ function renderSession() {
     elements.authScreen.classList.remove("hidden");
     elements.workspaceShell.classList.add("hidden");
   }
+}
+
+async function loadUserSettings() {
+  if (!state.user) return null;
+
+  const response = await fetch("/api/user/settings/");
+  const settings = await readJson(response);
+  if (!response.ok || !settings) {
+    return null;
+  }
+
+  state.userSettings = settings;
+  return settings;
+}
+
+async function openSettings() {
+  if (!state.user) return;
+
+  const settings = state.userSettings ?? await loadUserSettings();
+  renderSettings(settings);
+  elements.settingsModal.classList.remove("hidden");
+  elements.defaultAssistantPrompt.focus();
+}
+
+function closeSettings() {
+  elements.settingsModal.classList.add("hidden");
+  setSettingsMessage("");
+}
+
+function renderSettings(settings) {
+  const fallbackPrompt = settings?.systemDefaultAssistantPrompt ?? "";
+  elements.defaultAssistantPrompt.value = settings?.defaultAssistantPrompt ?? fallbackPrompt;
+  setSettingsMessage("");
+}
+
+async function saveUserSettings(event) {
+  event.preventDefault();
+  try {
+    await updateUserSettings(elements.defaultAssistantPrompt.value);
+    setSettingsMessage("已保存");
+  } catch {
+    // Message is already rendered by updateUserSettings.
+  }
+}
+
+async function resetUserSettings() {
+  try {
+    const settings = await updateUserSettings(null);
+    renderSettings(settings);
+    setSettingsMessage("已恢复系统默认");
+  } catch {
+    // Message is already rendered by updateUserSettings.
+  }
+}
+
+async function updateUserSettings(defaultAssistantPrompt) {
+  const response = await fetch("/api/user/settings/", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ defaultAssistantPrompt })
+  });
+  const settings = await readJson(response);
+
+  if (!response.ok || !settings) {
+    setSettingsMessage(settings?.error ?? "保存失败");
+    throw new Error(settings?.error ?? "保存失败");
+  }
+
+  state.userSettings = settings;
+  return settings;
 }
 
 function startNewChat() {
@@ -220,9 +330,11 @@ function renderWorkspaceConfig() {
     elements.providerSelect.append(option);
   }
 
-  if (state.workspaceConfig?.defaultProviderId) {
-    elements.providerSelect.value = state.workspaceConfig.defaultProviderId;
+  if (!setSelectValue(elements.providerSelect, workspacePreferences.providerId)) {
+    setSelectValue(elements.providerSelect, state.workspaceConfig?.defaultProviderId);
   }
+  elements.enableSearch.checked = Boolean(workspacePreferences.enableSearch);
+  elements.customPrompt.value = workspacePreferences.customPrompt ?? "";
 
   renderProviderCatalog();
 }
@@ -249,8 +361,13 @@ function renderProviderCatalog() {
     elements.presetSelect.append(option);
   }
 
-  setSelectValue(elements.modelSelect, providerConfig?.defaultModelName);
-  setSelectValue(elements.presetSelect, providerConfig?.defaultPresetId);
+  const providerId = providerConfig?.provider?.id;
+  if (!setSelectValue(elements.modelSelect, workspacePreferences.modelByProvider?.[providerId])) {
+    setSelectValue(elements.modelSelect, providerConfig?.defaultModelName);
+  }
+  if (!setSelectValue(elements.presetSelect, workspacePreferences.presetByProvider?.[providerId])) {
+    setSelectValue(elements.presetSelect, providerConfig?.defaultPresetId);
+  }
 
   renderThinkingSettings();
   renderCustomPromptState();
@@ -271,6 +388,77 @@ function getSelectedModel() {
   const providerConfig = getSelectedProviderConfig();
   const selected = elements.modelSelect.value || providerConfig?.defaultModelName;
   return providerConfig?.models?.find(model => model.modelName === selected) ?? null;
+}
+
+function loadWorkspacePreferences() {
+  try {
+    return JSON.parse(localStorage.getItem(WORKSPACE_PREFERENCES_KEY) ?? "{}") ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWorkspacePreferences() {
+  localStorage.setItem(WORKSPACE_PREFERENCES_KEY, JSON.stringify(workspacePreferences));
+}
+
+function saveWorkspacePreference(key, value) {
+  workspacePreferences[key] = value;
+  saveWorkspacePreferences();
+}
+
+function saveSelectedModelPreference() {
+  const providerId = getSelectedProviderConfig()?.provider?.id;
+  if (!providerId || !elements.modelSelect.value) return;
+
+  workspacePreferences.modelByProvider ??= {};
+  workspacePreferences.modelByProvider[providerId] = elements.modelSelect.value;
+  saveWorkspacePreferences();
+}
+
+function saveSelectedPresetPreference() {
+  const providerId = getSelectedProviderConfig()?.provider?.id;
+  if (!providerId || !elements.presetSelect.value) return;
+
+  workspacePreferences.presetByProvider ??= {};
+  workspacePreferences.presetByProvider[providerId] = elements.presetSelect.value;
+  saveWorkspacePreferences();
+}
+
+function getThinkingPreferenceKey() {
+  const providerId = getSelectedProviderConfig()?.provider?.id;
+  const modelName = elements.modelSelect.value;
+  return providerId && modelName ? `${providerId}:${modelName}` : null;
+}
+
+function getSavedThinkingPreference() {
+  const key = getThinkingPreferenceKey();
+  return key ? workspacePreferences.thinkingByModel?.[key] : null;
+}
+
+function saveThinkingPreference() {
+  const key = getThinkingPreferenceKey();
+  if (!key) return;
+
+  const thinking = getSelectedModel()?.thinking;
+  if (!thinking) return;
+
+  let value;
+  if (thinking.kind === "qwen-budget") {
+    value = {
+      enabled: elements.thinkingSettings.querySelector("#thinking-enabled")?.checked ?? true,
+      budget: elements.thinkingSettings.querySelector("#thinking-budget-select")?.value ?? "custom",
+      customBudget: elements.thinkingSettings.querySelector("#thinking-budget-custom")?.value ?? ""
+    };
+  } else {
+    value = {
+      level: elements.thinkingSettings.querySelector("#thinking-level")?.value ?? thinking.default ?? "on"
+    };
+  }
+
+  workspacePreferences.thinkingByModel ??= {};
+  workspacePreferences.thinkingByModel[key] = value;
+  saveWorkspacePreferences();
 }
 
 function renderThinkingSettings() {
@@ -327,7 +515,9 @@ function renderLevelThinking(thinking) {
     select.append(node);
   }
 
-  select.value = thinking.default ?? options[0]?.value ?? "on";
+  const saved = getSavedThinkingPreference();
+  setSelectValue(select, saved?.level ?? thinking.default ?? options[0]?.value ?? "on");
+  select.addEventListener("change", saveThinkingPreference);
   label.append(select);
   elements.thinkingSettings.append(label);
 }
@@ -339,7 +529,8 @@ function renderBudgetThinking(thinking) {
   const enabled = document.createElement("input");
   enabled.id = "thinking-enabled";
   enabled.type = "checkbox";
-  enabled.checked = thinking.default !== "off";
+  const saved = getSavedThinkingPreference();
+  enabled.checked = saved?.enabled ?? thinking.default !== "off";
 
   const enabledText = document.createElement("span");
   enabledText.textContent = "开启思考";
@@ -373,10 +564,10 @@ function renderBudgetThinking(thinking) {
   customInput.type = "number";
   customInput.min = "1";
   customInput.step = "1";
-  customInput.value = String(thinking.defaultBudget ?? thinking.budgets?.[0] ?? 500);
+  customInput.value = String(saved?.customBudget ?? thinking.defaultBudget ?? thinking.budgets?.[0] ?? 500);
   customLabel.append(customInput);
 
-  const defaultBudget = String(thinking.defaultBudget ?? thinking.budgets?.[0] ?? "custom");
+  const defaultBudget = String(saved?.budget ?? thinking.defaultBudget ?? thinking.budgets?.[0] ?? "custom");
   budgetSelect.value = [...budgetSelect.options].some(option => option.value === defaultBudget)
     ? defaultBudget
     : "custom";
@@ -388,8 +579,15 @@ function renderBudgetThinking(thinking) {
     customLabel.classList.toggle("hidden", budgetSelect.value !== "custom");
   };
 
-  enabled.addEventListener("change", updateBudgetState);
-  budgetSelect.addEventListener("change", updateBudgetState);
+  enabled.addEventListener("change", () => {
+    updateBudgetState();
+    saveThinkingPreference();
+  });
+  budgetSelect.addEventListener("change", () => {
+    updateBudgetState();
+    saveThinkingPreference();
+  });
+  customInput.addEventListener("input", saveThinkingPreference);
 
   budgetLabel.append(budgetSelect);
   row.append(budgetLabel, customLabel);
@@ -1104,6 +1302,10 @@ function setAuthMessage(message) {
   elements.authMessage.textContent = message;
 }
 
+function setSettingsMessage(message) {
+  elements.settingsMessage.textContent = message;
+}
+
 function setConnection(kind, message) {
   elements.connectionState.classList.toggle("ready", kind === "ready");
   elements.connectionState.classList.toggle("error", kind === "error");
@@ -1111,12 +1313,14 @@ function setConnection(kind, message) {
 }
 
 function setSelectValue(select, value) {
-  if (!value) return;
+  if (!value) return false;
 
   const exists = Array.from(select.options).some(option => option.value === value);
   if (exists) {
     select.value = value;
+    return true;
   }
+  return false;
 }
 
 function resizeComposer() {

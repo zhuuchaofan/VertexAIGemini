@@ -7,7 +7,15 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="auth-screen" id="auth-screen">
+    <main class="app-loading" id="app-loading" aria-live="polite" aria-busy="true">
+      <div class="brand-mark">球</div>
+      <div>
+        <h1>球球布丁工作室</h1>
+        <p>正在进入工作台...</p>
+      </div>
+    </main>
+
+    <main class="auth-screen hidden" id="auth-screen">
       <section class="auth-card" aria-label="账户">
         <div class="auth-brand">
           <div class="brand-mark">球</div>
@@ -52,6 +60,7 @@
         </div>
 
         <button id="logout-button" class="ghost hidden" type="button">退出登录</button>
+        <button id="settings-button" class="ghost" type="button">设置</button>
 
         <section class="workspace-settings" aria-label="会话设置">
           <label>
@@ -126,6 +135,29 @@
       </main>
     </div>
 
+    <div class="settings-modal hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-panel">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Account settings</p>
+            <h2 id="settings-title">设置</h2>
+          </div>
+          <button id="settings-close" class="icon-button" type="button" title="关闭设置" aria-label="关闭设置">×</button>
+        </header>
+        <form id="settings-form" class="settings-form">
+          <label>
+            默认助手提示词
+            <textarea id="default-assistant-prompt" rows="10" maxlength="12000"></textarea>
+          </label>
+          <div class="settings-actions">
+            <button id="settings-reset" class="ghost" type="button">恢复系统默认</button>
+            <button class="primary" type="submit">保存</button>
+          </div>
+          <p id="settings-message" class="status-line"></p>
+        </form>
+      </div>
+    </div>
+
     <template id="message-template">
       <article class="message">
         <div class="message-role"></div>
@@ -139,6 +171,6 @@
       </article>
     </template>
 
-    <script type="module" src="/app.js?v=20260613-3"></script>
+    <script type="module" src="/app.js?v=20260617-1"></script>
   </body>
 </html>

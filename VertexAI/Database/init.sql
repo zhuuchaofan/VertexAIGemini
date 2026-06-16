@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     verification_token VARCHAR(64),
     password_reset_token VARCHAR(64),
     password_reset_expires_at TIMESTAMPTZ,
+    default_assistant_prompt TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_login_at TIMESTAMPTZ
 );

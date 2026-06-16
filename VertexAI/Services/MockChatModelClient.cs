@@ -7,12 +7,12 @@ public sealed class MockChatModelClient : IChatModelClient
     private readonly List<ChatHistoryEntry> _history = [];
     private string _modelName = "mock-fast";
     private string _currentPresetId = "default";
-    private string _currentCustomPrompt = "";
+    private string _currentSystemPrompt = "";
 
     public int CurrentTokenCount { get; private set; }
     public string CurrentModelName => _modelName;
     public string CurrentPresetId => _currentPresetId;
-    public string CurrentCustomPrompt => _currentCustomPrompt;
+    public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
 
     public IReadOnlyList<ChatModelOption> ModelOptions { get; } =
     [
@@ -64,7 +64,12 @@ public sealed class MockChatModelClient : IChatModelClient
         if (!string.IsNullOrWhiteSpace(options?.PresetId))
         {
             _currentPresetId = options.PresetId;
-            _currentCustomPrompt = options.PresetId == "custom" ? options.CustomPrompt ?? "" : "";
+            _currentSystemPrompt = options.PresetId switch
+            {
+                "custom" => options.CustomPrompt ?? "",
+                "default" when !string.IsNullOrWhiteSpace(options.DefaultAssistantPrompt) => options.DefaultAssistantPrompt,
+                _ => ""
+            };
         }
 
         return Task.CompletedTask;
@@ -83,9 +88,9 @@ public sealed class MockChatModelClient : IChatModelClient
         var imageCount = request.Images.Count;
         var historyCount = _history.Count;
         var searchText = request.EnableSearch ? " Search is enabled." : "";
-        var promptText = string.IsNullOrWhiteSpace(_currentCustomPrompt)
+        var promptText = string.IsNullOrWhiteSpace(_currentSystemPrompt)
             ? ""
-            : $" Custom prompt length: {_currentCustomPrompt.Length}.";
+            : $" Custom prompt length: {_currentSystemPrompt.Length}.";
 
         CurrentTokenCount = EstimateTokens(trimmed) + imageCount * 256 + historyCount * 16;
 

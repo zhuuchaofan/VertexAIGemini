@@ -29,6 +29,7 @@ var tests = new (string Name, Action Test)[]
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
+    ("MockChatModelClient applies default assistant prompt", MockChatModelClientTests.AppliesDefaultAssistantPrompt),
     ("OpenAICompatibleCatalog enables providers from environment keys", OpenAICompatibleCatalogTests.EnablesProvidersFromEnvironmentKeys),
     ("OpenAICompatibleCatalog preserves legacy single provider", OpenAICompatibleCatalogTests.PreservesLegacySingleProvider),
     ("OpenAICompatibleChatModelClient streams SSE response", OpenAICompatibleChatModelClientTests.StreamsSseResponse),
@@ -521,6 +522,23 @@ internal static class MockChatModelClientTests
         Assert.True(chunks.Count > 0);
         Assert.Contains("Mock provider mock-detailed", string.Concat(chunks.Select(c => c.Text)));
         Assert.True(client.CurrentTokenCount > 0);
+    }
+
+    public static void AppliesDefaultAssistantPrompt()
+    {
+        var client = new MockChatModelClient();
+
+        Run(client.ConfigureAsync(new ChatSessionOptions(
+            "mock",
+            "mock-fast",
+            "default",
+            DefaultAssistantPrompt: "Use my account default.")));
+        var chunks = Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+        var text = string.Concat(chunks.Select(c => c.Text));
+
+        Assert.Contains("Custom prompt length: 23", text);
+        Assert.Equal("default", client.CurrentPresetId);
+        Assert.Equal("", client.CurrentCustomPrompt);
     }
 
     private static async Task<List<ChatChunk>> ReadAllAsync(IAsyncEnumerable<ChatChunk> chunks)

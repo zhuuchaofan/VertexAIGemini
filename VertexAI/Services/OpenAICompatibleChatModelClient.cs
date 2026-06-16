@@ -47,9 +47,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         if (!string.IsNullOrWhiteSpace(options?.PresetId))
         {
             _currentPresetId = options.PresetId;
-            _currentSystemPrompt = options.PresetId == "custom"
-                ? options.CustomPrompt ?? ""
-                : Presets.FirstOrDefault(p => p.Id == options.PresetId)?.Prompt ?? "";
+            _currentSystemPrompt = ResolveSystemPrompt(options);
         }
 
         _options = options;
@@ -156,6 +154,21 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
         ApplyThinkingOptions(body);
         return body;
+    }
+
+    private string ResolveSystemPrompt(ChatSessionOptions options)
+    {
+        if (options.PresetId == "custom" && !string.IsNullOrWhiteSpace(options.CustomPrompt))
+        {
+            return options.CustomPrompt;
+        }
+
+        if (options.PresetId == "default" && !string.IsNullOrWhiteSpace(options.DefaultAssistantPrompt))
+        {
+            return options.DefaultAssistantPrompt;
+        }
+
+        return Presets.FirstOrDefault(p => p.Id == options.PresetId)?.Prompt ?? "";
     }
 
     private void ApplyThinkingOptions(Dictionary<string, object?> body)

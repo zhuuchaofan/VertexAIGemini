@@ -60,5 +60,7 @@ public static class DatabaseInitializer
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(64)");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_assistant_prompt TEXT");
     }
 }
