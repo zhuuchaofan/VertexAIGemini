@@ -149,7 +149,9 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         {
             ["model"] = _modelName,
             ["stream"] = true,
-            ["messages"] = messages
+            ["messages"] = messages,
+            // 显式限制最大输出 Token 数，防止被接口默认值提前截断
+            ["max_tokens"] = 4096
         };
 
         ApplyThinkingOptions(body);
