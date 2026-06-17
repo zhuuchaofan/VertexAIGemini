@@ -20,7 +20,6 @@ const state = {
   firebaseAuth: null,
   firebaseSdk: null,
   firebaseAuthReady: false,
-  authProvider: "legacy",
   pendingImages: [],
   streaming: false,
   sidebarCollapsed: mobileQuery.matches ? true : savedSidebarState === "true"
@@ -157,8 +156,8 @@ function setAuthMode(mode) {
 async function initializeFirebaseAuth() {
   const firebase = state.workspaceConfig?.firebase;
   if (!firebase?.apiKey || !firebase?.projectId) {
-    state.authProvider = "legacy";
-    state.firebaseAuthReady = true;
+    setAuthMessage("Firebase 配置缺失，无法登录");
+    setConnection("error", "认证配置缺失");
     return;
   }
 
@@ -176,7 +175,6 @@ async function initializeFirebaseAuth() {
 
   state.firebaseSdk = authModule;
   state.firebaseAuth = authModule.getAuth(app);
-  state.authProvider = "firebase";
 }
 
 function waitForFirebaseAuth() {
@@ -213,51 +211,32 @@ async function submitAuth(event) {
 
   setAuthMessage("正在处理...");
 
-  if (state.authProvider === "firebase") {
-    try {
-      const credential = state.mode === "login"
-        ? await state.firebaseSdk.signInWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password)
-        : await state.firebaseSdk.createUserWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password);
-
-      state.user = toFirebaseUserInfo(credential.user);
-      renderSession();
-      await loadUserSettings();
-      await refreshConversations();
-      setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
-      setConnection("ready", "API 已连接");
-    } catch (error) {
-      setAuthMessage(toAuthErrorMessage(error));
-      setConnection("error", "认证失败");
-    }
+  if (!state.firebaseAuth || !state.firebaseSdk) {
+    setAuthMessage("Firebase 认证未初始化");
+    setConnection("error", "认证配置缺失");
     return;
   }
 
-  const response = await apiFetch(`/api/auth/${state.mode}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const result = await readJson(response);
+  try {
+    const credential = state.mode === "login"
+      ? await state.firebaseSdk.signInWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password)
+      : await state.firebaseSdk.createUserWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password);
 
-  if (!response.ok || !result?.success) {
-    setAuthMessage(result?.error ?? "认证失败");
+    state.user = toFirebaseUserInfo(credential.user);
+    renderSession();
+    await loadUserSettings();
+    await refreshConversations();
+    setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
+    setConnection("ready", "API 已连接");
+  } catch (error) {
+    setAuthMessage(toAuthErrorMessage(error));
     setConnection("error", "认证失败");
-    return;
   }
-
-  state.user = result.user;
-  renderSession();
-  await loadUserSettings();
-  await refreshConversations();
-  setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
-  setConnection("ready", "API 已连接");
 }
 
 async function logout() {
-  if (state.authProvider === "firebase" && state.firebaseAuth) {
+  if (state.firebaseAuth) {
     await state.firebaseSdk.signOut(state.firebaseAuth);
-  } else {
-    await apiFetch("/api/auth/logout", { method: "POST" });
   }
 
   state.user = null;
@@ -275,23 +254,9 @@ async function logout() {
 }
 
 async function refreshSession() {
-  if (state.authProvider === "firebase") {
-    await waitForFirebaseAuth();
-    state.user = toFirebaseUserInfo(state.firebaseAuth?.currentUser);
-    if (state.user) {
-      setConnection("ready", "API 已连接");
-      await loadUserSettings();
-      await refreshConversations();
-    }
-
-    renderSession();
-    return;
-  }
-
-  const response = await apiFetch("/api/auth/status");
-  const result = await readJson(response);
-  if (response.ok && result?.success) {
-    state.user = result.user;
+  await waitForFirebaseAuth();
+  state.user = toFirebaseUserInfo(state.firebaseAuth?.currentUser);
+  if (state.user) {
     setConnection("ready", "API 已连接");
     await loadUserSettings();
     await refreshConversations();
@@ -1403,7 +1368,7 @@ async function apiFetch(input, init = {}) {
 }
 
 async function getAuthToken() {
-  if (state.authProvider !== "firebase" || !state.firebaseAuth?.currentUser) {
+  if (!state.firebaseAuth?.currentUser) {
     return null;
   }
 

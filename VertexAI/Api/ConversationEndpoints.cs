@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using VertexAI.Data.Entities;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 

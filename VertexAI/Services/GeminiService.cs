@@ -363,7 +363,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// <summary>
     /// 导入历史消息 (用于页面加载时恢复上下文)
     /// </summary>
-    public void ImportHistory(IEnumerable<VertexAI.Data.Entities.Message> messages)
+    public void ImportHistory(IEnumerable<Chat.Message> messages)
     {
         ImportHistory(messages.Select(msg => new ChatHistoryEntry(
             msg.Role,

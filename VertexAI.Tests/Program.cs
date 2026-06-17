@@ -5,18 +5,9 @@ using VertexAI.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
-using VertexAI.Data.Entities;
 
 var tests = new (string Name, Action Test)[]
 {
-    ("AuthInputValidator normalizes emails", AuthInputValidatorTests.NormalizeEmail),
-    ("AuthInputValidator validates email shape", AuthInputValidatorTests.ValidateEmail),
-    ("AuthInputValidator validates password strength", AuthInputValidatorTests.ValidatePasswordStrength),
-    ("AuthTokenGenerator creates url-safe tokens", AuthTokenGeneratorTests.GenerateUrlSafeToken),
-    ("AuthRateLimiter limits and resets client attempts", AuthRateLimiterTests.LimitAndResetAttempts),
-    ("AuthRateLimiter honors forwarded client IP", AuthRateLimiterTests.HonorForwardedClientIp),
-    ("AuthCookieService uses workspace cookie and reads legacy cookie", AuthCookieServiceTests.WorkspaceAndLegacyCookies),
-    ("AuthWorkflowResult maps common statuses", AuthWorkflowResultTests.MapStatuses),
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
@@ -70,137 +61,6 @@ if (failures.Count > 0)
 Console.WriteLine();
 Console.WriteLine($"{tests.Length} tests passed.");
 return 0;
-
-internal static class AuthInputValidatorTests
-{
-    public static void NormalizeEmail()
-    {
-        Assert.Equal("user@example.com", AuthInputValidator.NormalizeEmail("  User@Example.COM "));
-    }
-
-    public static void ValidateEmail()
-    {
-        Assert.True(AuthInputValidator.IsValidEmail("user@example.com"));
-        Assert.False(AuthInputValidator.IsValidEmail("missing-at.example.com"));
-        Assert.False(AuthInputValidator.IsValidEmail("missing-domain@"));
-    }
-
-    public static void ValidatePasswordStrength()
-    {
-        Assert.Null(AuthInputValidator.ValidatePasswordStrength("abc123"));
-        Assert.NotNull(AuthInputValidator.ValidatePasswordStrength("abc"));
-        Assert.NotNull(AuthInputValidator.ValidatePasswordStrength("abcdef"));
-        Assert.NotNull(AuthInputValidator.ValidatePasswordStrength("123456"));
-        Assert.NotNull(AuthInputValidator.ValidatePasswordStrength(new string('a', 101) + "1"));
-    }
-}
-
-internal static class AuthTokenGeneratorTests
-{
-    public static void GenerateUrlSafeToken()
-    {
-        var generator = new AuthTokenGenerator();
-        var token = generator.Generate();
-
-        Assert.Equal(43, token.Length);
-        Assert.False(token.Contains('+'));
-        Assert.False(token.Contains('/'));
-        Assert.False(token.Contains('='));
-        Assert.NotEqual(token, generator.Generate());
-    }
-}
-
-internal static class AuthRateLimiterTests
-{
-    public static void LimitAndResetAttempts()
-    {
-        var limiter = new AuthRateLimiter();
-        var context = CreateHttpContext("10.0.0.1");
-
-        for (var i = 0; i < 5; i++)
-        {
-            Assert.False(limiter.IsLimited(context));
-            limiter.RecordFailure(context);
-        }
-
-        Assert.True(limiter.IsLimited(context));
-        limiter.Reset(context);
-        Assert.False(limiter.IsLimited(context));
-    }
-
-    public static void HonorForwardedClientIp()
-    {
-        var limiter = new AuthRateLimiter();
-        var first = CreateHttpContext("10.0.0.1", "203.0.113.10, 10.0.0.1");
-        var second = CreateHttpContext("10.0.0.2", "203.0.113.10");
-
-        for (var i = 0; i < 5; i++)
-        {
-            limiter.RecordFailure(first);
-        }
-
-        Assert.True(limiter.IsLimited(second));
-    }
-
-    private static DefaultHttpContext CreateHttpContext(string remoteIp, string? forwardedFor = null)
-    {
-        var context = new DefaultHttpContext();
-        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(remoteIp);
-
-        if (!string.IsNullOrEmpty(forwardedFor))
-        {
-            context.Request.Headers["X-Forwarded-For"] = forwardedFor;
-        }
-
-        return context;
-    }
-}
-
-internal static class AuthCookieServiceTests
-{
-    public static void WorkspaceAndLegacyCookies()
-    {
-        var cookies = new AuthCookieService();
-        var signInContext = new DefaultHttpContext();
-
-        cookies.SignIn(signInContext, "new-token");
-
-        var setCookie = signInContext.Response.Headers.SetCookie.ToString();
-        Assert.Contains("vertex_auth=new-token", setCookie);
-        Assert.Contains("gemini_auth=", setCookie);
-
-        var readContext = new DefaultHttpContext();
-        readContext.Request.Headers.Cookie = "gemini_auth=legacy-token";
-        Assert.Equal("legacy-token", cookies.ReadSessionToken(readContext));
-
-        var signOutContext = new DefaultHttpContext();
-        cookies.SignOut(signOutContext);
-        var signOutCookie = signOutContext.Response.Headers.SetCookie.ToString();
-        Assert.Contains("vertex_auth=", signOutCookie);
-        Assert.Contains("gemini_auth=", signOutCookie);
-    }
-}
-
-internal static class AuthWorkflowResultTests
-{
-    public static void MapStatuses()
-    {
-        var user = new UserInfo(Guid.NewGuid(), "user@example.com", true);
-
-        var ok = AuthWorkflowResult.Ok(user: user);
-        Assert.Equal(AuthWorkflowStatus.Ok, ok.Status);
-        Assert.True(ok.Response.Success);
-        Assert.Equal(user, ok.Response.User);
-
-        var badRequest = AuthWorkflowResult.BadRequest("bad");
-        Assert.Equal(AuthWorkflowStatus.BadRequest, badRequest.Status);
-        Assert.False(badRequest.Response.Success);
-        Assert.Equal("bad", badRequest.Response.Error);
-
-        Assert.Equal(AuthWorkflowStatus.Unauthorized, AuthWorkflowResult.Unauthorized().Status);
-        Assert.Equal(AuthWorkflowStatus.RateLimited, AuthWorkflowResult.RateLimited().Status);
-    }
-}
 
 internal static class GeminiPartFactoryTests
 {

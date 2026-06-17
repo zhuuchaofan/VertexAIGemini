@@ -9,84 +9,37 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/api/auth");
 
-        group.MapPost("/login", LoginAsync);
-        group.MapPost("/register", RegisterAsync);
+        group.MapPost("/login", FirebaseOnlyAsync);
+        group.MapPost("/register", FirebaseOnlyAsync);
         group.MapPost("/logout", LogoutAsync);
         group.MapGet("/status", GetStatusAsync);
-        group.MapPost("/forgot-password", ForgotPasswordAsync);
-        group.MapPost("/reset-password", ResetPasswordAsync);
-        group.MapPost("/verify-email", VerifyEmailAsync);
-        group.MapPost("/resend-verification", ResendVerificationAsync);
-    }
-
-    private static async Task<IResult> LoginAsync(
-        AuthRequest request,
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.LoginAsync(request, context));
-    }
-
-    private static async Task<IResult> RegisterAsync(
-        AuthRequest request,
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.RegisterAsync(request, context));
-    }
-
-    private static async Task<IResult> LogoutAsync(
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.LogoutAsync(context));
+        group.MapPost("/forgot-password", FirebaseOnlyAsync);
+        group.MapPost("/reset-password", FirebaseOnlyAsync);
+        group.MapPost("/verify-email", FirebaseOnlyAsync);
+        group.MapPost("/resend-verification", FirebaseOnlyAsync);
     }
 
     private static async Task<IResult> GetStatusAsync(
         HttpContext context,
-        AuthWorkflowService auth)
+        IUserContext users)
     {
-        return ToHttpResult(await auth.GetStatusAsync(context));
-    }
-
-    private static async Task<IResult> ForgotPasswordAsync(
-        ForgotPasswordRequest request,
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.ForgotPasswordAsync(request, context));
-    }
-
-    private static async Task<IResult> ResetPasswordAsync(
-        ResetPasswordRequest request,
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.ResetPasswordAsync(request, context));
-    }
-
-    private static async Task<IResult> VerifyEmailAsync(
-        VerifyEmailRequest request,
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.VerifyEmailAsync(request, context));
-    }
-
-    private static async Task<IResult> ResendVerificationAsync(
-        HttpContext context,
-        AuthWorkflowService auth)
-    {
-        return ToHttpResult(await auth.ResendVerificationAsync(context));
-    }
-
-    private static IResult ToHttpResult(AuthWorkflowResult result) =>
-        result.Status switch
+        var user = await users.GetCurrentUserAsync(context);
+        if (user is null)
         {
-            AuthWorkflowStatus.Ok => Results.Ok(result.Response),
-            AuthWorkflowStatus.BadRequest => Results.BadRequest(result.Response),
-            AuthWorkflowStatus.Unauthorized => Results.Unauthorized(),
-            AuthWorkflowStatus.RateLimited => Results.Json(result.Response, statusCode: 429),
-            _ => Results.BadRequest(result.Response)
-        };
+            return Results.Unauthorized();
+        }
+
+        return Results.Ok(new AuthResponse(
+            true,
+            null,
+            new UserInfo(user.LocalUserId, user.Email ?? "Firebase user", EmailVerified: true)));
+    }
+
+    private static IResult LogoutAsync() =>
+        Results.Ok(new AuthResponse(true, null));
+
+    private static IResult FirebaseOnlyAsync() =>
+        Results.Json(
+            new AuthResponse(false, "本地账号密码认证已停用，请使用 Firebase Authentication。"),
+            statusCode: StatusCodes.Status410Gone);
 }

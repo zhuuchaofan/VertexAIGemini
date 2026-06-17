@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Google.Cloud.Firestore;
-using VertexAI.Data.Entities;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Firestore;
 

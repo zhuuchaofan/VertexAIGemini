@@ -1,17 +1,10 @@
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using VertexAI.Api;
-using VertexAI.Data;
 
 namespace VertexAI.Configuration;
 
 public static class WebApplicationExtensions
 {
-    public static async Task InitializeVertexApplicationAsync(this WebApplication app)
-    {
-        await app.Services.InitializeDatabaseAsync();
-    }
-
     public static WebApplication UseVertexPipeline(this WebApplication app)
     {
         app.UseForwardedHeaders(new ForwardedHeadersOptions

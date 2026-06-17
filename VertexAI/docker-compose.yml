@@ -1,32 +1,9 @@
 services:
-  # === 数据库服务 (PostgreSQL) ===
-  db:
-    image: postgres:15-alpine
-    container_name: gemini-db
-    restart: always
-    environment:
-      POSTGRES_USER: gemini_admin
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-GeminiChat2024!}
-      POSTGRES_DB: gemini_chat
-      TZ: Asia/Shanghai
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gemini_admin -d gemini_chat"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    ports:
-      - "5454:5432"
-
   # === AI Workspace API ===
   app:
     build: .
     container_name: vertex-ai-api
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
       - PROJECT_ID=${PROJECT_ID:-}
@@ -35,10 +12,7 @@ services:
       - Firebase__ApiKey=${FIREBASE_API_KEY:-}
       - Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN:-}
       - Firebase__AppId=${FIREBASE_APP_ID:-}
-      - Persistence__UserSettingsProvider=${USER_SETTINGS_PROVIDER:-postgres}
-      - Persistence__ConversationProvider=${CONVERSATION_PROVIDER:-postgres}
       - Persistence__FirestoreProjectId=${FIRESTORE_PROJECT_ID:-}
-      - ConnectionStrings__Default=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
       - Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID:-gemini}
       - OpenAICompatible__Enabled=${OPENAI_COMPATIBLE_ENABLED:-false}
       - OpenAICompatible__Endpoint=${OPENAI_COMPATIBLE_ENDPOINT:-https://api.openai.com/v1/chat/completions}
@@ -51,8 +25,6 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - XIAOMI_MIMO_API_KEY=${XIAOMI_MIMO_API_KEY:-}
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8880}
-      - SMTP_USER=${SMTP_USER:-}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
     volumes:
       - ${GCP_KEY_PATH:-./GCPKey/credentials.json}:/app/credentials.json:ro
     healthcheck:
@@ -83,6 +55,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-
-volumes:
-  pg_data:

@@ -62,11 +62,11 @@ Required fields:
 - `conversations/{conversationId}`: `uid`, `title`, `providerId`, `modelName`, `presetId`, `customPrompt`, `historySummary`, `tokenCount`, `createdAt`, `updatedAt`.
 - `messages/{messageId}`: `uid`, `conversationId`, `role`, `content`, `thinkingContent`, `attachments`, `createdAt`.
 
-Important indexes:
+Important indexes are tracked in `../firestore.indexes.json`:
 
 - `conversations`: `uid ASC`, `updatedAt DESC`.
-- `messages`: `conversationId ASC`, `createdAt ASC`.
-- `messages`: `uid ASC`, `conversationId ASC`, `createdAt DESC` if history reads filter by both `uid` and conversation.
+- `messages`: `uid ASC`, `conversationId ASC`, `createdAt ASC`.
+- `messages`: `uid ASC`, `conversationId ASC`, `createdAt DESC`.
 
 For stronger ownership locality, this alternate nested shape can be used instead:
 
@@ -83,49 +83,45 @@ The top-level shape is closer to the current API and export code, while the nest
 ### Phase 1: Identity Boundary
 
 - Introduce a backend user context abstraction.
-- Move current cookie/session lookup behind that abstraction.
-- Update API endpoints to depend on the abstraction instead of direct cookie/session reads.
-- Keep the existing PostgreSQL authentication flow working during this phase.
+- Update API endpoints to depend on the abstraction instead of direct auth/session reads.
 
-Status: in progress.
+Status: complete.
 
 ### Phase 2: Firebase Auth
 
 - Add Firebase Admin SDK configuration to the API host.
 - Implement Firebase token verification as the production `IUserContext`.
-- During the PostgreSQL transition, map Firebase `uid` to `users.firebase_uid` and return the existing local `Guid` user id to the current chat code.
+- Derive a stable local `Guid` from Firebase `uid` only for internal API compatibility; Firestore ownership uses the Firebase `uid`.
 - Update the browser app to use Firebase Web SDK for login, registration, logout, and token refresh.
 - Send `Authorization: Bearer <idToken>` on API requests.
-- Keep legacy cookie auth only as a temporary local-development fallback if needed.
 
-Status: implemented in code; pending verification with real Firebase project config.
+Status: complete. Local email/password auth and cookie sessions are removed from the runtime path.
 
 ### Phase 3: String User IDs
 
-- Change internal user identity from `Guid` to Firebase `uid` (`string`) across chat, conversation, export, and settings flows.
-- Preserve existing `Guid` IDs only for legacy PostgreSQL migration code if needed.
+- Use Firebase `uid` as the persisted owner key across chat, conversation, export, and settings flows.
+- Keep a stable derived `Guid` only where existing response contracts still expose GUID-shaped IDs.
 - Update tests for `uid`-based authorization.
 
-Status: in progress. The API user context and chat/conversation store contracts now carry an authenticated user object with both legacy local `Guid` and optional Firebase `uid`; the PostgreSQL implementation still uses the local `Guid`.
+Status: complete for the Firestore runtime path.
 
 ### Phase 4: Firestore Persistence
 
-- Introduce storage abstractions before replacing PostgreSQL implementations.
 - Add a Firestore-backed conversation store that preserves the existing `IConversationStore` behavior.
 - Move user settings reads/writes to Firestore.
 - Move conversation list/detail/title/delete/export reads to Firestore.
 - Handle delete cascades explicitly because Firestore does not enforce relational cascade deletes.
 
-Status: in progress. User settings now read/write through `IUserSettingsStore` with PostgreSQL and Firestore implementations selected by `USER_SETTINGS_PROVIDER`; conversation list/detail/title/delete/export and chat history persistence use `IConversationStore`, with PostgreSQL and Firestore implementations selected by `CONVERSATION_PROVIDER`.
+Status: complete. User settings read/write through `FirestoreUserSettingsStore`, conversations/messages use `FirestoreConversationStore`, and PostgreSQL fallback has been removed.
 
-### Phase 5: Data Migration
+### Phase 5: Firestore Environment Verification
 
-- Export existing PostgreSQL users, conversations, and messages.
-- Map legacy user IDs to Firebase `uid`.
-- Import Firestore documents with stable conversation and message IDs where possible.
-- Validate counts, latest message timestamps, token counts, attachments, and export output.
+- Deploy composite indexes from `../firestore.indexes.json`.
+- Verify Firebase token authentication against the real Firebase project.
+- Verify Firestore reads/writes for `users`, `conversations`, and `messages`.
+- Verify export output from Firestore-backed conversations.
 
-Status: planned.
+Status: in progress. The app reaches Firebase Auth and Firestore; the real project still needs all required Firestore composite indexes to finish building.
 
 ### Phase 6: Cloud Run Deployment
 
@@ -139,11 +135,11 @@ Status: planned.
 ### Phase 7: Remove Legacy Infrastructure
 
 - Remove local email/password auth, session table, cookie auth, password reset, and email verification workflows.
-- Remove PostgreSQL/EF Core dependencies after Firestore parity is verified.
-- Replace database health checks with Firestore/Vertex readiness checks.
-- Update Docker Compose to match local Firebase emulator or cloud-backed development.
+- Remove PostgreSQL/EF Core dependencies.
+- Replace database health checks with Firestore readiness checks.
+- Update Docker Compose to match cloud-backed Firebase/Firestore development.
 
-Status: planned.
+Status: complete for local Docker runtime and application code.
 
 ## Known Risks
 
@@ -151,12 +147,12 @@ Status: planned.
 - Firestore has no joins or cascade deletes. Ownership checks and message cleanup must be explicit.
 - Long chat histories can increase Firestore read costs. Keep the existing max-history policy and add summarization before raising limits.
 - Cloud Run streaming works, but timeout and buffering behavior must be verified under the deployed ingress path.
-- Firebase `uid` is a string, while the current code uses `Guid` user IDs. This is the largest cross-cutting type migration.
+- Firestore composite indexes must exist before list/history queries work in a new Firebase project.
 
 ## Current Code Mapping
 
 - `ChatOrchestrator` already matches the target orchestration role and should remain the central chat flow.
-- `IConversationStore` is the correct seam for replacing PostgreSQL with Firestore.
-- `ApiUserContext` / cookie/session lookup is the first area to replace with Firebase token verification.
-- `ConversationService` is the PostgreSQL implementation to replace with a Firestore implementation.
-- `UserSettingsEndpoints` currently reads `users.default_assistant_prompt` from PostgreSQL and must move to `users/{uid}`.
+- `FirebaseUserContext` verifies Firebase tokens and produces the current authenticated user.
+- `FirestoreUserSettingsStore` owns `users/{uid}` settings.
+- `FirestoreConversationStore` owns Firestore conversations and messages.
+- `IConversationStore` remains the persistence boundary for chat orchestration and export flows.

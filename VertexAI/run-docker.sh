@@ -5,10 +5,9 @@
 
 GCP_KEY_PATH="${GCP_KEY_PATH:-./GCPKey/credentials.json}"
 PROJECT_ID="${PROJECT_ID:-}"
-DB_PASSWORD="${DB_PASSWORD:-GeminiChat2024!}"
 WEB_PORT="${WEB_PORT:-8880}"
 
-export GCP_KEY_PATH PROJECT_ID DB_PASSWORD WEB_PORT
+export GCP_KEY_PATH PROJECT_ID WEB_PORT
 
 if [ -z "$PROJECT_ID" ]; then
     echo "[ERROR] 请设置 PROJECT_ID，例如: PROJECT_ID=your-google-cloud-project ./run-docker.sh"

@@ -24,7 +24,6 @@ try
 
     var app = builder.Build();
 
-    await app.InitializeVertexApplicationAsync();
     app.UseVertexPipeline();
 
     Log.Information("球球布丁工作室 started");

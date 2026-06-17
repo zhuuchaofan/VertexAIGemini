@@ -1,4 +1,3 @@
-using VertexAI.Data.Entities;
 using VertexAI.Services.Auth;
 
 namespace VertexAI.Services.Chat;
