@@ -20,6 +20,31 @@ The API is Firebase Auth + Firestore only. It does not need PostgreSQL, cookies,
 
 If Firebase/Firestore and Vertex AI live in different Google Cloud projects, grant the Cloud Run runtime service account access to both projects.
 
+## Scripted Deployment
+
+The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact Registry repository if missing, builds both images with Cloud Build, deploys the API service, reads its URL, then deploys the web service with `BACKEND_URL` pointing at the API.
+
+```bash
+SERVICE_ACCOUNT=cloud-run-runtime@copper-affinity-467409-k7.iam.gserviceaccount.com \
+FIREBASE_API_KEY=your-firebase-web-api-key \
+FIREBASE_APP_ID=your-firebase-web-app-id \
+./scripts/deploy-cloud-run.sh
+```
+
+Optional overrides:
+
+```bash
+PROJECT_ID=copper-affinity-467409-k7
+REGION=asia-east1
+REPOSITORY=vertex-ai
+API_SERVICE=vertex-ai-api
+WEB_SERVICE=vertex-ai-web
+FIREBASE_PROJECT_ID=my-agent-app-a5e42
+FIRESTORE_PROJECT_ID=my-agent-app-a5e42
+FIREBASE_AUTH_DOMAIN=my-agent-app-a5e42.firebaseapp.com
+DEFAULT_PROVIDER_ID=gemini
+```
+
 ## Firestore Indexes
 
 Deploy indexes before routing traffic:
