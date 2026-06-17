@@ -106,7 +106,7 @@ Status: implemented in code; pending verification with real Firebase project con
 - Preserve existing `Guid` IDs only for legacy PostgreSQL migration code if needed.
 - Update tests for `uid`-based authorization.
 
-Status: in progress. The API user context now returns an authenticated user object with both legacy local `Guid` and optional Firebase `uid`; persistence still uses the local `Guid`.
+Status: in progress. The API user context and chat/conversation store contracts now carry an authenticated user object with both legacy local `Guid` and optional Firebase `uid`; the PostgreSQL implementation still uses the local `Guid`.
 
 ### Phase 4: Firestore Persistence
 
@@ -116,7 +116,7 @@ Status: in progress. The API user context now returns an authenticated user obje
 - Move conversation list/detail/title/delete/export reads to Firestore.
 - Handle delete cascades explicitly because Firestore does not enforce relational cascade deletes.
 
-Status: in progress. User settings now read/write through `IUserSettingsStore`; the active implementation is still PostgreSQL.
+Status: in progress. User settings now read/write through `IUserSettingsStore` with PostgreSQL and Firestore implementations selected by `USER_SETTINGS_PROVIDER`; conversation list/detail/title/delete/export and chat history persistence use `IConversationStore`, with PostgreSQL and Firestore implementations selected by `CONVERSATION_PROVIDER`.
 
 ### Phase 5: Data Migration
 

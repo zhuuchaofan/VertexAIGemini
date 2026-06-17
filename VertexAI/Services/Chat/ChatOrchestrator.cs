@@ -48,7 +48,7 @@ public class ChatOrchestrator
             {
                 var history = await _conversations.GetHistoryAsync(
                     conversationId.Value,
-                    request.UserId,
+                    request.User,
                     _maxHistoryMessages);
                 await model.LoadHistoryAsync(history);
             }
@@ -57,7 +57,7 @@ public class ChatOrchestrator
             {
                 await _conversations.AddMessageAsync(
                     conversationId.Value,
-                    request.UserId,
+                    request.User,
                     "user",
                     message,
                     attachments: request.Images);
@@ -103,7 +103,7 @@ public class ChatOrchestrator
             {
                 await _conversations.AddMessageAsync(
                     conversationId.Value,
-                    request.UserId,
+                    request.User,
                     "model",
                     response,
                     thinking);
@@ -129,7 +129,7 @@ public class ChatOrchestrator
             {
                 await _conversations.UpdateTokenCountAsync(
                     conversationId.Value,
-                    request.UserId,
+                    request.User,
                     model.CurrentTokenCount);
             }
         }
@@ -146,7 +146,7 @@ public class ChatOrchestrator
         }
 
         var conversation = await _conversations.CreateConversationAsync(
-            request.UserId,
+            request.User,
             providerId,
             model.CurrentModelName,
             model.CurrentPresetId,

@@ -1,9 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using VertexAI.Data;
 using VertexAI.Data.Entities;
-using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -26,14 +23,14 @@ public static class ConversationEndpoints
         [FromQuery] int? limit,
         HttpContext context,
         IUserContext users,
-        ConversationService conversations)
+        IConversationStore conversations)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null) return Results.Unauthorized();
 
         var pageOffset = Math.Max(0, offset ?? 0);
         var pageLimit = Math.Clamp(limit ?? 30, 1, 100);
-        var items = await conversations.GetUserConversationsAsync(currentUser.LocalUserId, pageOffset, pageLimit + 1);
+        var items = await conversations.GetUserConversationsAsync(currentUser, pageOffset, pageLimit + 1);
         var hasMore = items.Count > pageLimit;
 
         return Results.Ok(new ConversationListResponse(
@@ -47,12 +44,12 @@ public static class ConversationEndpoints
         Guid conversationId,
         HttpContext context,
         IUserContext users,
-        ConversationService conversations)
+        IConversationStore conversations)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        var conversation = await conversations.GetConversationAsync(conversationId, currentUser.LocalUserId);
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser);
         return conversation == null
             ? Results.NotFound(new { error = "Conversation not found." })
             : Results.Ok(ToDetail(conversation));
@@ -63,7 +60,7 @@ public static class ConversationEndpoints
         ConversationTitleRequest request,
         HttpContext context,
         IUserContext users,
-        ConversationService conversations)
+        IConversationStore conversations)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null) return Results.Unauthorized();
@@ -74,7 +71,7 @@ public static class ConversationEndpoints
             return Results.BadRequest(new { error = "Title is required." });
         }
 
-        await conversations.UpdateTitleAsync(conversationId, currentUser.LocalUserId, title);
+        await conversations.UpdateTitleAsync(conversationId, currentUser, title);
         return Results.NoContent();
     }
 
@@ -82,12 +79,12 @@ public static class ConversationEndpoints
         Guid conversationId,
         HttpContext context,
         IUserContext users,
-        ConversationService conversations)
+        IConversationStore conversations)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        await conversations.DeleteConversationAsync(conversationId, currentUser.LocalUserId);
+        await conversations.DeleteConversationAsync(conversationId, currentUser);
         return Results.NoContent();
     }
 

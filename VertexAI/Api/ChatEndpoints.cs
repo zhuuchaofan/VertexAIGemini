@@ -55,7 +55,7 @@ public static class ChatEndpoints
         var result = await chat.SendAsync(
             new ChatSendRequest(
                 request.ConversationId,
-                currentUser.LocalUserId,
+                currentUser,
                 request.Message,
                 request.Images,
                 request.EnableSearch,

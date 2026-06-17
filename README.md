@@ -37,6 +37,9 @@ Important settings:
 | `VertexAI:ProjectId` | Google Cloud project id |
 | `Firebase:ProjectId` / `FIREBASE_PROJECT_ID` | Firebase project id for ID token verification; defaults can match the Vertex AI project |
 | `Firebase:ApiKey`, `Firebase:AuthDomain`, `Firebase:AppId` / `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_APP_ID` | Firebase Web SDK config exposed to the browser when Firebase Auth is enabled |
+| `Persistence:UserSettingsProvider` / `USER_SETTINGS_PROVIDER` | `postgres` by default; set to `firestore` to store user settings in Firestore |
+| `Persistence:ConversationProvider` / `CONVERSATION_PROVIDER` | `postgres` by default; set to `firestore` to store conversations and messages in Firestore |
+| `Persistence:FirestoreProjectId` / `FIRESTORE_PROJECT_ID` | Optional Firestore project override; falls back to Firebase or Vertex project id |
 | `VertexAI:Location` | Vertex AI location, defaults to `global` |
 | `VertexAI:ModelName` | Gemini model name |
 | `Workspace:DefaultProviderId` / `DEFAULT_PROVIDER_ID` | Default provider shown by the standalone web client, for example `gemini`; falls back to the first registered provider if misconfigured |
@@ -79,6 +82,9 @@ FIREBASE_PROJECT_ID=copper-affinity-467409-k7
 FIREBASE_API_KEY=
 FIREBASE_AUTH_DOMAIN=
 FIREBASE_APP_ID=
+USER_SETTINGS_PROVIDER=postgres
+CONVERSATION_PROVIDER=postgres
+FIRESTORE_PROJECT_ID=
 GCP_KEY_PATH=./GCPKey/copper-affinity-467409-k7-7ba2e06ec019.json
 DB_PASSWORD=GeminiChat2024!
 APP_BASE_URL=http://localhost:8880

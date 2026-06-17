@@ -283,6 +283,7 @@ internal static class ChatOrchestratorTests
     public static void StreamsAndPersistsSuccess()
     {
         var userId = Guid.NewGuid();
+        var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
         var model = new FakeChatModelClient
         {
@@ -302,7 +303,7 @@ internal static class ChatOrchestratorTests
         var updates = new List<ChatStreamUpdate>();
 
         var result = Run(orchestrator.SendAsync(
-            new ChatSendRequest(null, userId, "  hi  ", []),
+            new ChatSendRequest(null, user, "  hi  ", []),
             update =>
             {
                 updates.Add(update);
@@ -331,6 +332,7 @@ internal static class ChatOrchestratorTests
     public static void MapsModelFailures()
     {
         var userId = Guid.NewGuid();
+        var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
         var model = new FakeChatModelClient
         {
@@ -344,7 +346,7 @@ internal static class ChatOrchestratorTests
             NullLogger<ChatOrchestrator>.Instance);
 
         var result = Run(orchestrator.SendAsync(
-            new ChatSendRequest(null, userId, "hi", []),
+            new ChatSendRequest(null, user, "hi", []),
             _ => Task.CompletedTask));
 
         Assert.False(result.Succeeded);
@@ -357,6 +359,7 @@ internal static class ChatOrchestratorTests
     public static void PassesMultimodalModelRequest()
     {
         var userId = Guid.NewGuid();
+        var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
         var image = new ChatImageAttachment(
             Convert.ToBase64String([1, 2, 3]),
@@ -373,7 +376,7 @@ internal static class ChatOrchestratorTests
             NullLogger<ChatOrchestrator>.Instance);
 
         var result = Run(orchestrator.SendAsync(
-            new ChatSendRequest(null, userId, "  explain this  ", [image], EnableSearch: true),
+            new ChatSendRequest(null, user, "  explain this  ", [image], EnableSearch: true),
             _ => Task.CompletedTask));
 
         Assert.True(result.Succeeded);
@@ -390,6 +393,7 @@ internal static class ChatOrchestratorTests
     public static void LoadsExistingConversationHistory()
     {
         var userId = Guid.NewGuid();
+        var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
         var image = new ChatImageAttachment(Convert.ToBase64String([4, 5, 6]), "image/png", "history.png");
         var history = new[]
@@ -408,7 +412,7 @@ internal static class ChatOrchestratorTests
             NullLogger<ChatOrchestrator>.Instance);
 
         var result = Run(orchestrator.SendAsync(
-            new ChatSendRequest(conversationId, userId, "continue", []),
+            new ChatSendRequest(conversationId, user, "continue", []),
             _ => Task.CompletedTask));
 
         Assert.True(result.Succeeded);
@@ -425,6 +429,7 @@ internal static class ChatOrchestratorTests
     public static void AppliesModelSessionOptions()
     {
         var userId = Guid.NewGuid();
+        var user = TestUser(userId);
         var model = new FakeChatModelClient
         {
             Chunks = [new ChatChunk { Text = "configured" }]
@@ -438,7 +443,7 @@ internal static class ChatOrchestratorTests
         var result = Run(orchestrator.SendAsync(
             new ChatSendRequest(
                 null,
-                userId,
+                user,
                 "hi",
                 [],
                 Options: new ChatSessionOptions("fake", "fast-model", "custom", "Stay concise.")),
@@ -454,6 +459,9 @@ internal static class ChatOrchestratorTests
 
     private static T Run<T>(Task<T> task) =>
         task.GetAwaiter().GetResult();
+
+    private static AuthenticatedUser TestUser(Guid userId) =>
+        new(userId, $"firebase-{userId:N}", "test@example.com");
 }
 
 internal sealed class FakeProviderCatalog : IChatProviderCatalog
@@ -938,8 +946,14 @@ internal sealed class FakeConversationStore : IConversationStore
     public int? LastHistoryMaxMessages { get; private set; }
     public List<(Guid ConversationId, Guid UserId, int TokenCount)> TokenUpdates { get; } = [];
 
+    public Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user, int offset, int limit) =>
+        Task.FromResult(new List<Conversation>());
+
+    public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user) =>
+        Task.FromResult<Conversation?>(null);
+
     public Task<Conversation?> CreateConversationAsync(
-        Guid userId,
+        AuthenticatedUser user,
         string providerId,
         string modelName,
         string presetId,
@@ -953,7 +967,7 @@ internal sealed class FakeConversationStore : IConversationStore
         return Task.FromResult<Conversation?>(new Conversation
         {
             Id = CreatedConversationId,
-            UserId = userId,
+            UserId = user.LocalUserId,
             ProviderId = providerId,
             ModelName = modelName,
             PresetId = presetId,
@@ -961,7 +975,7 @@ internal sealed class FakeConversationStore : IConversationStore
         });
     }
 
-    public Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, Guid userId, int maxMessages)
+    public Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(Guid conversationId, AuthenticatedUser user, int maxMessages)
     {
         LastHistoryMaxMessages = maxMessages;
         return Task.FromResult(History.TakeLast(maxMessages).ToList() as IReadOnlyList<ChatHistoryEntry>);
@@ -969,7 +983,7 @@ internal sealed class FakeConversationStore : IConversationStore
 
     public Task<Message?> AddMessageAsync(
         Guid conversationId,
-        Guid userId,
+        AuthenticatedUser user,
         string role,
         string content,
         string? thinkingContent = null,
@@ -989,9 +1003,15 @@ internal sealed class FakeConversationStore : IConversationStore
         });
     }
 
-    public Task UpdateTokenCountAsync(Guid conversationId, Guid userId, int tokenCount)
+    public Task UpdateTitleAsync(Guid conversationId, AuthenticatedUser user, string title) =>
+        Task.CompletedTask;
+
+    public Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user) =>
+        Task.CompletedTask;
+
+    public Task UpdateTokenCountAsync(Guid conversationId, AuthenticatedUser user, int tokenCount)
     {
-        TokenUpdates.Add((conversationId, userId, tokenCount));
+        TokenUpdates.Add((conversationId, user.LocalUserId, tokenCount));
         return Task.CompletedTask;
     }
 }

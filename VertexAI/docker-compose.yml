@@ -35,6 +35,9 @@ services:
       - Firebase__ApiKey=${FIREBASE_API_KEY:-}
       - Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN:-}
       - Firebase__AppId=${FIREBASE_APP_ID:-}
+      - Persistence__UserSettingsProvider=${USER_SETTINGS_PROVIDER:-postgres}
+      - Persistence__ConversationProvider=${CONVERSATION_PROVIDER:-postgres}
+      - Persistence__FirestoreProjectId=${FIRESTORE_PROJECT_ID:-}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
       - Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID:-gemini}
       - OpenAICompatible__Enabled=${OPENAI_COMPATIBLE_ENABLED:-false}

@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using VertexAI.Data;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -21,18 +19,14 @@ public static class ExportEndpoints
     private static async Task<IResult> ExportMarkdownAsync(
         Guid conversationId,
         HttpContext httpContext,
-        IDbContextFactory<AppDbContext> dbFactory,
+        IConversationStore conversations,
         IUserContext users)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var conversation = await db.Conversations
-            .Include(c => c.Messages)
-            .FirstOrDefaultAsync(c => c.Id == conversationId);
-
-        if (conversation == null || conversation.UserId != currentUser.LocalUserId)
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser);
+        if (conversation == null)
         {
             return Results.NotFound("对话不存在或无权访问");
         }
@@ -87,18 +81,14 @@ public static class ExportEndpoints
     private static async Task<IResult> ExportJsonAsync(
         Guid conversationId,
         HttpContext httpContext,
-        IDbContextFactory<AppDbContext> dbFactory,
+        IConversationStore conversations,
         IUserContext users)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var conversation = await db.Conversations
-            .Include(c => c.Messages)
-            .FirstOrDefaultAsync(c => c.Id == conversationId);
-
-        if (conversation == null || conversation.UserId != currentUser.LocalUserId)
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser);
+        if (conversation == null)
         {
             return Results.NotFound("对话不存在或无权访问");
         }

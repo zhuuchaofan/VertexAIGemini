@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using VertexAI.Data;
 using VertexAI.Data.Entities;
+using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
@@ -26,13 +27,14 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 获取用户的所有对话（按更新时间倒序）
     /// </summary>
-    public Task<List<Conversation>> GetUserConversationsAsync(Guid userId) =>
-        GetUserConversationsAsync(userId, 0, 100);
+    public Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user) =>
+        GetUserConversationsAsync(user, 0, 100);
 
-    public async Task<List<Conversation>> GetUserConversationsAsync(Guid userId, int offset, int limit)
+    public async Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user, int offset, int limit)
     {
         if (!_dbAvailable) return [];
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -56,10 +58,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 获取对话详情（包含消息）
     /// </summary>
-    public async Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId)
+    public async Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user)
     {
         if (!_dbAvailable) return null;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -79,7 +82,7 @@ public class ConversationService : IConversationStore
     /// 创建新对话
     /// </summary>
     public async Task<Conversation?> CreateConversationAsync(
-        Guid userId,
+        AuthenticatedUser user,
         string providerId,
         string modelName,
         string presetId,
@@ -87,6 +90,7 @@ public class ConversationService : IConversationStore
     {
         if (!_dbAvailable) return null;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -118,11 +122,12 @@ public class ConversationService : IConversationStore
 
     public async Task<IReadOnlyList<ChatHistoryEntry>> GetHistoryAsync(
         Guid conversationId,
-        Guid userId,
+        AuthenticatedUser user,
         int maxMessages)
     {
         if (!_dbAvailable) return [];
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -170,10 +175,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 更新对话标题
     /// </summary>
-    public async Task UpdateTitleAsync(Guid conversationId, Guid userId, string title)
+    public async Task UpdateTitleAsync(Guid conversationId, AuthenticatedUser user, string title)
     {
         if (!_dbAvailable) return;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -198,7 +204,7 @@ public class ConversationService : IConversationStore
     /// </summary>
     public async Task<Message?> AddMessageAsync(
         Guid conversationId,
-        Guid userId,
+        AuthenticatedUser user,
         string role,
         string content,
         string? thinkingContent = null,
@@ -206,6 +212,7 @@ public class ConversationService : IConversationStore
     {
         if (!_dbAvailable) return null;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -274,10 +281,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 删除对话
     /// </summary>
-    public async Task DeleteConversationAsync(Guid conversationId, Guid userId)
+    public async Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user)
     {
         if (!_dbAvailable) return;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -303,10 +311,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 清空对话消息
     /// </summary>
-    public async Task ClearMessagesAsync(Guid conversationId, Guid userId)
+    public async Task ClearMessagesAsync(Guid conversationId, AuthenticatedUser user)
     {
         if (!_dbAvailable) return;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -334,10 +343,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 获取对话的 Token 计数
     /// </summary>
-    public async Task<int> GetTokenCountAsync(Guid conversationId, Guid userId)
+    public async Task<int> GetTokenCountAsync(Guid conversationId, AuthenticatedUser user)
     {
         if (!_dbAvailable) return 0;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -357,10 +367,11 @@ public class ConversationService : IConversationStore
     /// <summary>
     /// 更新对话的 Token 计数
     /// </summary>
-    public async Task UpdateTokenCountAsync(Guid conversationId, Guid userId, int tokenCount)
+    public async Task UpdateTokenCountAsync(Guid conversationId, AuthenticatedUser user, int tokenCount)
     {
         if (!_dbAvailable) return;
 
+        var userId = user.LocalUserId;
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();

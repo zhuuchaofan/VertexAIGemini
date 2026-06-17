@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Google.Cloud.Firestore;
 using VertexAI.Data;
 using VertexAI.Services;
 using VertexAI.Services.Auth;
@@ -16,6 +17,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<GeminiSettings>(configuration.GetSection("VertexAI"));
         services.Configure<FirebaseSettings>(configuration.GetSection("Firebase"));
+        services.Configure<PersistenceSettings>(configuration.GetSection("Persistence"));
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.AddDatabase(configuration);
@@ -67,14 +69,55 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AuthWorkflowService>();
         services.AddHostedService<SessionCleanupService>();
         services.AddScoped<ConversationService>();
-        services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<ConversationService>());
-        services.AddScoped<IUserSettingsStore, PostgresUserSettingsStore>();
+        services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
+        services.AddScoped<FirestoreConversationStore>();
+        services.AddScoped<IConversationStore>(sp =>
+            UseFirestoreConversations(configuration)
+                ? sp.GetRequiredService<FirestoreConversationStore>()
+                : sp.GetRequiredService<ConversationService>());
+        services.AddScoped<PostgresUserSettingsStore>();
+        services.AddScoped<FirestoreUserSettingsStore>();
+        services.AddScoped<IUserSettingsStore>(sp =>
+            UseFirestoreUserSettings(configuration)
+                ? sp.GetRequiredService<FirestoreUserSettingsStore>()
+                : sp.GetRequiredService<PostgresUserSettingsStore>());
         services.AddScoped<ChatOrchestrator>();
 
         services.AddSingleton(CreateSmtpSettings(configuration));
         services.AddSingleton<EmailService>();
 
         return services;
+    }
+
+    private static bool UseFirestoreUserSettings(IConfiguration configuration) =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("USER_SETTINGS_PROVIDER")
+                ?? configuration["Persistence:UserSettingsProvider"],
+            "firestore",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool UseFirestoreConversations(IConfiguration configuration) =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("CONVERSATION_PROVIDER")
+                ?? configuration["Persistence:ConversationProvider"],
+            "firestore",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveFirestoreProjectId(IConfiguration configuration)
+    {
+        var projectId = Environment.GetEnvironmentVariable("FIRESTORE_PROJECT_ID")
+            ?? configuration["Persistence:FirestoreProjectId"]
+            ?? Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID")
+            ?? configuration["Firebase:ProjectId"]
+            ?? Environment.GetEnvironmentVariable("PROJECT_ID")
+            ?? configuration["VertexAI:ProjectId"];
+
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            throw new InvalidOperationException("Firestore project id is not configured.");
+        }
+
+        return projectId;
     }
 
     private static IReadOnlyList<OpenAICompatibleProviderSettings> LoadOpenAICompatibleProviders(
