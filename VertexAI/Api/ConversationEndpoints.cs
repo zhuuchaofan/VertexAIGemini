@@ -25,11 +25,10 @@ public static class ConversationEndpoints
         [FromQuery] int? offset,
         [FromQuery] int? limit,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies,
+        IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         var pageOffset = Math.Max(0, offset ?? 0);
@@ -47,11 +46,10 @@ public static class ConversationEndpoints
     private static async Task<IResult> GetAsync(
         Guid conversationId,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies,
+        IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         var conversation = await conversations.GetConversationAsync(conversationId, userId.Value);
@@ -64,11 +62,10 @@ public static class ConversationEndpoints
         Guid conversationId,
         ConversationTitleRequest request,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies,
+        IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         var title = request.Title.Trim();
@@ -84,11 +81,10 @@ public static class ConversationEndpoints
     private static async Task<IResult> DeleteAsync(
         Guid conversationId,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies,
+        IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         await conversations.DeleteConversationAsync(conversationId, userId.Value);

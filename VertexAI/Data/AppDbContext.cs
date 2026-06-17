@@ -75,6 +75,8 @@ public class AppDbContext : DbContext
             entity.ToTable("users");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.FirebaseUid).IsUnique();
+            entity.Property(e => e.FirebaseUid).HasColumnName("firebase_uid");
             entity.Property(e => e.DefaultAssistantPrompt).HasColumnName("default_assistant_prompt");
         });
 

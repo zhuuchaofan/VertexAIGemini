@@ -20,9 +20,9 @@ public static class UserSettingsEndpoints
     private static async Task<IResult> GetSettingsAsync(
         HttpContext context,
         IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies)
+        IUserContext users)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
@@ -39,9 +39,9 @@ public static class UserSettingsEndpoints
         UserSettingsUpdateRequest request,
         HttpContext context,
         IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies)
+        IUserContext users)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null) return Results.Unauthorized();
 
         if (request.DefaultAssistantPrompt?.Length > MaxDefaultAssistantPromptLength)

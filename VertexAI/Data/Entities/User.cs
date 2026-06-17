@@ -18,6 +18,10 @@ public class User
     [Column("email")]
     public string Email { get; set; } = "";
 
+    [MaxLength(128)]
+    [Column("firebase_uid")]
+    public string? FirebaseUid { get; set; }
+
     [Required]
     [Column("password_hash")]
     public string PasswordHash { get; set; } = "";

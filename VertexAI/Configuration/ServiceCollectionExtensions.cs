@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.Configure<GeminiSettings>(configuration.GetSection("VertexAI"));
+        services.Configure<FirebaseSettings>(configuration.GetSection("Firebase"));
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.AddDatabase(configuration);
@@ -59,6 +60,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAuthRateLimiter, AuthRateLimiter>();
         services.AddSingleton<IAuthTokenGenerator, AuthTokenGenerator>();
         services.AddScoped<IAuthCookieService, AuthCookieService>();
+        services.AddScoped<SessionUserContext>();
+        services.AddScoped<IUserContext, FirebaseUserContext>();
         services.AddScoped<IAuthSessionStore, AuthSessionStore>();
         services.AddScoped<AuthWorkflowService>();
         services.AddHostedService<SessionCleanupService>();

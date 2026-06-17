@@ -3,8 +3,6 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VertexAI.Data;
-using VertexAI.Data.Entities;
-using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -24,17 +22,17 @@ public static class ExportEndpoints
         Guid conversationId,
         HttpContext httpContext,
         IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies)
+        IUserContext users)
     {
-        var user = await GetUserFromCookieAsync(httpContext, dbFactory, cookies);
-        if (user == null) return Results.Unauthorized();
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(httpContext, users);
+        if (userId == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var conversation = await db.Conversations
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
-        if (conversation == null || conversation.UserId != user.Id)
+        if (conversation == null || conversation.UserId != userId.Value)
         {
             return Results.NotFound("对话不存在或无权访问");
         }
@@ -90,17 +88,17 @@ public static class ExportEndpoints
         Guid conversationId,
         HttpContext httpContext,
         IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies)
+        IUserContext users)
     {
-        var user = await GetUserFromCookieAsync(httpContext, dbFactory, cookies);
-        if (user == null) return Results.Unauthorized();
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(httpContext, users);
+        if (userId == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var conversation = await db.Conversations
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
-        if (conversation == null || conversation.UserId != user.Id)
+        if (conversation == null || conversation.UserId != userId.Value)
         {
             return Results.NotFound("对话不存在或无权访问");
         }
@@ -152,22 +150,6 @@ public static class ExportEndpoints
         {
             return [];
         }
-    }
-
-    private static async Task<User?> GetUserFromCookieAsync(
-        HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies)
-    {
-        var token = cookies.ReadSessionToken(context);
-        if (string.IsNullOrWhiteSpace(token)) return null;
-
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var session = await db.Sessions
-            .Include(s => s.User)
-            .FirstOrDefaultAsync(s => s.Token == token && s.ExpiresAt > DateTime.UtcNow);
-
-        return session?.User;
     }
 
     private static string SanitizeFileName(string name)

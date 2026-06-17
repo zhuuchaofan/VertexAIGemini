@@ -21,10 +21,10 @@ public static class ChatEndpoints
         ApiChatSendRequest request,
         HttpContext context,
         IDbContextFactory<AppDbContext> dbFactory,
-        IAuthCookieService cookies,
+        IUserContext users,
         ChatOrchestrator chat)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, dbFactory, cookies);
+        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
         if (userId == null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;

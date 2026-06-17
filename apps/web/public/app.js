@@ -17,6 +17,10 @@ const state = {
   messagePageSize: 80,
   workspaceConfig: null,
   userSettings: null,
+  firebaseAuth: null,
+  firebaseSdk: null,
+  firebaseAuthReady: false,
+  authProvider: "legacy",
   pendingImages: [],
   streaming: false,
   sidebarCollapsed: mobileQuery.matches ? true : savedSidebarState === "true"
@@ -120,7 +124,9 @@ elements.messageInput.addEventListener("keydown", event => {
 elements.messageInput.addEventListener("input", resizeComposer);
 
 renderSidebarState();
-await Promise.all([loadWorkspaceConfig(), refreshSession()]);
+await loadWorkspaceConfig();
+await initializeFirebaseAuth();
+await refreshSession();
 startNewChat();
 
 function setSidebarCollapsed(collapsed) {
@@ -148,6 +154,55 @@ function setAuthMode(mode) {
   elements.authSubmit.textContent = mode === "login" ? "登录" : "注册";
 }
 
+async function initializeFirebaseAuth() {
+  const firebase = state.workspaceConfig?.firebase;
+  if (!firebase?.apiKey || !firebase?.projectId) {
+    state.authProvider = "legacy";
+    state.firebaseAuthReady = true;
+    return;
+  }
+
+  const [appModule, authModule] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js")
+  ]);
+
+  const app = appModule.initializeApp({
+    apiKey: firebase.apiKey,
+    authDomain: firebase.authDomain || `${firebase.projectId}.firebaseapp.com`,
+    projectId: firebase.projectId,
+    appId: firebase.appId || undefined
+  });
+
+  state.firebaseSdk = authModule;
+  state.firebaseAuth = authModule.getAuth(app);
+  state.authProvider = "firebase";
+}
+
+function waitForFirebaseAuth() {
+  if (!state.firebaseAuth || state.firebaseAuthReady) {
+    return Promise.resolve();
+  }
+
+  return new Promise(resolve => {
+    const unsubscribe = state.firebaseSdk.onAuthStateChanged(state.firebaseAuth, () => {
+      state.firebaseAuthReady = true;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+function toFirebaseUserInfo(user) {
+  if (!user) return null;
+
+  return {
+    id: user.uid,
+    email: user.email ?? "Firebase user",
+    emailVerified: user.emailVerified
+  };
+}
+
 async function submitAuth(event) {
   event.preventDefault();
   const form = new FormData(elements.authForm);
@@ -158,7 +213,26 @@ async function submitAuth(event) {
 
   setAuthMessage("正在处理...");
 
-  const response = await fetch(`/api/auth/${state.mode}`, {
+  if (state.authProvider === "firebase") {
+    try {
+      const credential = state.mode === "login"
+        ? await state.firebaseSdk.signInWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password)
+        : await state.firebaseSdk.createUserWithEmailAndPassword(state.firebaseAuth, payload.email, payload.password);
+
+      state.user = toFirebaseUserInfo(credential.user);
+      renderSession();
+      await loadUserSettings();
+      await refreshConversations();
+      setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
+      setConnection("ready", "API 已连接");
+    } catch (error) {
+      setAuthMessage(toAuthErrorMessage(error));
+      setConnection("error", "认证失败");
+    }
+    return;
+  }
+
+  const response = await apiFetch(`/api/auth/${state.mode}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
@@ -180,7 +254,12 @@ async function submitAuth(event) {
 }
 
 async function logout() {
-  await fetch("/api/auth/logout", { method: "POST" });
+  if (state.authProvider === "firebase" && state.firebaseAuth) {
+    await state.firebaseSdk.signOut(state.firebaseAuth);
+  } else {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+  }
+
   state.user = null;
   state.conversationId = null;
   state.conversations = [];
@@ -196,7 +275,20 @@ async function logout() {
 }
 
 async function refreshSession() {
-  const response = await fetch("/api/auth/status");
+  if (state.authProvider === "firebase") {
+    await waitForFirebaseAuth();
+    state.user = toFirebaseUserInfo(state.firebaseAuth?.currentUser);
+    if (state.user) {
+      setConnection("ready", "API 已连接");
+      await loadUserSettings();
+      await refreshConversations();
+    }
+
+    renderSession();
+    return;
+  }
+
+  const response = await apiFetch("/api/auth/status");
   const result = await readJson(response);
   if (response.ok && result?.success) {
     state.user = result.user;
@@ -228,7 +320,7 @@ function renderSession() {
 async function loadUserSettings() {
   if (!state.user) return null;
 
-  const response = await fetch("/api/user/settings/");
+  const response = await apiFetch("/api/user/settings/");
   const settings = await readJson(response);
   if (!response.ok || !settings) {
     return null;
@@ -279,7 +371,7 @@ async function resetUserSettings() {
 }
 
 async function updateUserSettings(defaultAssistantPrompt) {
-  const response = await fetch("/api/user/settings/", {
+  const response = await apiFetch("/api/user/settings/", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ defaultAssistantPrompt })
@@ -308,7 +400,7 @@ function startNewChat() {
 }
 
 async function loadWorkspaceConfig() {
-  const response = await fetch("/api/workspace/config");
+  const response = await apiFetch("/api/workspace/config");
   const config = await readJson(response);
   if (!response.ok || !config) {
     setConnection("error", "配置加载失败");
@@ -656,7 +748,7 @@ async function fetchConversationsPage(append) {
     offset: String(append ? state.conversationOffset : 0),
     limit: String(state.conversationPageSize)
   });
-  const response = await fetch(`/api/conversations/?${params}`);
+  const response = await apiFetch(`/api/conversations/?${params}`);
   if (!response.ok) {
     elements.conversationEmpty.textContent = "无法加载会话";
     elements.conversationEmpty.classList.remove("hidden");
@@ -771,13 +863,13 @@ async function handleConversationClick(event) {
 
   if (actionTarget.dataset.action === "export-markdown") {
     event.stopPropagation();
-    downloadConversation(conversationId, "markdown");
+    await downloadConversation(conversationId, "markdown");
     return;
   }
 
   if (actionTarget.dataset.action === "export-json") {
     event.stopPropagation();
-    downloadConversation(conversationId, "json");
+    await downloadConversation(conversationId, "json");
     return;
   }
 
@@ -785,7 +877,7 @@ async function handleConversationClick(event) {
 }
 
 async function loadConversation(conversationId) {
-  const response = await fetch(`/api/conversations/${conversationId}`);
+  const response = await apiFetch(`/api/conversations/${conversationId}`);
   const conversation = await readJson(response);
   if (!response.ok || !conversation) {
     setConnection("error", conversation?.error ?? "会话加载失败");
@@ -867,7 +959,7 @@ async function renameConversation(conversationId) {
     return;
   }
 
-  const response = await fetch(`/api/conversations/${conversationId}/title`, {
+  const response = await apiFetch(`/api/conversations/${conversationId}/title`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ title: trimmed })
@@ -882,19 +974,28 @@ async function renameConversation(conversationId) {
   setConnection("ready", "会话已重命名");
 }
 
-function downloadConversation(conversationId, format) {
+async function downloadConversation(conversationId, format) {
+  setConnection("ready", format === "json" ? "正在导出数据" : "正在导出文本");
+  const response = await apiFetch(`/api/export/${conversationId}/${format}`);
+  if (!response.ok) {
+    setConnection("error", "导出失败");
+    return;
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = `/api/export/${conversationId}/${format}`;
-  link.download = "";
+  link.href = url;
+  link.download = getDownloadFileName(response) ?? `conversation.${format === "json" ? "json" : "md"}`;
   link.rel = "noreferrer";
   document.body.append(link);
   link.click();
   link.remove();
-  setConnection("ready", format === "json" ? "正在导出数据" : "正在导出文本");
+  URL.revokeObjectURL(url);
 }
 
 async function deleteConversation(conversationId) {
-  const response = await fetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
   if (!response.ok) {
     setConnection("error", "删除失败");
     return;
@@ -932,7 +1033,7 @@ async function sendMessage(event) {
   setConnection("ready", "正在生成");
 
   try {
-    const response = await fetch("/api/chat/stream", {
+    const response = await apiFetch("/api/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1288,6 +1389,27 @@ function dispatchEventBlock(rawEvent, handlers) {
   handlers[eventName](JSON.parse(data));
 }
 
+async function apiFetch(input, init = {}) {
+  const headers = new Headers(init.headers ?? {});
+  const token = await getAuthToken();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+
+  return fetch(input, {
+    ...init,
+    headers
+  });
+}
+
+async function getAuthToken() {
+  if (state.authProvider !== "firebase" || !state.firebaseAuth?.currentUser) {
+    return null;
+  }
+
+  return state.firebaseAuth.currentUser.getIdToken();
+}
+
 async function readJson(response) {
   const text = await response.text();
   if (!text) return null;
@@ -1296,6 +1418,33 @@ async function readJson(response) {
   } catch {
     return null;
   }
+}
+
+function toAuthErrorMessage(error) {
+  const code = error?.code ?? "";
+  if (code.includes("invalid-email")) return "邮箱格式不正确";
+  if (code.includes("user-not-found") || code.includes("wrong-password") || code.includes("invalid-credential")) {
+    return "邮箱或密码错误";
+  }
+  if (code.includes("email-already-in-use")) return "该邮箱已被注册";
+  if (code.includes("weak-password")) return "密码强度不足";
+  if (code.includes("network-request-failed")) return "网络连接失败";
+  return "认证失败";
+}
+
+function getDownloadFileName(response) {
+  const disposition = response.headers.get("content-disposition");
+  const match = disposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  const encoded = match?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+
+  return match?.[2] ?? null;
 }
 
 function setAuthMessage(message) {

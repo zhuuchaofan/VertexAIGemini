@@ -35,6 +35,8 @@ Important settings:
 | --- | --- |
 | `ConnectionStrings:Default` | PostgreSQL connection string |
 | `VertexAI:ProjectId` | Google Cloud project id |
+| `Firebase:ProjectId` / `FIREBASE_PROJECT_ID` | Firebase project id for ID token verification; defaults can match the Vertex AI project |
+| `Firebase:ApiKey`, `Firebase:AuthDomain`, `Firebase:AppId` / `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_APP_ID` | Firebase Web SDK config exposed to the browser when Firebase Auth is enabled |
 | `VertexAI:Location` | Vertex AI location, defaults to `global` |
 | `VertexAI:ModelName` | Gemini model name |
 | `Workspace:DefaultProviderId` / `DEFAULT_PROVIDER_ID` | Default provider shown by the standalone web client, for example `gemini`; falls back to the first registered provider if misconfigured |
@@ -51,6 +53,8 @@ For local backend usage:
 ```powershell
 $env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\credentials.json"
 $env:VertexAI__ProjectId="your-google-cloud-project"
+$env:Firebase__ProjectId="your-google-cloud-project"
+$env:Firebase__ApiKey="your-firebase-web-api-key"
 dotnet run --project VertexAI\VertexAI.csproj --urls "http://localhost:5000"
 ```
 
@@ -71,6 +75,10 @@ Create a `.env` file in `VertexAI/` by copying `VertexAI/.env.example`:
 
 ```env
 PROJECT_ID=copper-affinity-467409-k7
+FIREBASE_PROJECT_ID=copper-affinity-467409-k7
+FIREBASE_API_KEY=
+FIREBASE_AUTH_DOMAIN=
+FIREBASE_APP_ID=
 GCP_KEY_PATH=./GCPKey/copper-affinity-467409-k7-7ba2e06ec019.json
 DB_PASSWORD=GeminiChat2024!
 APP_BASE_URL=http://localhost:8880

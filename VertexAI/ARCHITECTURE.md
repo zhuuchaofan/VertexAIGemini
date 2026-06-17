@@ -36,6 +36,17 @@ The project is organized around a small set of boundaries:
 - Add regression coverage in `VertexAI.Tests` for service-layer behavior before larger refactors.
 - Use `/health/live` for process liveness and `/health/ready` when traffic should wait for database connectivity.
 
+## Target Cloud Architecture
+
+The planned migration target is Firebase Auth + Firestore + Cloud Run + Vertex AI / Gemini:
+
+- Firebase Auth owns identity and produces `uid` plus an ID token.
+- Firestore owns users, conversations, and messages.
+- Cloud Run hosts this ASP.NET Core API and verifies Firebase tokens before orchestrating chat requests.
+- Vertex AI / Gemini remains stateless and receives prompt, history, and attachments from the backend.
+
+See [MIGRATION_PLAN.md](MIGRATION_PLAN.md) for the phased migration plan and Firestore document shape.
+
 ## Current Technical Debt
 
 - Auth workflows still use EF directly; repositories can be introduced when tests or alternate storage require it.

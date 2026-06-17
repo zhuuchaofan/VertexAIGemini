@@ -62,5 +62,9 @@ public static class DatabaseInitializer
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ");
         await db.Database.ExecuteSqlRawAsync(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_assistant_prompt TEXT");
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(128)");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid ON users (firebase_uid) WHERE firebase_uid IS NOT NULL");
     }
 }

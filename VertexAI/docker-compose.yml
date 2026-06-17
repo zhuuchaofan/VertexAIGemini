@@ -29,7 +29,12 @@ services:
         condition: service_healthy
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - PROJECT_ID=${PROJECT_ID:-}
       - VertexAI__ProjectId=${PROJECT_ID:-}
+      - Firebase__ProjectId=${FIREBASE_PROJECT_ID:-}
+      - Firebase__ApiKey=${FIREBASE_API_KEY:-}
+      - Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN:-}
+      - Firebase__AppId=${FIREBASE_APP_ID:-}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=gemini_chat;Username=gemini_admin;Password=${DB_PASSWORD:-GeminiChat2024!}
       - Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID:-gemini}
       - OpenAICompatible__Enabled=${OPENAI_COMPATIBLE_ENABLED:-false}
