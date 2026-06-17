@@ -20,6 +20,7 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
     builder.Host.UseSerilog();
+    ConfigureCloudRunPort(builder);
     builder.Services.AddVertexApplication(builder.Configuration);
 
     var app = builder.Build();
@@ -36,4 +37,14 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+static void ConfigureCloudRunPort(WebApplicationBuilder builder)
+{
+    var port = Environment.GetEnvironmentVariable("PORT");
+    if (!string.IsNullOrWhiteSpace(port)
+        && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+    {
+        builder.WebHost.UseUrls($"http://+:{port}");
+    }
 }

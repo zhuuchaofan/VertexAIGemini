@@ -120,6 +120,10 @@ dotnet run --project VertexAI.Tests\VertexAI.Tests.csproj --no-restore
 
 Run these checks before publishing a deployment image; CI can use the same commands when a workflow is added.
 
+## Cloud Run
+
+See [docs/cloud-run.md](docs/cloud-run.md) for Cloud Run deployment steps, required service account roles, Firestore index deployment, and API/Web service environment variables.
+
 ### Provider Configuration
 
 The workspace exposes provider capabilities through `GET /api/workspace/config`. Gemini is registered by default. OpenAI-compatible providers are enabled from `OpenAICompatible:Providers` when they have an endpoint, model, and API key. The bundled templates cover several common providers:

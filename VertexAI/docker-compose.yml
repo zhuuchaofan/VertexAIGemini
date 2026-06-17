@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - PORT=8880
       - PROJECT_ID=${PROJECT_ID:-}
       - VertexAI__ProjectId=${PROJECT_ID:-}
       - Firebase__ProjectId=${FIREBASE_PROJECT_ID:-}
