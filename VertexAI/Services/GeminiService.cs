@@ -490,7 +490,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
                 Parts = [new Part { Text = systemPrompt }]
             },
             ThinkingConfig = BuildThinkingConfig(thinking, isThinkingDisabled, thinkingLevel, thinkingBudget),
-            MaxOutputTokens = 4096,
+            MaxOutputTokens = 8192,
             Temperature = 1,
             TopP = 0.9,
             SafetySettings =
@@ -498,7 +498,8 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
                 new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HARASSMENT, Threshold = HarmBlockThreshold.OFF },
                 new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, Threshold = HarmBlockThreshold.OFF },
                 new SafetySetting { Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, Threshold = HarmBlockThreshold.OFF },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF }
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
             ]
         };
     }
