@@ -30,12 +30,12 @@ public sealed class FirebaseUserContext : IUserContext
         _logger = logger;
     }
 
-    public async Task<Guid?> GetCurrentUserIdAsync(HttpContext context)
+    public async Task<AuthenticatedUser?> GetCurrentUserAsync(HttpContext context)
     {
         var idToken = ReadBearerToken(context);
         if (string.IsNullOrWhiteSpace(idToken))
         {
-            return await _fallback.GetCurrentUserIdAsync(context);
+            return await _fallback.GetCurrentUserAsync(context);
         }
 
         try
@@ -50,7 +50,7 @@ public sealed class FirebaseUserContext : IUserContext
         }
     }
 
-    private async Task<Guid?> GetOrCreateLocalUserAsync(FirebaseToken token)
+    private async Task<AuthenticatedUser?> GetOrCreateLocalUserAsync(FirebaseToken token)
     {
         if (string.IsNullOrWhiteSpace(token.Uid))
         {
@@ -63,7 +63,7 @@ public sealed class FirebaseUserContext : IUserContext
         {
             user.LastLoginAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            return user.Id;
+            return new AuthenticatedUser(user.Id, user.FirebaseUid, user.Email);
         }
 
         var email = ReadEmail(token);
@@ -95,7 +95,7 @@ public sealed class FirebaseUserContext : IUserContext
         }
 
         await db.SaveChangesAsync();
-        return user.Id;
+        return new AuthenticatedUser(user.Id, user.FirebaseUid, user.Email);
     }
 
     private FirebaseAuth GetFirebaseAuth()

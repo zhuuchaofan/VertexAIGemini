@@ -28,12 +28,12 @@ public static class ConversationEndpoints
         IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
         var pageOffset = Math.Max(0, offset ?? 0);
         var pageLimit = Math.Clamp(limit ?? 30, 1, 100);
-        var items = await conversations.GetUserConversationsAsync(userId.Value, pageOffset, pageLimit + 1);
+        var items = await conversations.GetUserConversationsAsync(currentUser.LocalUserId, pageOffset, pageLimit + 1);
         var hasMore = items.Count > pageLimit;
 
         return Results.Ok(new ConversationListResponse(
@@ -49,10 +49,10 @@ public static class ConversationEndpoints
         IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
-        var conversation = await conversations.GetConversationAsync(conversationId, userId.Value);
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser.LocalUserId);
         return conversation == null
             ? Results.NotFound(new { error = "Conversation not found." })
             : Results.Ok(ToDetail(conversation));
@@ -65,8 +65,8 @@ public static class ConversationEndpoints
         IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
         var title = request.Title.Trim();
         if (string.IsNullOrWhiteSpace(title))
@@ -74,7 +74,7 @@ public static class ConversationEndpoints
             return Results.BadRequest(new { error = "Title is required." });
         }
 
-        await conversations.UpdateTitleAsync(conversationId, userId.Value, title);
+        await conversations.UpdateTitleAsync(conversationId, currentUser.LocalUserId, title);
         return Results.NoContent();
     }
 
@@ -84,10 +84,10 @@ public static class ConversationEndpoints
         IUserContext users,
         ConversationService conversations)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
-        await conversations.DeleteConversationAsync(conversationId, userId.Value);
+        await conversations.DeleteConversationAsync(conversationId, currentUser.LocalUserId);
         return Results.NoContent();
     }
 

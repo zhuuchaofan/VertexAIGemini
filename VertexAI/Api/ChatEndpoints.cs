@@ -1,8 +1,7 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using VertexAI.Data;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
+using VertexAI.Services.UserSettings;
 
 namespace VertexAI.Api;
 
@@ -20,12 +19,12 @@ public static class ChatEndpoints
     private static async Task StreamChatAsync(
         ApiChatSendRequest request,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
         IUserContext users,
+        IUserSettingsStore userSettings,
         ChatOrchestrator chat)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null)
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" }, JsonOptions);
@@ -51,12 +50,12 @@ public static class ChatEndpoints
         context.Response.Headers.Connection = "keep-alive";
         context.Response.ContentType = "text/event-stream; charset=utf-8";
 
-        var defaultAssistantPrompt = await GetDefaultAssistantPromptAsync(dbFactory, userId.Value);
+        var defaultAssistantPrompt = await userSettings.GetDefaultAssistantPromptAsync(currentUser);
 
         var result = await chat.SendAsync(
             new ChatSendRequest(
                 request.ConversationId,
-                userId.Value,
+                currentUser.LocalUserId,
                 request.Message,
                 request.Images,
                 request.EnableSearch,
@@ -86,18 +85,6 @@ public static class ChatEndpoints
         await context.Response.WriteAsync($"event: {eventName}\n");
         await context.Response.WriteAsync($"data: {json}\n\n");
         await context.Response.Body.FlushAsync();
-    }
-
-    private static async Task<string?> GetDefaultAssistantPromptAsync(
-        IDbContextFactory<AppDbContext> dbFactory,
-        Guid userId)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Users
-            .AsNoTracking()
-            .Where(user => user.Id == userId)
-            .Select(user => user.DefaultAssistantPrompt)
-            .FirstOrDefaultAsync();
     }
 
     private sealed record ApiChatSendRequest(

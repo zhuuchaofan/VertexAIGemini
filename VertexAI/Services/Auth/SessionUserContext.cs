@@ -16,7 +16,7 @@ public sealed class SessionUserContext : IUserContext
         _cookies = cookies;
     }
 
-    public async Task<Guid?> GetCurrentUserIdAsync(HttpContext context)
+    public async Task<AuthenticatedUser?> GetCurrentUserAsync(HttpContext context)
     {
         var token = _cookies.ReadSessionToken(context);
         if (string.IsNullOrWhiteSpace(token))
@@ -27,8 +27,11 @@ public sealed class SessionUserContext : IUserContext
         await using var db = await _dbFactory.CreateDbContextAsync();
         var session = await db.Sessions
             .AsNoTracking()
+            .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.Token == token && s.ExpiresAt > DateTime.UtcNow);
 
-        return session?.UserId;
+        return session?.User == null
+            ? null
+            : new AuthenticatedUser(session.UserId, session.User.FirebaseUid, session.User.Email);
     }
 }

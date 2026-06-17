@@ -4,6 +4,7 @@ using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Health;
+using VertexAI.Services.UserSettings;
 
 namespace VertexAI.Configuration;
 
@@ -67,6 +68,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<SessionCleanupService>();
         services.AddScoped<ConversationService>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<ConversationService>());
+        services.AddScoped<IUserSettingsStore, PostgresUserSettingsStore>();
         services.AddScoped<ChatOrchestrator>();
 
         services.AddSingleton(CreateSmtpSettings(configuration));

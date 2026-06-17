@@ -24,15 +24,15 @@ public static class ExportEndpoints
         IDbContextFactory<AppDbContext> dbFactory,
         IUserContext users)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(httpContext, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
+        if (currentUser == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var conversation = await db.Conversations
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
-        if (conversation == null || conversation.UserId != userId.Value)
+        if (conversation == null || conversation.UserId != currentUser.LocalUserId)
         {
             return Results.NotFound("对话不存在或无权访问");
         }
@@ -90,15 +90,15 @@ public static class ExportEndpoints
         IDbContextFactory<AppDbContext> dbFactory,
         IUserContext users)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(httpContext, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
+        if (currentUser == null) return Results.Unauthorized();
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var conversation = await db.Conversations
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
-        if (conversation == null || conversation.UserId != userId.Value)
+        if (conversation == null || conversation.UserId != currentUser.LocalUserId)
         {
             return Results.NotFound("对话不存在或无权访问");
         }

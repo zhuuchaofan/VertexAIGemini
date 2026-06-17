@@ -1,7 +1,6 @@
-using Microsoft.EntityFrameworkCore;
-using VertexAI.Data;
 using VertexAI.Services;
 using VertexAI.Services.Auth;
+using VertexAI.Services.UserSettings;
 
 namespace VertexAI.Api;
 
@@ -19,18 +18,13 @@ public static class UserSettingsEndpoints
 
     private static async Task<IResult> GetSettingsAsync(
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IUserContext users)
+        IUserContext users,
+        IUserSettingsStore settingsStore)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var prompt = await db.Users
-            .AsNoTracking()
-            .Where(user => user.Id == userId.Value)
-            .Select(user => user.DefaultAssistantPrompt)
-            .FirstOrDefaultAsync();
+        var prompt = await settingsStore.GetDefaultAssistantPromptAsync(currentUser);
 
         return Results.Ok(ToResponse(prompt));
     }
@@ -38,28 +32,22 @@ public static class UserSettingsEndpoints
     private static async Task<IResult> UpdateSettingsAsync(
         UserSettingsUpdateRequest request,
         HttpContext context,
-        IDbContextFactory<AppDbContext> dbFactory,
-        IUserContext users)
+        IUserContext users,
+        IUserSettingsStore settingsStore)
     {
-        var userId = await ApiUserContext.GetCurrentUserIdAsync(context, users);
-        if (userId == null) return Results.Unauthorized();
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
 
         if (request.DefaultAssistantPrompt?.Length > MaxDefaultAssistantPromptLength)
         {
             return Results.BadRequest(new { error = $"默认助手提示词不能超过 {MaxDefaultAssistantPromptLength} 个字符" });
         }
 
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var user = await db.Users.FirstOrDefaultAsync(item => item.Id == userId.Value);
-        if (user == null) return Results.Unauthorized();
+        var prompt = await settingsStore.UpdateDefaultAssistantPromptAsync(
+            currentUser,
+            request.DefaultAssistantPrompt);
 
-        user.DefaultAssistantPrompt = string.IsNullOrWhiteSpace(request.DefaultAssistantPrompt)
-            ? null
-            : request.DefaultAssistantPrompt;
-
-        await db.SaveChangesAsync();
-
-        return Results.Ok(ToResponse(user.DefaultAssistantPrompt));
+        return Results.Ok(ToResponse(prompt));
     }
 
     private static UserSettingsResponse ToResponse(string? prompt) =>

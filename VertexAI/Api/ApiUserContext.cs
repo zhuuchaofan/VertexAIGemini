@@ -4,8 +4,8 @@ namespace VertexAI.Api;
 
 internal static class ApiUserContext
 {
-    public static async Task<Guid?> GetCurrentUserIdAsync(
+    public static async Task<AuthenticatedUser?> GetCurrentUserAsync(
         HttpContext context,
         IUserContext users) =>
-        await users.GetCurrentUserIdAsync(context);
+        await users.GetCurrentUserAsync(context);
 }
