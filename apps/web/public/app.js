@@ -92,6 +92,7 @@ elements.newChat.addEventListener("click", () => {
 elements.refreshConversations.addEventListener("click", () => refreshConversations());
 elements.loadMoreConversations.addEventListener("click", () => loadMoreConversations());
 elements.conversationList.addEventListener("click", handleConversationClick);
+elements.conversationList.addEventListener("keydown", handleConversationKeydown);
 elements.providerSelect.addEventListener("change", () => {
   saveWorkspacePreference("providerId", elements.providerSelect.value);
   renderProviderCatalog();
@@ -760,11 +761,12 @@ function renderConversations() {
 }
 
 function createConversationItem(conversation) {
-  const row = document.createElement("button");
-  row.type = "button";
+  const row = document.createElement("div");
   row.className = "conversation-item";
   row.dataset.action = "load";
   row.dataset.id = conversation.id;
+  row.role = "button";
+  row.tabIndex = 0;
   row.classList.toggle("active", conversation.id === state.conversationId);
 
   const title = document.createElement("span");
@@ -775,31 +777,39 @@ function createConversationItem(conversation) {
   meta.className = "conversation-meta";
   meta.textContent = formatConversationMeta(conversation);
 
-  const renameButton = document.createElement("span");
+  const renameButton = document.createElement("button");
+  renameButton.type = "button";
   renameButton.className = "conversation-action conversation-rename";
   renameButton.dataset.action = "rename";
   renameButton.dataset.id = conversation.id;
+  renameButton.setAttribute("aria-label", "重命名会话");
   renameButton.title = "重命名会话";
   renameButton.textContent = "✎";
 
-  const exportMarkdownButton = document.createElement("span");
+  const exportMarkdownButton = document.createElement("button");
+  exportMarkdownButton.type = "button";
   exportMarkdownButton.className = "conversation-action conversation-export-md";
   exportMarkdownButton.dataset.action = "export-markdown";
   exportMarkdownButton.dataset.id = conversation.id;
+  exportMarkdownButton.setAttribute("aria-label", "导出文本");
   exportMarkdownButton.title = "导出文本";
   exportMarkdownButton.textContent = "⇩";
 
-  const exportJsonButton = document.createElement("span");
+  const exportJsonButton = document.createElement("button");
+  exportJsonButton.type = "button";
   exportJsonButton.className = "conversation-action conversation-export-json";
   exportJsonButton.dataset.action = "export-json";
   exportJsonButton.dataset.id = conversation.id;
+  exportJsonButton.setAttribute("aria-label", "导出数据");
   exportJsonButton.title = "导出数据";
   exportJsonButton.textContent = "{}";
 
-  const deleteButton = document.createElement("span");
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
   deleteButton.className = "conversation-action conversation-delete";
   deleteButton.dataset.action = "delete";
   deleteButton.dataset.id = conversation.id;
+  deleteButton.setAttribute("aria-label", "删除会话");
   deleteButton.title = "删除会话";
   deleteButton.textContent = "×";
 
@@ -809,36 +819,50 @@ function createConversationItem(conversation) {
 
 async function handleConversationClick(event) {
   const actionTarget = event.target.closest("[data-action]");
-  if (!actionTarget) return;
+  if (!actionTarget || !elements.conversationList.contains(actionTarget)) return;
 
   const conversationId = actionTarget.dataset.id;
   if (!conversationId || state.streaming) return;
 
   if (actionTarget.dataset.action === "delete") {
+    event.preventDefault();
     event.stopPropagation();
     await deleteConversation(conversationId);
     return;
   }
 
   if (actionTarget.dataset.action === "rename") {
+    event.preventDefault();
     event.stopPropagation();
     await renameConversation(conversationId);
     return;
   }
 
   if (actionTarget.dataset.action === "export-markdown") {
+    event.preventDefault();
     event.stopPropagation();
     await downloadConversation(conversationId, "markdown");
     return;
   }
 
   if (actionTarget.dataset.action === "export-json") {
+    event.preventDefault();
     event.stopPropagation();
     await downloadConversation(conversationId, "json");
     return;
   }
 
   await loadConversation(conversationId);
+}
+
+function handleConversationKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+
+  const row = event.target.closest(".conversation-item[data-action='load']");
+  if (!row || event.target.closest(".conversation-action")) return;
+
+  event.preventDefault();
+  void loadConversation(row.dataset.id);
 }
 
 async function loadConversation(conversationId) {
@@ -924,6 +948,7 @@ async function renameConversation(conversationId) {
     return;
   }
 
+  setConnection("ready", "正在重命名会话");
   const response = await apiFetch(`/api/conversations/${conversationId}/title`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -935,7 +960,10 @@ async function renameConversation(conversationId) {
     return;
   }
 
-  await refreshConversations();
+  updateConversationInList(conversationId, {
+    title: trimmed,
+    updatedAt: new Date().toISOString()
+  });
   setConnection("ready", "会话已重命名");
 }
 
@@ -960,17 +988,31 @@ async function downloadConversation(conversationId, format) {
 }
 
 async function deleteConversation(conversationId) {
+  setConnection("ready", "正在删除会话");
   const response = await apiFetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
   if (!response.ok) {
     setConnection("error", "删除失败");
     return;
   }
 
+  removeConversationFromList(conversationId);
   if (state.conversationId === conversationId) {
     startNewChat();
   }
 
-  await refreshConversations();
+  setConnection("ready", "会话已删除");
+}
+
+function updateConversationInList(conversationId, updates) {
+  state.conversations = state.conversations.map(conversation =>
+    conversation.id === conversationId ? { ...conversation, ...updates } : conversation);
+  renderConversations();
+}
+
+function removeConversationFromList(conversationId) {
+  state.conversations = state.conversations.filter(conversation => conversation.id !== conversationId);
+  state.conversationOffset = state.conversations.length;
+  renderConversations();
 }
 
 async function sendMessage(event) {

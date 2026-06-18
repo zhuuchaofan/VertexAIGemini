@@ -272,12 +272,14 @@ h2 {
   border-radius: 8px;
   background: #ffffff;
   color: var(--ink);
+  cursor: pointer;
   padding: 10px 112px 10px 10px;
   text-align: left;
 }
 
 .conversation-item:hover,
-.conversation-item.active {
+.conversation-item.active,
+.conversation-item:focus-visible {
   border-color: #a7d8c6;
   background: var(--soft);
 }
@@ -305,10 +307,14 @@ h2 {
   width: 22px;
   height: 22px;
   place-items: center;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
   font-size: 18px;
   line-height: 1;
+  padding: 0;
 }
 
 .conversation-rename {
@@ -334,12 +340,16 @@ h2 {
 
 .conversation-rename:hover,
 .conversation-export-md:hover,
-.conversation-export-json:hover {
+.conversation-export-json:hover,
+.conversation-rename:focus-visible,
+.conversation-export-md:focus-visible,
+.conversation-export-json:focus-visible {
   background: #dbeafe;
   color: #1d4ed8;
 }
 
-.conversation-delete:hover {
+.conversation-delete:hover,
+.conversation-delete:focus-visible {
   background: #fee2e2;
   color: #991b1b;
 }
