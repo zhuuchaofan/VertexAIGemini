@@ -8,11 +8,11 @@ COPY public ./public
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
-ENV PORT=5173
+ENV PORT=8080
 
-EXPOSE 5173
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:5173/ >/dev/null || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/" >/dev/null || exit 1
 
 CMD ["node", "server.mjs"]

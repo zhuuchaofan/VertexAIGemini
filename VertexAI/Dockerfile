@@ -20,11 +20,11 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV PORT=8880
+ENV PORT=8080
 
-EXPOSE 8880
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS "http://localhost:${PORT:-8880}/health/live" || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8080}/health/live" || exit 1
 
 ENTRYPOINT ["dotnet", "VertexAI.dll"]

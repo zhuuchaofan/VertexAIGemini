@@ -14,7 +14,9 @@ var tests = new (string Name, Action Test)[]
     ("ChatErrorMapper maps common exceptions", ChatErrorMapperTests.MapCommonExceptions),
     ("ChatOrchestrator streams and persists successful responses", ChatOrchestratorTests.StreamsAndPersistsSuccess),
     ("ChatOrchestrator passes multimodal model request", ChatOrchestratorTests.PassesMultimodalModelRequest),
+    ("ChatOrchestrator passes image-only model request", ChatOrchestratorTests.PassesImageOnlyModelRequest),
     ("ChatOrchestrator loads existing conversation history", ChatOrchestratorTests.LoadsExistingConversationHistory),
+    ("ChatOrchestrator reuses existing conversation", ChatOrchestratorTests.ReusesExistingConversation),
     ("ChatOrchestrator applies model session options", ChatOrchestratorTests.AppliesModelSessionOptions),
     ("ChatOrchestrator maps model failures", ChatOrchestratorTests.MapsModelFailures),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
@@ -284,6 +286,67 @@ internal static class ChatOrchestratorTests
         Assert.Equal(image, model.LoadedHistory[0].Attachments!.Single());
         Assert.Null(store.CreatedPresetId);
         Assert.Equal(("user", "continue", null), (store.Messages[0].Role, store.Messages[0].Content, store.Messages[0].ThinkingContent));
+    }
+
+    public static void PassesImageOnlyModelRequest()
+    {
+        var userId = Guid.NewGuid();
+        var user = TestUser(userId);
+        var conversationId = Guid.NewGuid();
+        var image = new ChatImageAttachment(Convert.ToBase64String([7, 8, 9]), "image/png", "scan.png");
+        var model = new FakeChatModelClient
+        {
+            Chunks = [new ChatChunk { Text = "image received" }]
+        };
+        var store = new FakeConversationStore { CreatedConversationId = conversationId };
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "   ", [image]),
+            _ => Task.CompletedTask));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("image received", result.Content);
+        Assert.NotNull(model.LastRequest);
+        Assert.Equal("", model.LastRequest!.Message);
+        Assert.Equal(image, model.LastRequest.Images.Single());
+        Assert.Equal(2, store.Messages.Count);
+        Assert.Equal(("user", "", null), (store.Messages[0].Role, store.Messages[0].Content, store.Messages[0].ThinkingContent));
+        Assert.Equal(image, store.Messages[0].Attachments.Single());
+    }
+
+    public static void ReusesExistingConversation()
+    {
+        var userId = Guid.NewGuid();
+        var user = TestUser(userId);
+        var conversationId = Guid.NewGuid();
+        var model = new FakeChatModelClient
+        {
+            Chunks = [new ChatChunk { Text = "ok" }]
+        };
+        var store = new FakeConversationStore
+        {
+            CreatedConversationId = Guid.NewGuid(),
+            History = [new ChatHistoryEntry("user", "prior")]
+        };
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(conversationId, user, "next", []),
+            _ => Task.CompletedTask));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(conversationId, result.ConversationId);
+        Assert.Equal(0, store.CreatedConversationCount);
+        Assert.Equal(1, model.LoadedHistory.Count);
+        Assert.Equal(("user", "next", null), (store.Messages[0].Role, store.Messages[0].Content, store.Messages[0].ThinkingContent));
+        Assert.Equal((conversationId, userId, 0), store.TokenUpdates.Single());
     }
 
     public static void AppliesModelSessionOptions()
@@ -801,6 +864,7 @@ internal sealed class FakeConversationStore : IConversationStore
     public string? CreatedModelName { get; private set; }
     public string? CreatedPresetId { get; private set; }
     public string? CreatedCustomPrompt { get; private set; }
+    public int CreatedConversationCount { get; private set; }
     public List<FakeStoredMessage> Messages { get; } = [];
     public IReadOnlyList<ChatHistoryEntry> History { get; init; } = [];
     public int? LastHistoryMaxMessages { get; private set; }
@@ -819,6 +883,7 @@ internal sealed class FakeConversationStore : IConversationStore
         string presetId,
         string? customPrompt = null)
     {
+        CreatedConversationCount++;
         CreatedProviderId = providerId;
         CreatedModelName = modelName;
         CreatedPresetId = presetId;

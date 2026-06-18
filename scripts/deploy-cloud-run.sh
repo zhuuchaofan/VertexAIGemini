@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-copper-affinity-467409-k7}"
+PROJECT_ID="${PROJECT_ID:-}"
 REGION="${REGION:-asia-east1}"
 REPOSITORY="${REPOSITORY:-vertex-ai}"
 API_SERVICE="${API_SERVICE:-vertex-ai-api}"
 WEB_SERVICE="${WEB_SERVICE:-vertex-ai-web}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
 
-FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-my-agent-app-a5e42}"
+FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$PROJECT_ID}"
 FIRESTORE_PROJECT_ID="${FIRESTORE_PROJECT_ID:-$FIREBASE_PROJECT_ID}"
 FIREBASE_API_KEY="${FIREBASE_API_KEY:-}"
 FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-$FIREBASE_PROJECT_ID.firebaseapp.com}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 DEFAULT_PROVIDER_ID="${DEFAULT_PROVIDER_ID:-gemini}"
 
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "[ERROR] PROJECT_ID is required, for example PROJECT_ID=my-gcp-project"
+  exit 1
+fi
+
 if [[ -z "$SERVICE_ACCOUNT" ]]; then
   echo "[ERROR] SERVICE_ACCOUNT is required, for example SERVICE_ACCOUNT=cloud-run-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+  exit 1
+fi
+
+if [[ -z "$FIREBASE_PROJECT_ID" || -z "$FIRESTORE_PROJECT_ID" ]]; then
+  echo "[ERROR] FIREBASE_PROJECT_ID and FIRESTORE_PROJECT_ID are required."
   exit 1
 fi
 
@@ -51,6 +61,7 @@ gcloud run deploy "$API_SERVICE" \
   --image="$API_IMAGE" \
   --service-account="$SERVICE_ACCOUNT" \
   --allow-unauthenticated \
+  --port=8080 \
   --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID}"
 
 API_URL="$(gcloud run services describe "$API_SERVICE" \
@@ -69,6 +80,7 @@ gcloud run deploy "$WEB_SERVICE" \
   --region="$REGION" \
   --image="$WEB_IMAGE" \
   --allow-unauthenticated \
+  --port=8080 \
   --set-env-vars="BACKEND_URL=${API_URL}"
 
 WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \

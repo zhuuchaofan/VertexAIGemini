@@ -49,5 +49,5 @@ The project is organized around these boundaries:
 
 1. Deploy Firestore composite indexes from `firestore.indexes.json`.
 2. Add Firebase-token integration tests around authenticated API endpoints.
-3. Add broader `ChatOrchestrator` tests for image-only requests and existing conversation sends.
+3. Add Firestore-backed integration coverage for conversation ownership, export, and delete cascades.
 4. Convert the lightweight test runner to a full test framework if CI reporting needs richer output.

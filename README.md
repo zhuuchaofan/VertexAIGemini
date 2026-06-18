@@ -22,7 +22,8 @@ Authentication is Firebase-only. The browser signs in with the Firebase Web SDK 
 - Node.js 24+ for the standalone web client
 - Google Cloud project with Vertex AI enabled
 - Firebase project with Authentication and Firestore enabled
-- Google application credentials JSON
+- Google application credentials JSON for local development, or a Cloud Run
+  runtime service account in Google Cloud
 
 ## Configuration
 
@@ -71,13 +72,13 @@ Open `http://localhost:5173`.
 Create a `.env` file in `VertexAI/` by copying `VertexAI/.env.example`:
 
 ```env
-PROJECT_ID=copper-affinity-467409-k7
-FIREBASE_PROJECT_ID=my-agent-app-a5e42
-FIREBASE_API_KEY=
-FIREBASE_AUTH_DOMAIN=
-FIREBASE_APP_ID=
-FIRESTORE_PROJECT_ID=my-agent-app-a5e42
-GCP_KEY_PATH=./GCPKey/copper-affinity-467409-k7-7ba2e06ec019.json
+PROJECT_ID=your-gcp-project-id
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_API_KEY=your-firebase-web-api-key
+FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
+FIREBASE_APP_ID=your-firebase-web-app-id
+FIRESTORE_PROJECT_ID=your-firebase-project-id
+GCP_KEY_PATH=./GCPKey/credentials.json
 APP_BASE_URL=http://localhost:8880
 WEB_PORT=8880
 DEFAULT_PROVIDER_ID=gemini
@@ -123,6 +124,12 @@ Run these checks before publishing a deployment image; CI can use the same comma
 ## Cloud Run
 
 See [docs/cloud-run.md](docs/cloud-run.md) for Cloud Run deployment steps, required service account roles, Firestore index deployment, and API/Web service environment variables.
+
+The deployment target is two Docker images deployed as two Cloud Run services:
+`vertex-ai-api` for the ASP.NET Core backend and `vertex-ai-web` for the Node
+static/proxy frontend. Cloud Run should use a runtime service account with
+Firestore and Vertex AI permissions; do not mount local credential JSON files in
+Cloud Run.
 
 ### Provider Configuration
 

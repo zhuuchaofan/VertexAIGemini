@@ -130,7 +130,11 @@ Status: in progress. The app reaches Firebase Auth and Firestore; the real proje
 - Configure environment variables for project, location, default provider, and model settings.
 - Verify SSE streaming timeout behavior and Cloud Run concurrency settings.
 
-Status: planned.
+Status: in progress. Docker images are Cloud Run-oriented, the deployment
+script builds and deploys separate API and Web services, and production logging
+uses stdout for Cloud Run log collection. Remaining work requires a real Google
+Cloud project: service account IAM verification, Firestore index deployment,
+Firebase authorized domain configuration, and deployed SSE smoke testing.
 
 ### Phase 7: Remove Legacy Infrastructure
 
@@ -139,7 +143,10 @@ Status: planned.
 - Replace database health checks with Firestore readiness checks.
 - Update Docker Compose to match cloud-backed Firebase/Firestore development.
 
-Status: complete for local Docker runtime and application code.
+Status: complete for local Docker runtime and application code. Local
+email/password auth, password reset, email verification, logout, cookie/session,
+and PostgreSQL/EF Core API surfaces have been removed from the backend runtime;
+only `GET /api/auth/status` remains for Firebase Bearer-token user status.
 
 ## Known Risks
 

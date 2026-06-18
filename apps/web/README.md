@@ -28,9 +28,6 @@ BACKEND_URL=http://localhost:8880 npm run dev
 ## API Contract Used
 
 - `GET /api/auth/status`
-- `POST /api/auth/login`
-- `POST /api/auth/register`
-- `POST /api/auth/logout`
 - `GET /api/workspace/config`
 - `POST /api/chat/stream`
 - `GET /api/conversations/`
@@ -39,5 +36,9 @@ BACKEND_URL=http://localhost:8880 npm run dev
 - `DELETE /api/conversations/{id}`
 - `GET /api/export/{id}/markdown`
 - `GET /api/export/{id}/json`
+
+Login, registration, logout, password reset, and token refresh are handled by
+the Firebase Web SDK in the browser. API requests that require a user send the
+Firebase ID token as a Bearer token.
 
 `GET /api/workspace/config` returns provider, model, and prompt preset catalogs. `/api/chat/stream` accepts `providerId`, `modelName`, `presetId`, and `customPrompt`, then streams Server-Sent Events with `update` and `final` event names.
