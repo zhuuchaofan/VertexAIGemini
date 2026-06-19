@@ -4,7 +4,7 @@ namespace VertexAI.Services.Chat;
 
 internal static class GeminiPartFactory
 {
-    public static List<Part> CreateParts(string message, IReadOnlyCollection<ChatImageAttachment> images)
+    public static List<Part> CreateParts(string message, IReadOnlyCollection<ChatAttachment> attachments)
     {
         var parts = new List<Part>();
         var trimmedMessage = message.Trim();
@@ -14,14 +14,14 @@ internal static class GeminiPartFactory
             parts.Add(new Part { Text = trimmedMessage });
         }
 
-        foreach (var image in images)
+        foreach (var attachment in attachments)
         {
             parts.Add(new Part
             {
                 InlineData = new Blob
                 {
-                    Data = Convert.FromBase64String(image.Base64Data),
-                    MimeType = image.MimeType
+                    Data = Convert.FromBase64String(attachment.Base64Data),
+                    MimeType = attachment.MimeType
                 }
             });
         }

@@ -1,0 +1,155 @@
+name: Deploy Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Service to deploy
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - api
+          - web
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_target || 'all' }}
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION || 'asia-east1' }}
+  REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'vertex-ai' }}
+  API_SERVICE: ${{ vars.API_SERVICE || 'vertex-ai-api' }}
+  WEB_SERVICE: ${{ vars.WEB_SERVICE || 'vertex-ai-web' }}
+  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+  DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+  RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+  FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
+  FIRESTORE_PROJECT_ID: ${{ vars.FIRESTORE_PROJECT_ID || vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
+  FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+  FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+  FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+  DEFAULT_PROVIDER_ID: ${{ vars.DEFAULT_PROVIDER_ID || 'gemini' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore VertexAI.slnx
+
+      - name: Build
+        run: dotnet build VertexAI.slnx --no-restore
+
+      - name: Run service tests
+        run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-restore
+
+      - name: Validate deployment configuration
+        run: |
+          required=(
+            PROJECT_ID
+            REGION
+            REPOSITORY
+            API_SERVICE
+            WEB_SERVICE
+            WIF_PROVIDER
+            DEPLOY_SERVICE_ACCOUNT
+            RUNTIME_SERVICE_ACCOUNT
+            FIREBASE_PROJECT_ID
+            FIRESTORE_PROJECT_ID
+            FIREBASE_AUTH_DOMAIN
+            FIREBASE_API_KEY
+            FIREBASE_APP_ID
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required deployment setting: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ensure Artifact Registry repository
+        run: |
+          if ! gcloud artifacts repositories describe "${REPOSITORY}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" >/dev/null 2>&1; then
+            gcloud artifacts repositories create "${REPOSITORY}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --repository-format=docker \
+              --description="Vertex AI workspace containers"
+          fi
+
+      - name: Build and deploy API
+        if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'api'
+        run: |
+          api_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${GITHUB_SHA}"
+
+          gcloud builds submit VertexAI \
+            --project="${PROJECT_ID}" \
+            --tag="${api_image}"
+
+          gcloud run deploy "${API_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${api_image}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --allow-unauthenticated \
+            --port=8080 \
+            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID}"
+
+      - name: Resolve API URL
+        id: api
+        run: |
+          api_url="$(gcloud run services describe "${API_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          echo "url=${api_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and deploy web
+        if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'web'
+        run: |
+          web_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${GITHUB_SHA}"
+
+          gcloud builds submit apps/web \
+            --project="${PROJECT_ID}" \
+            --tag="${web_image}"
+
+          gcloud run deploy "${WEB_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${web_image}" \
+            --allow-unauthenticated \
+            --port=8080 \
+            --set-env-vars="BACKEND_URL=${{ steps.api.outputs.url }}"
+
+      - name: Smoke check API
+        run: |
+          curl -fsS "${{ steps.api.outputs.url }}/health/live"
+          curl -fsS "${{ steps.api.outputs.url }}/health/ready"

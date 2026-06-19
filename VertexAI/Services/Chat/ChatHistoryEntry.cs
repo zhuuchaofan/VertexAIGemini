@@ -4,4 +4,4 @@ public sealed record ChatHistoryEntry(
     string Role,
     string Content,
     string? ThinkingContent = null,
-    IReadOnlyCollection<ChatImageAttachment>? Attachments = null);
+    IReadOnlyCollection<ChatAttachment>? Attachments = null);

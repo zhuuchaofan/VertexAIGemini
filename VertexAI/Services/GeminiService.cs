@@ -3,7 +3,6 @@ using Google.GenAI.Types;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
-using System.Text.Json;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
@@ -173,7 +172,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
     private IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, bool enableSearch)
     {
-        var userParts = GeminiPartFactory.CreateParts(request.Message, request.Images);
+        var userParts = GeminiPartFactory.CreateParts(request.Message, request.Attachments);
         return StreamChatAsync(userParts, enableSearch);
     }
 
@@ -369,7 +368,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             msg.Role,
             msg.Content,
             msg.ThinkingContent,
-            DeserializeAttachments(msg.AttachmentsJson))));
+            ChatAttachmentSerializer.Deserialize(msg.AttachmentsJson))));
     }
 
     public void ImportHistory(IEnumerable<ChatHistoryEntry> messages)
@@ -397,23 +396,6 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
                     Parts = parts
                 });
             }
-        }
-    }
-
-    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
-    {
-        if (string.IsNullOrWhiteSpace(attachmentsJson))
-        {
-            return [];
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
         }
     }
 

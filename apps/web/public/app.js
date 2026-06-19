@@ -1,5 +1,6 @@
 const mobileQuery = window.matchMedia("(max-width: 820px)");
-const savedSidebarState = localStorage.getItem("vertex-sidebar-collapsed");
+const SIDEBAR_COLLAPSED_KEY = "vertex-sidebar-collapsed";
+const savedSidebarState = getSavedSidebarCollapsed();
 const WORKSPACE_PREFERENCES_KEY = "vertex-workspace-preferences";
 const workspacePreferences = loadWorkspacePreferences();
 
@@ -20,12 +21,18 @@ const state = {
   firebaseAuth: null,
   firebaseSdk: null,
   firebaseAuthReady: false,
-  pendingImages: [],
+  pendingAttachments: [],
   streaming: false,
   sidebarCollapsed: mobileQuery.matches ? true : savedSidebarState === "true"
 };
 
+const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_BYTES = 512 * 1024;
+const TEXT_FILE_EXTENSIONS = new Set([
+  "css", "csv", "cs", "go", "html", "java", "js", "json", "jsx", "md", "markdown",
+  "py", "rs", "sql", "ts", "tsx", "txt", "xml", "yaml", "yml"
+]);
 const STREAM_RENDER_INTERVAL_MS = 80;
 
 const elements = {
@@ -34,11 +41,14 @@ const elements = {
   workspaceShell: document.querySelector("#workspace-shell"),
   collapseSidebar: document.querySelector("#collapse-sidebar"),
   expandSidebar: document.querySelector("#expand-sidebar"),
+  sidebarOverlay: document.querySelector("#sidebar-overlay"),
   loginTab: document.querySelector("#login-tab"),
   registerTab: document.querySelector("#register-tab"),
   authForm: document.querySelector("#auth-form"),
   authSubmit: document.querySelector("#auth-submit"),
   authMessage: document.querySelector("#auth-message"),
+  googleLogin: document.querySelector("#google-login"),
+  forgotPassword: document.querySelector("#forgot-password"),
   logoutButton: document.querySelector("#logout-button"),
   settingsButton: document.querySelector("#settings-button"),
   settingsModal: document.querySelector("#settings-modal"),
@@ -72,9 +82,14 @@ const elements = {
 
 elements.collapseSidebar.addEventListener("click", () => setSidebarCollapsed(true));
 elements.expandSidebar.addEventListener("click", () => setSidebarCollapsed(false));
+elements.sidebarOverlay.addEventListener("click", collapseSidebarOnMobile);
+document.addEventListener("keydown", handleGlobalKeydown);
+mobileQuery.addEventListener("change", handleViewportChange);
 elements.loginTab.addEventListener("click", () => setAuthMode("login"));
 elements.registerTab.addEventListener("click", () => setAuthMode("register"));
 elements.authForm.addEventListener("submit", submitAuth);
+elements.googleLogin.addEventListener("click", signInWithGoogle);
+elements.forgotPassword.addEventListener("click", sendPasswordReset);
 elements.logoutButton.addEventListener("click", logout);
 elements.settingsButton.addEventListener("click", openSettings);
 elements.settingsClose.addEventListener("click", closeSettings);
@@ -113,8 +128,8 @@ elements.enableSearch.addEventListener("change", () => {
 });
 elements.chatForm.addEventListener("submit", sendMessage);
 elements.messages.addEventListener("click", handleMessagesClick);
-elements.imageInput.addEventListener("change", handleImageSelection);
-elements.attachmentPreview.addEventListener("click", removePendingImage);
+elements.imageInput.addEventListener("change", handleAttachmentSelection);
+elements.attachmentPreview.addEventListener("click", removePendingAttachment);
 elements.messageInput.addEventListener("keydown", event => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -129,9 +144,16 @@ await initializeFirebaseAuth();
 await refreshSession();
 startNewChat();
 
-function setSidebarCollapsed(collapsed) {
+function getSavedSidebarCollapsed() {
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+}
+
+function setSidebarCollapsed(collapsed, options = {}) {
+  const persist = options.persist ?? !mobileQuery.matches;
   state.sidebarCollapsed = collapsed;
-  localStorage.setItem("vertex-sidebar-collapsed", String(collapsed));
+  if (persist) {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  }
   renderSidebarState();
 }
 
@@ -139,12 +161,29 @@ function renderSidebarState() {
   elements.workspaceShell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
   elements.collapseSidebar.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
   elements.expandSidebar.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
+  elements.sidebarOverlay.setAttribute("aria-hidden", String(state.sidebarCollapsed));
 }
 
 function collapseSidebarOnMobile() {
   if (mobileQuery.matches) {
-    setSidebarCollapsed(true);
+    setSidebarCollapsed(true, { persist: false });
   }
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key === "Escape" && mobileQuery.matches && !state.sidebarCollapsed) {
+    setSidebarCollapsed(true, { persist: false });
+    elements.expandSidebar.focus();
+  }
+}
+
+function handleViewportChange(event) {
+  if (event.matches) {
+    setSidebarCollapsed(true, { persist: false });
+    return;
+  }
+
+  setSidebarCollapsed(getSavedSidebarCollapsed(), { persist: false });
 }
 
 function setAuthMode(mode) {
@@ -152,6 +191,11 @@ function setAuthMode(mode) {
   elements.loginTab.classList.toggle("active", mode === "login");
   elements.registerTab.classList.toggle("active", mode === "register");
   elements.authSubmit.textContent = mode === "login" ? "登录" : "注册";
+  elements.forgotPassword.classList.toggle("hidden", mode !== "login");
+  const password = elements.authForm.elements.namedItem("password");
+  if (password) {
+    password.autocomplete = mode === "login" ? "current-password" : "new-password";
+  }
 }
 
 async function initializeFirebaseAuth() {
@@ -206,7 +250,7 @@ async function submitAuth(event) {
   event.preventDefault();
   const form = new FormData(elements.authForm);
   const payload = {
-    email: String(form.get("email") ?? ""),
+    email: String(form.get("email") ?? "").trim(),
     password: String(form.get("password") ?? "")
   };
 
@@ -232,6 +276,58 @@ async function submitAuth(event) {
   } catch (error) {
     setAuthMessage(toAuthErrorMessage(error));
     setConnection("error", "认证失败");
+  }
+}
+
+async function signInWithGoogle() {
+  setAuthMessage("正在打开 Google 登录...");
+
+  if (!state.firebaseAuth || !state.firebaseSdk) {
+    setAuthMessage("Firebase 认证未初始化");
+    setConnection("error", "认证配置缺失");
+    return;
+  }
+
+  try {
+    const provider = new state.firebaseSdk.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+
+    const credential = await state.firebaseSdk.signInWithPopup(state.firebaseAuth, provider);
+    state.user = toFirebaseUserInfo(credential.user);
+    renderSession();
+    await loadUserSettings();
+    await refreshConversations();
+    setAuthMessage("已使用 Google 登录");
+    setConnection("ready", "API 已连接");
+  } catch (error) {
+    if (error?.code === "auth/popup-blocked" || error?.code === "auth/popup-closed-by-user") {
+      setAuthMessage("Google 登录窗口已关闭，请重试");
+    } else {
+      setAuthMessage(toAuthErrorMessage(error));
+    }
+    setConnection("error", "认证失败");
+  }
+}
+
+async function sendPasswordReset() {
+  const form = new FormData(elements.authForm);
+  const email = String(form.get("email") ?? "").trim();
+  if (!email) {
+    setAuthMessage("请输入邮箱后再重置密码");
+    return;
+  }
+
+  if (!state.firebaseAuth || !state.firebaseSdk) {
+    setAuthMessage("Firebase 认证未初始化");
+    setConnection("error", "认证配置缺失");
+    return;
+  }
+
+  try {
+    await state.firebaseSdk.sendPasswordResetEmail(state.firebaseAuth, email);
+    setAuthMessage("密码重置邮件已发送，请检查邮箱");
+  } catch (error) {
+    setAuthMessage(toAuthErrorMessage(error));
   }
 }
 
@@ -357,7 +453,7 @@ function startNewChat() {
   state.conversationId = null;
   state.loadedConversationMessages = [];
   state.visibleMessageStart = 0;
-  clearPendingImages();
+  clearPendingAttachments();
   renderConversations();
   elements.messages.replaceChildren();
   if (state.user) {
@@ -1018,8 +1114,8 @@ function removeConversationFromList(conversationId) {
 async function sendMessage(event) {
   event.preventDefault();
   const message = elements.messageInput.value.trim();
-  const images = state.pendingImages;
-  if ((!message && images.length === 0) || state.streaming) return;
+  const attachments = state.pendingAttachments;
+  if ((!message && attachments.length === 0) || state.streaming) return;
 
   if (!state.user) {
     setAuthMessage("请先登录");
@@ -1030,11 +1126,11 @@ async function sendMessage(event) {
   state.streaming = true;
   elements.sendButton.disabled = true;
   elements.messageInput.value = "";
-  state.pendingImages = [];
+  state.pendingAttachments = [];
   renderAttachmentPreview();
   resizeComposer();
 
-  appendMessage("user", message, { attachments: images });
+  appendMessage("user", message, { attachments });
   const assistant = appendMessage("assistant", "");
   const assistantRenderer = createAssistantRenderer(assistant);
   setConnection("ready", "正在生成");
@@ -1046,7 +1142,7 @@ async function sendMessage(event) {
       body: JSON.stringify({
         conversationId: state.conversationId,
         message,
-        images,
+        attachments,
         enableSearch: elements.enableSearch.checked,
         providerId: elements.providerSelect.value || null,
         modelName: elements.modelSelect.value || null,
@@ -1141,11 +1237,19 @@ function renderMessageAttachments(node, attachments) {
   container.replaceChildren();
   container.classList.toggle("hidden", attachments.length === 0);
 
-  for (const image of attachments) {
-    const img = document.createElement("img");
-    img.src = toDataUrl(image);
-    img.alt = image.fileName || "已附加图片";
-    container.append(img);
+  for (const attachment of attachments) {
+    if (attachment.mimeType?.startsWith("image/")) {
+      const img = document.createElement("img");
+      img.src = toDataUrl(attachment);
+      img.alt = attachment.fileName || "已附加图片";
+      container.append(img);
+      continue;
+    }
+
+    const file = document.createElement("span");
+    file.className = "message-file";
+    file.textContent = `${getAttachmentLabel(attachment.fileName)} ${attachment.fileName || "附件"}`;
+    container.append(file);
   }
 }
 
@@ -1435,8 +1539,16 @@ function toAuthErrorMessage(error) {
   }
   if (code.includes("email-already-in-use")) return "该邮箱已被注册";
   if (code.includes("weak-password")) return "密码强度不足";
+  if (code.includes("operation-not-allowed")) return "该登录方式尚未在 Firebase 启用";
+  if (code.includes("unauthorized-domain")) return "当前域名未加入 Firebase 授权域名";
+  if (code.includes("app-not-authorized") || code.includes("api-key-not-valid")) {
+    return "Firebase API Key 未授权当前域名";
+  }
+  if (code.includes("popup-blocked")) return "浏览器阻止了登录窗口";
+  if (code.includes("popup-closed-by-user")) return "登录窗口已关闭";
+  if (code.includes("account-exists-with-different-credential")) return "该邮箱已绑定其他登录方式";
   if (code.includes("network-request-failed")) return "网络连接失败";
-  return "认证失败";
+  return code ? `认证失败：${code}` : "认证失败";
 }
 
 function getDownloadFileName(response) {
@@ -1484,23 +1596,34 @@ function resizeComposer() {
   elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, 180)}px`;
 }
 
-async function handleImageSelection(event) {
+async function handleAttachmentSelection(event) {
   const files = Array.from(event.target.files ?? []);
   if (files.length === 0) return;
 
-  const remainingSlots = Math.max(0, 5 - state.pendingImages.length);
+  const remainingSlots = Math.max(0, MAX_ATTACHMENTS - state.pendingAttachments.length);
   const selected = files.slice(0, remainingSlots);
+  if (files.length > selected.length) {
+    setConnection("error", `最多支持 ${MAX_ATTACHMENTS} 个附件`);
+  }
 
   for (const file of selected) {
-    if (!file.type.startsWith("image/")) continue;
-    if (file.size > MAX_IMAGE_BYTES) {
-      setConnection("error", "单张图片最大支持 4MB");
+    const mimeType = normalizeFileMimeType(file);
+    if (!isAllowedAttachment(file, mimeType)) {
+      setConnection("error", `不支持的附件格式：${file.name}`);
       continue;
     }
 
-    state.pendingImages.push({
+    const maxBytes = mimeType.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+    if (file.size > maxBytes) {
+      setConnection("error", mimeType.startsWith("image/")
+        ? "单张图片最大支持 4MB"
+        : "单个文件最大支持 512KB");
+      continue;
+    }
+
+    state.pendingAttachments.push({
       base64Data: await readFileAsBase64(file),
-      mimeType: file.type,
+      mimeType,
       fileName: file.name
     });
   }
@@ -1511,39 +1634,37 @@ async function handleImageSelection(event) {
 
 function renderAttachmentPreview() {
   elements.attachmentPreview.replaceChildren();
-  elements.attachmentPreview.classList.toggle("hidden", state.pendingImages.length === 0);
+  elements.attachmentPreview.classList.toggle("hidden", state.pendingAttachments.length === 0);
 
-  state.pendingImages.forEach((image, index) => {
+  state.pendingAttachments.forEach((attachment, index) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "attachment-chip";
     item.dataset.index = String(index);
 
-    const thumb = document.createElement("img");
-    thumb.src = toDataUrl(image);
-    thumb.alt = image.fileName || "pending image";
+    const preview = createAttachmentPreviewIcon(attachment);
 
     const name = document.createElement("span");
-    name.textContent = image.fileName || "image";
+    name.textContent = attachment.fileName || "attachment";
 
     const remove = document.createElement("strong");
     remove.textContent = "×";
 
-    item.append(thumb, name, remove);
+    item.append(preview, name, remove);
     elements.attachmentPreview.append(item);
   });
 }
 
-function removePendingImage(event) {
+function removePendingAttachment(event) {
   const item = event.target.closest("[data-index]");
   if (!item) return;
 
-  state.pendingImages.splice(Number.parseInt(item.dataset.index, 10), 1);
+  state.pendingAttachments.splice(Number.parseInt(item.dataset.index, 10), 1);
   renderAttachmentPreview();
 }
 
-function clearPendingImages() {
-  state.pendingImages = [];
+function clearPendingAttachments() {
+  state.pendingAttachments = [];
   elements.imageInput.value = "";
   renderAttachmentPreview();
 }
@@ -1562,6 +1683,60 @@ function readFileAsBase64(file) {
 
 function toDataUrl(image) {
   return `data:${image.mimeType};base64,${image.base64Data}`;
+}
+
+function createAttachmentPreviewIcon(attachment) {
+  if (attachment.mimeType.startsWith("image/")) {
+    const thumb = document.createElement("img");
+    thumb.src = toDataUrl(attachment);
+    thumb.alt = attachment.fileName || "pending image";
+    return thumb;
+  }
+
+  const icon = document.createElement("em");
+  icon.textContent = getAttachmentLabel(attachment.fileName);
+  return icon;
+}
+
+function normalizeFileMimeType(file) {
+  if (file.type) {
+    return file.type;
+  }
+
+  const extension = getAttachmentExtension(file.name);
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "json") return "application/json";
+  if (extension === "csv") return "text/csv";
+  if (extension === "md" || extension === "markdown") return "text/markdown";
+  if (extension === "xml") return "text/xml";
+  if (extension === "yaml" || extension === "yml") return "text/yaml";
+  if (TEXT_FILE_EXTENSIONS.has(extension)) return "text/plain";
+  return "application/octet-stream";
+}
+
+function isAllowedAttachment(file, mimeType) {
+  if (mimeType.startsWith("image/") || mimeType.startsWith("text/")) {
+    return true;
+  }
+
+  if (mimeType === "application/pdf"
+    || mimeType === "application/json"
+    || mimeType === "application/xml"
+    || mimeType === "application/javascript"
+    || mimeType === "application/x-yaml") {
+    return true;
+  }
+
+  return TEXT_FILE_EXTENSIONS.has(getAttachmentExtension(file.name));
+}
+
+function getAttachmentExtension(fileName = "") {
+  const extension = fileName.split(".").pop() ?? "";
+  return extension === fileName ? "" : extension.toLowerCase();
+}
+
+function getAttachmentLabel(fileName = "") {
+  return getAttachmentExtension(fileName).slice(0, 5).toUpperCase() || "FILE";
 }
 
 function formatConversationMeta(conversation) {

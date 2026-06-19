@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -120,25 +119,8 @@ public static class ConversationEndpoints
             message.Role,
             message.Content,
             message.ThinkingContent,
-            DeserializeAttachments(message.AttachmentsJson),
+            ChatAttachmentSerializer.Deserialize(message.AttachmentsJson),
             message.CreatedAt);
-
-    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
-    {
-        if (string.IsNullOrWhiteSpace(attachmentsJson))
-        {
-            return [];
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
 
     private sealed record ConversationTitleRequest(string Title);
 
@@ -175,6 +157,6 @@ public static class ConversationEndpoints
         string Role,
         string Content,
         string? ThinkingContent,
-        IReadOnlyList<ChatImageAttachment> Attachments,
+        IReadOnlyList<ChatAttachment> Attachments,
         DateTime CreatedAt);
 }

@@ -6,6 +6,6 @@ public sealed record ChatSendRequest(
     Guid? ConversationId,
     AuthenticatedUser User,
     string Message,
-    IReadOnlyCollection<ChatImageAttachment> Images,
+    IReadOnlyCollection<ChatAttachment> Attachments,
     bool EnableSearch = false,
     ChatSessionOptions? Options = null);

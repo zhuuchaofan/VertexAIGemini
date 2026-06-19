@@ -1,10 +1,6 @@
-using FirebaseAdmin;
 using FirebaseAdmin.Auth;
-using Google.Apis.Auth.OAuth2;
-using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
-using VertexAI.Configuration;
 
 namespace VertexAI.Services.Auth;
 
@@ -12,14 +8,14 @@ public sealed class FirebaseUserContext : IUserContext
 {
     private const string AuthorizationScheme = "Bearer ";
 
-    private readonly FirebaseSettings _settings;
+    private readonly FirebaseAuth _auth;
     private readonly ILogger<FirebaseUserContext> _logger;
 
     public FirebaseUserContext(
-        IOptions<FirebaseSettings> settings,
+        FirebaseAuth auth,
         ILogger<FirebaseUserContext> logger)
     {
-        _settings = settings.Value;
+        _auth = auth;
         _logger = logger;
     }
 
@@ -33,7 +29,7 @@ public sealed class FirebaseUserContext : IUserContext
 
         try
         {
-            var decoded = await GetFirebaseAuth().VerifyIdTokenAsync(idToken);
+            var decoded = await _auth.VerifyIdTokenAsync(idToken);
             return ToAuthenticatedUser(decoded);
         }
         catch (Exception ex) when (ex is FirebaseAuthException or InvalidOperationException)
@@ -55,23 +51,6 @@ public sealed class FirebaseUserContext : IUserContext
             token.Uid,
             ReadEmail(token));
     }
-
-    private FirebaseAuth GetFirebaseAuth()
-    {
-        var app = FirebaseApp.DefaultInstance ?? FirebaseApp.Create(new AppOptions
-        {
-            Credential = GoogleCredential.GetApplicationDefault(),
-            ProjectId = ResolveProjectId()
-        });
-
-        return FirebaseAuth.GetAuth(app);
-    }
-
-    private string? ResolveProjectId() =>
-        Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID")
-        ?? _settings.ProjectId
-        ?? Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT")
-        ?? Environment.GetEnvironmentVariable("PROJECT_ID");
 
     private static string? ReadBearerToken(HttpContext context)
     {

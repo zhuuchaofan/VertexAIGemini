@@ -24,6 +24,9 @@ If Firebase/Firestore and Vertex AI live in different Google Cloud projects, gra
 
 The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact Registry repository if missing, builds both images with Cloud Build, deploys the API service, reads its URL, then deploys the web service with `BACKEND_URL` pointing at the API.
 
+The script automatically reads `VertexAI/.env` when present. Values already
+exported in the shell take precedence over `.env`.
+
 ```bash
 SERVICE_ACCOUNT=cloud-run-runtime@your-gcp-project-id.iam.gserviceaccount.com \
 PROJECT_ID=your-gcp-project-id \
@@ -45,6 +48,50 @@ FIRESTORE_PROJECT_ID=your-firebase-project-id
 FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
 DEFAULT_PROVIDER_ID=gemini
 ```
+
+## Automated Deployment
+
+The mainstream production pattern is to deploy from CI instead of a developer
+laptop. This repository includes `.github/workflows/deploy-cloud-run.yml`, which
+builds, tests, deploys Cloud Run revisions, and runs API smoke checks.
+
+Recommended setup:
+
+- Use GitHub Actions Workload Identity Federation for Google Cloud auth. Avoid
+  long-lived JSON service account keys.
+- Store non-secret deployment settings as GitHub Actions repository variables.
+- Store Firebase web app values that should not live in source control as
+  GitHub Actions repository secrets.
+- Deploy immutable image tags using the Git SHA. Avoid relying on `latest` for
+  automated deploys.
+
+Required repository variables:
+
+```text
+GCP_PROJECT_ID
+GCP_REGION
+ARTIFACT_REPOSITORY
+API_SERVICE
+WEB_SERVICE
+CLOUD_RUN_SERVICE_ACCOUNT
+GCP_DEPLOY_SERVICE_ACCOUNT
+WIF_PROVIDER
+FIREBASE_PROJECT_ID
+FIRESTORE_PROJECT_ID
+FIREBASE_AUTH_DOMAIN
+DEFAULT_PROVIDER_ID
+```
+
+Required repository secrets:
+
+```text
+FIREBASE_API_KEY
+FIREBASE_APP_ID
+```
+
+The workflow runs automatically on pushes to `main` or `master`. It can also be
+started manually from GitHub Actions with a deploy target of `all`, `api`, or
+`web`.
 
 After the web service URL is created, add its host to Firebase Authentication
 authorized domains. Without that Firebase setting, browser login can fail even

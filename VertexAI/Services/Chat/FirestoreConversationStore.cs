@@ -1,15 +1,10 @@
-using System.Text.Json;
 using Google.Cloud.Firestore;
 using VertexAI.Services.Auth;
-using VertexAI.Services.Firestore;
 
 namespace VertexAI.Services.Chat;
 
 public sealed class FirestoreConversationStore : IConversationStore
 {
-    private const string ConversationsCollection = "conversations";
-    private const string MessagesCollection = "messages";
-
     private readonly FirestoreDb _db;
 
     public FirestoreConversationStore(FirestoreDb db)
@@ -22,15 +17,16 @@ public sealed class FirestoreConversationStore : IConversationStore
         int offset,
         int limit)
     {
-        var snapshot = await _db.Collection(ConversationsCollection)
-            .WhereEqualTo("uid", GetUid(user))
-            .OrderByDescending("updatedAt")
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
+        var snapshot = await _db.Collection(FirestoreConversationSchema.ConversationsCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .OrderByDescending(FirestoreConversationSchema.UpdatedAt)
             .Offset(Math.Max(0, offset))
             .Limit(Math.Max(1, limit))
             .GetSnapshotAsync();
 
         return snapshot.Documents
-            .Select(ToConversation)
+            .Select(FirestoreConversationMapper.ToConversation)
             .Where(conversation => conversation != null)
             .Cast<Conversation>()
             .ToList();
@@ -39,20 +35,21 @@ public sealed class FirestoreConversationStore : IConversationStore
     public async Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user)
     {
         var conversationSnapshot = await GetConversationDocument(conversationId).GetSnapshotAsync();
-        var conversation = ToConversation(conversationSnapshot);
-        if (conversation == null || !OwnsConversation(conversationSnapshot, user))
+        var conversation = FirestoreConversationMapper.ToConversation(conversationSnapshot);
+        if (conversation == null || !FirestoreConversationSchema.OwnsConversation(conversationSnapshot, user))
         {
             return null;
         }
 
-        var messagesSnapshot = await _db.Collection(MessagesCollection)
-            .WhereEqualTo("uid", GetUid(user))
-            .WhereEqualTo("conversationId", conversationId.ToString("D"))
-            .OrderBy("createdAt")
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
+        var messagesSnapshot = await _db.Collection(FirestoreConversationSchema.MessagesCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .WhereEqualTo(FirestoreConversationSchema.ConversationId, conversationId.ToString("D"))
+            .OrderBy(FirestoreConversationSchema.CreatedAt)
             .GetSnapshotAsync();
 
         conversation.Messages = messagesSnapshot.Documents
-            .Select(ToMessage)
+            .Select(FirestoreConversationMapper.ToMessage)
             .Where(message => message != null)
             .Cast<Message>()
             .ToList();
@@ -76,20 +73,10 @@ public sealed class FirestoreConversationStore : IConversationStore
             CustomPrompt = customPrompt
         };
 
-        await GetConversationDocument(conversation.Id).SetAsync(new Dictionary<string, object?>
-        {
-            ["uid"] = GetUid(user),
-            ["localUserId"] = user.LocalUserId.ToString("D"),
-            ["title"] = conversation.Title,
-            ["providerId"] = providerId,
-            ["modelName"] = modelName,
-            ["presetId"] = presetId,
-            ["customPrompt"] = customPrompt,
-            ["historySummary"] = null,
-            ["tokenCount"] = 0,
-            ["createdAt"] = Timestamp.FromDateTime(conversation.CreatedAt),
-            ["updatedAt"] = Timestamp.FromDateTime(conversation.UpdatedAt)
-        });
+        await GetConversationDocument(conversation.Id).SetAsync(
+            FirestoreConversationMapper.ToDocument(
+                conversation,
+                FirestoreConversationSchema.UserDocumentId(user)));
 
         return conversation;
     }
@@ -100,21 +87,22 @@ public sealed class FirestoreConversationStore : IConversationStore
         int maxMessages)
     {
         var conversationSnapshot = await GetConversationDocument(conversationId).GetSnapshotAsync();
-        if (!OwnsConversation(conversationSnapshot, user))
+        if (!FirestoreConversationSchema.OwnsConversation(conversationSnapshot, user))
         {
             return [];
         }
 
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
         var take = Math.Max(1, maxMessages);
-        var snapshot = await _db.Collection(MessagesCollection)
-            .WhereEqualTo("uid", GetUid(user))
-            .WhereEqualTo("conversationId", conversationId.ToString("D"))
-            .OrderByDescending("createdAt")
+        var snapshot = await _db.Collection(FirestoreConversationSchema.MessagesCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .WhereEqualTo(FirestoreConversationSchema.ConversationId, conversationId.ToString("D"))
+            .OrderByDescending(FirestoreConversationSchema.CreatedAt)
             .Limit(take)
             .GetSnapshotAsync();
 
         return snapshot.Documents
-            .Select(ToMessage)
+            .Select(FirestoreConversationMapper.ToMessage)
             .Where(message => message != null)
             .Cast<Message>()
             .OrderBy(message => message.CreatedAt)
@@ -122,7 +110,7 @@ public sealed class FirestoreConversationStore : IConversationStore
                 message.Role,
                 message.Content,
                 message.ThinkingContent,
-                DeserializeAttachments(message.AttachmentsJson)))
+                ChatAttachmentSerializer.Deserialize(message.AttachmentsJson)))
             .ToList();
     }
 
@@ -132,18 +120,16 @@ public sealed class FirestoreConversationStore : IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatImageAttachment>? attachments = null)
+        IReadOnlyCollection<ChatAttachment>? attachments = null)
     {
         var conversationRef = GetConversationDocument(conversationId);
         var conversationSnapshot = await conversationRef.GetSnapshotAsync();
-        if (!OwnsConversation(conversationSnapshot, user))
+        if (!FirestoreConversationSchema.OwnsConversation(conversationSnapshot, user))
         {
             return null;
         }
 
-        var attachmentsJson = attachments is { Count: > 0 }
-            ? JsonSerializer.Serialize(attachments)
-            : null;
+        var attachmentsJson = ChatAttachmentSerializer.Serialize(attachments);
         var message = new Message
         {
             Id = Guid.NewGuid(),
@@ -154,28 +140,23 @@ public sealed class FirestoreConversationStore : IConversationStore
             AttachmentsJson = attachmentsJson
         };
 
-        await _db.Collection(MessagesCollection).Document(message.Id.ToString("D")).SetAsync(new Dictionary<string, object?>
-        {
-            ["uid"] = GetUid(user),
-            ["localUserId"] = user.LocalUserId.ToString("D"),
-            ["conversationId"] = conversationId.ToString("D"),
-            ["role"] = role,
-            ["content"] = content,
-            ["thinkingContent"] = thinkingContent,
-            ["attachmentsJson"] = attachmentsJson,
-            ["createdAt"] = Timestamp.FromDateTime(message.CreatedAt)
-        });
+        await _db.Collection(FirestoreConversationSchema.MessagesCollection)
+            .Document(message.Id.ToString("D"))
+            .SetAsync(FirestoreConversationMapper.ToDocument(
+                message,
+                FirestoreConversationSchema.UserDocumentId(user),
+                user.LocalUserId));
 
         var updates = new Dictionary<string, object?>
         {
-            ["updatedAt"] = Timestamp.FromDateTime(DateTime.UtcNow)
+            [FirestoreConversationSchema.UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
         };
 
         if (role == "user"
-            && (!conversationSnapshot.TryGetValue<string>("title", out var title)
+            && (!conversationSnapshot.TryGetValue<string>(FirestoreConversationSchema.Title, out var title)
                 || string.IsNullOrWhiteSpace(title)))
         {
-            updates["title"] = CreateTitle(content, attachments?.Count ?? 0);
+            updates[FirestoreConversationSchema.Title] = CreateTitle(content, attachments?.Count ?? 0);
         }
 
         await conversationRef.UpdateAsync(updates);
@@ -186,15 +167,15 @@ public sealed class FirestoreConversationStore : IConversationStore
     {
         var conversationRef = GetConversationDocument(conversationId);
         var snapshot = await conversationRef.GetSnapshotAsync();
-        if (!OwnsConversation(snapshot, user))
+        if (!FirestoreConversationSchema.OwnsConversation(snapshot, user))
         {
             return;
         }
 
         await conversationRef.UpdateAsync(new Dictionary<string, object>
         {
-            ["title"] = title,
-            ["updatedAt"] = Timestamp.FromDateTime(DateTime.UtcNow)
+            [FirestoreConversationSchema.Title] = title,
+            [FirestoreConversationSchema.UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
         });
     }
 
@@ -202,14 +183,15 @@ public sealed class FirestoreConversationStore : IConversationStore
     {
         var conversationRef = GetConversationDocument(conversationId);
         var snapshot = await conversationRef.GetSnapshotAsync();
-        if (!OwnsConversation(snapshot, user))
+        if (!FirestoreConversationSchema.OwnsConversation(snapshot, user))
         {
             return;
         }
 
-        var messages = await _db.Collection(MessagesCollection)
-            .WhereEqualTo("uid", GetUid(user))
-            .WhereEqualTo("conversationId", conversationId.ToString("D"))
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
+        var messages = await _db.Collection(FirestoreConversationSchema.MessagesCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .WhereEqualTo(FirestoreConversationSchema.ConversationId, conversationId.ToString("D"))
             .GetSnapshotAsync();
 
         foreach (var message in messages.Documents)
@@ -224,118 +206,27 @@ public sealed class FirestoreConversationStore : IConversationStore
     {
         var conversationRef = GetConversationDocument(conversationId);
         var snapshot = await conversationRef.GetSnapshotAsync();
-        if (!OwnsConversation(snapshot, user))
+        if (!FirestoreConversationSchema.OwnsConversation(snapshot, user))
         {
             return;
         }
 
         await conversationRef.UpdateAsync(new Dictionary<string, object>
         {
-            ["tokenCount"] = tokenCount,
-            ["updatedAt"] = Timestamp.FromDateTime(DateTime.UtcNow)
+            [FirestoreConversationSchema.TokenCount] = tokenCount,
+            [FirestoreConversationSchema.UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
         });
     }
 
     private DocumentReference GetConversationDocument(Guid conversationId) =>
-        _db.Collection(ConversationsCollection).Document(conversationId.ToString("D"));
-
-    private static bool OwnsConversation(DocumentSnapshot snapshot, AuthenticatedUser user) =>
-        snapshot.Exists
-        && snapshot.TryGetValue<string>("uid", out var uid)
-        && string.Equals(uid, GetUid(user), StringComparison.Ordinal);
-
-    private static string GetUid(AuthenticatedUser user) =>
-        FirestoreDocumentIds.UserDocumentId(user.LocalUserId, user.FirebaseUid);
-
-    private static Conversation? ToConversation(DocumentSnapshot snapshot)
-    {
-        if (!snapshot.Exists || !Guid.TryParse(snapshot.Id, out var id))
-        {
-            return null;
-        }
-
-        return new Conversation
-        {
-            Id = id,
-            UserId = ReadGuid(snapshot, "localUserId"),
-            Title = ReadString(snapshot, "title"),
-            ProviderId = ReadString(snapshot, "providerId") ?? "gemini",
-            ModelName = ReadString(snapshot, "modelName") ?? "",
-            PresetId = ReadString(snapshot, "presetId") ?? "default",
-            CustomPrompt = ReadString(snapshot, "customPrompt"),
-            HistorySummary = ReadString(snapshot, "historySummary"),
-            TokenCount = ReadInt(snapshot, "tokenCount"),
-            CreatedAt = ReadTimestamp(snapshot, "createdAt"),
-            UpdatedAt = ReadTimestamp(snapshot, "updatedAt")
-        };
-    }
-
-    private static Message? ToMessage(DocumentSnapshot snapshot)
-    {
-        if (!snapshot.Exists || !Guid.TryParse(snapshot.Id, out var id))
-        {
-            return null;
-        }
-
-        var conversationId = ReadString(snapshot, "conversationId");
-        if (!Guid.TryParse(conversationId, out var parsedConversationId))
-        {
-            return null;
-        }
-
-        return new Message
-        {
-            Id = id,
-            ConversationId = parsedConversationId,
-            Role = ReadString(snapshot, "role") ?? "user",
-            Content = ReadString(snapshot, "content") ?? "",
-            ThinkingContent = ReadString(snapshot, "thinkingContent"),
-            AttachmentsJson = ReadString(snapshot, "attachmentsJson"),
-            CreatedAt = ReadTimestamp(snapshot, "createdAt")
-        };
-    }
-
-    private static string? ReadString(DocumentSnapshot snapshot, string field) =>
-        snapshot.TryGetValue<string>(field, out var value) ? value : null;
-
-    private static int ReadInt(DocumentSnapshot snapshot, string field) =>
-        snapshot.TryGetValue<long>(field, out var longValue)
-            ? checked((int)longValue)
-            : snapshot.TryGetValue<int>(field, out var intValue)
-                ? intValue
-                : 0;
-
-    private static Guid ReadGuid(DocumentSnapshot snapshot, string field) =>
-        Guid.TryParse(ReadString(snapshot, field), out var value) ? value : Guid.Empty;
-
-    private static DateTime ReadTimestamp(DocumentSnapshot snapshot, string field) =>
-        snapshot.TryGetValue<Timestamp>(field, out var timestamp)
-            ? timestamp.ToDateTime()
-            : DateTime.UtcNow;
+        _db.Collection(FirestoreConversationSchema.ConversationsCollection).Document(conversationId.ToString("D"));
 
     private static string CreateTitle(string content, int attachmentCount)
     {
         var fallbackTitle = attachmentCount > 0
-            ? $"Image request ({attachmentCount})"
+            ? $"Attachment request ({attachmentCount})"
             : "Untitled";
         var titleSource = string.IsNullOrWhiteSpace(content) ? fallbackTitle : content;
         return titleSource.Length > 50 ? titleSource[..50] + "..." : titleSource;
-    }
-
-    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
-    {
-        if (string.IsNullOrWhiteSpace(attachmentsJson))
-        {
-            return [];
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
     }
 }

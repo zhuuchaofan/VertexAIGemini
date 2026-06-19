@@ -140,7 +140,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         messages.Add(new
         {
             role = "user",
-            content = BuildUserContent(request.Message, request.Images)
+            content = BuildUserContent(request.Message, request.Attachments)
         });
 
         CurrentTokenCount = messages.Sum(message => EstimateTokens(JsonSerializer.Serialize(message)));
@@ -274,9 +274,9 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
     private static object BuildUserContent(
         string message,
-        IReadOnlyCollection<ChatImageAttachment> images)
+        IReadOnlyCollection<ChatAttachment> attachments)
     {
-        if (images.Count == 0)
+        if (attachments.Count == 0)
         {
             return message;
         }
@@ -287,20 +287,59 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             content.Add(new { type = "text", text = message });
         }
 
-        foreach (var image in images)
+        foreach (var attachment in attachments)
         {
+            if (IsImage(attachment))
+            {
+                content.Add(new
+                {
+                    type = "image_url",
+                    image_url = new
+                    {
+                        url = $"data:{attachment.MimeType};base64,{attachment.Base64Data}"
+                    }
+                });
+                continue;
+            }
+
             content.Add(new
             {
-                type = "image_url",
-                image_url = new
-                {
-                    url = $"data:{image.MimeType};base64,{image.Base64Data}"
-                }
+                type = "text",
+                text = CreateAttachmentText(attachment)
             });
         }
 
         return content;
     }
+
+    private static bool IsImage(ChatAttachment attachment) =>
+        attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+
+    private static string CreateAttachmentText(ChatAttachment attachment)
+    {
+        var fileName = string.IsNullOrWhiteSpace(attachment.FileName) ? "attachment" : attachment.FileName;
+        if (!IsTextLike(attachment.MimeType))
+        {
+            return $"[Attached file: {fileName} ({attachment.MimeType}). This provider cannot read this binary file directly.]";
+        }
+
+        try
+        {
+            var text = Encoding.UTF8.GetString(Convert.FromBase64String(attachment.Base64Data));
+            return $"[Attached file: {fileName} ({attachment.MimeType})]\n{text}";
+        }
+        catch (FormatException)
+        {
+            return $"[Attached file: {fileName} ({attachment.MimeType}) could not be decoded.]";
+        }
+    }
+
+    private static bool IsTextLike(string mimeType) =>
+        mimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("application/xml", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("application/javascript", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("application/x-yaml", StringComparison.OrdinalIgnoreCase);
 
     private static ChatChunk ExtractDelta(string data)
     {

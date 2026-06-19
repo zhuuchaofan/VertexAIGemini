@@ -11,6 +11,7 @@ var tests = new (string Name, Action Test)[]
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
+    ("ChatAttachmentSerializer round-trips and tolerates invalid json", ChatAttachmentSerializerTests.RoundTripsAndToleratesInvalidJson),
     ("ChatErrorMapper maps common exceptions", ChatErrorMapperTests.MapCommonExceptions),
     ("ChatOrchestrator streams and persists successful responses", ChatOrchestratorTests.StreamsAndPersistsSuccess),
     ("ChatOrchestrator passes multimodal model request", ChatOrchestratorTests.PassesMultimodalModelRequest),
@@ -125,6 +126,23 @@ internal static class ChatAttachmentValidatorTests
         Assert.NotNull(ChatAttachmentValidator.Validate([
             validImage with { Base64Data = Convert.ToBase64String(new byte[4 * 1024 * 1024 + 1]) }
         ]));
+    }
+}
+
+internal static class ChatAttachmentSerializerTests
+{
+    public static void RoundTripsAndToleratesInvalidJson()
+    {
+        var image = new ChatImageAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "ok.png");
+
+        var json = ChatAttachmentSerializer.Serialize([image]);
+        var restored = ChatAttachmentSerializer.Deserialize(json);
+
+        Assert.NotNull(json);
+        Assert.Equal(image, restored.Single());
+        Assert.Null(ChatAttachmentSerializer.Serialize([]));
+        Assert.Equal(0, ChatAttachmentSerializer.Deserialize("{").Count);
+        Assert.Equal(0, ChatAttachmentSerializer.Deserialize(null).Count);
     }
 }
 

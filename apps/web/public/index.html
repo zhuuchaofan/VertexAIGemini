@@ -40,6 +40,10 @@
           </label>
           <button id="auth-submit" class="primary" type="submit">登录</button>
         </form>
+        <div class="auth-secondary-actions">
+          <button id="google-login" class="provider-button" type="button">使用 Google 账号继续</button>
+          <button id="forgot-password" class="link-button" type="button">忘记密码？</button>
+        </div>
         <p id="auth-message" class="status-line"></p>
       </section>
     </main>
@@ -98,6 +102,14 @@
         </section>
       </aside>
 
+      <button
+        id="sidebar-overlay"
+        class="sidebar-overlay"
+        type="button"
+        aria-label="收起侧栏"
+        tabindex="-1"
+      ></button>
+
       <main class="chat-surface">
         <header class="chat-header">
           <div class="chat-title-row">
@@ -125,8 +137,13 @@
             ></textarea>
           </div>
           <div class="composer-actions">
-            <label class="attach-button" title="添加图片">
-              <input id="image-input" type="file" accept="image/*" multiple />
+            <label class="attach-button" title="添加附件">
+              <input
+                id="image-input"
+                type="file"
+                accept="image/*,.pdf,.txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.html,.css,.js,.ts,.tsx,.jsx,.cs,.py,.java,.go,.rs,.sql"
+                multiple
+              />
               <span>＋</span>
             </label>
             <button id="send-button" class="send-button" type="submit">发送</button>
@@ -171,6 +188,6 @@
       </article>
     </template>
 
-    <script type="module" src="/app.js?v=20260617-1"></script>
+    <script type="module" src="/app.js?v=20260619-3"></script>
   </body>
 </html>

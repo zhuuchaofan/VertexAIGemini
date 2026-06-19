@@ -23,7 +23,7 @@ public interface IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatImageAttachment>? attachments = null);
+        IReadOnlyCollection<ChatAttachment>? attachments = null);
 
     Task UpdateTitleAsync(Guid conversationId, AuthenticatedUser user, string title);
 

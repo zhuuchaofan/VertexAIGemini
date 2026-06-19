@@ -31,14 +31,16 @@ public static class ChatEndpoints
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.Message) && request.Images.Count == 0)
+        var attachments = request.Attachments.Count > 0 ? request.Attachments : request.Images;
+
+        if (string.IsNullOrWhiteSpace(request.Message) && attachments.Count == 0)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsJsonAsync(new { error = "Message or image attachment is required." }, JsonOptions);
+            await context.Response.WriteAsJsonAsync(new { error = "Message or attachment is required." }, JsonOptions);
             return;
         }
 
-        var attachmentError = ChatAttachmentValidator.Validate(request.Images);
+        var attachmentError = ChatAttachmentValidator.Validate(attachments);
         if (attachmentError != null)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -57,7 +59,7 @@ public static class ChatEndpoints
                 request.ConversationId,
                 currentUser,
                 request.Message,
-                request.Images,
+                attachments,
                 request.EnableSearch,
                 new ChatSessionOptions(
                     request.ProviderId,
@@ -90,7 +92,8 @@ public static class ChatEndpoints
     private sealed record ApiChatSendRequest(
         Guid? ConversationId,
         string Message,
-        IReadOnlyCollection<ChatImageAttachment> Images,
+        IReadOnlyCollection<ChatAttachment> Attachments,
+        IReadOnlyCollection<ChatAttachment> Images,
         bool EnableSearch,
         string? ProviderId,
         string? ModelName,
@@ -100,7 +103,8 @@ public static class ChatEndpoints
         string? ThinkingLevel,
         int? ThinkingBudget)
     {
-        public IReadOnlyCollection<ChatImageAttachment> Images { get; init; } = Images ?? [];
+        public IReadOnlyCollection<ChatAttachment> Attachments { get; init; } = Attachments ?? [];
+        public IReadOnlyCollection<ChatAttachment> Images { get; init; } = Images ?? [];
     }
 
     private sealed record ApiChatFinalResponse(

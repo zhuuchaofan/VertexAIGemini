@@ -41,7 +41,7 @@ public static class ExportEndpoints
         foreach (var msg in conversation.Messages.OrderBy(m => m.CreatedAt))
         {
             var roleName = msg.Role == "user" ? "**用户**" : "**助手**";
-            var attachments = DeserializeAttachments(msg.AttachmentsJson);
+            var attachments = ChatAttachmentSerializer.Deserialize(msg.AttachmentsJson);
             sb.AppendLine($"{roleName}:");
             sb.AppendLine();
             sb.AppendLine(msg.Content);
@@ -49,7 +49,7 @@ public static class ExportEndpoints
 
             if (attachments.Count > 0)
             {
-                sb.AppendLine($"> 附件: {attachments.Count} 张图片");
+                sb.AppendLine($"> 附件: {attachments.Count} 个");
                 foreach (var attachment in attachments)
                 {
                     sb.AppendLine($"> - {attachment.FileName} ({attachment.MimeType})");
@@ -115,7 +115,7 @@ public static class ExportEndpoints
                     m.Role,
                     m.Content,
                     m.ThinkingContent,
-                    DeserializeAttachments(m.AttachmentsJson),
+                    ChatAttachmentSerializer.Deserialize(m.AttachmentsJson),
                     m.CreatedAt))
                 .ToList());
 
@@ -123,23 +123,6 @@ public static class ExportEndpoints
         var fileName = SanitizeFileName($"{conversation.Title ?? "conversation"}_{DateTime.Now:yyyyMMdd}.json");
 
         return Results.File(jsonBytes, "application/json", fileName);
-    }
-
-    private static IReadOnlyList<ChatImageAttachment> DeserializeAttachments(string? attachmentsJson)
-    {
-        if (string.IsNullOrWhiteSpace(attachmentsJson))
-        {
-            return [];
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<ChatImageAttachment>>(attachmentsJson) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
     }
 
     private static string SanitizeFileName(string name)
@@ -163,6 +146,6 @@ public static class ExportEndpoints
         string Role,
         string Content,
         string? ThinkingContent,
-        IReadOnlyList<ChatImageAttachment> Attachments,
+        IReadOnlyList<ChatAttachment> Attachments,
         DateTime CreatedAt);
 }

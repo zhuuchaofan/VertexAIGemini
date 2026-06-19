@@ -1,4 +1,7 @@
 using Google.Cloud.Firestore;
+using FirebaseAdmin;
+using FirebaseAdmin.Auth;
+using Google.Apis.Auth.OAuth2;
 using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
@@ -44,6 +47,7 @@ public static class ServiceCollectionExtensions
         }
         services.AddScoped<IChatProviderCatalog, ChatProviderCatalog>();
         services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
+        services.AddSingleton(CreateFirebaseAuth(configuration));
         services.AddScoped<IUserContext, FirebaseUserContext>();
         services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
         services.AddScoped<FirestoreConversationStore>();
@@ -54,6 +58,23 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    private static FirebaseAuth CreateFirebaseAuth(IConfiguration configuration)
+    {
+        var app = FirebaseApp.DefaultInstance ?? FirebaseApp.Create(new AppOptions
+        {
+            Credential = GoogleCredential.GetApplicationDefault(),
+            ProjectId = ResolveFirebaseProjectId(configuration)
+        });
+
+        return FirebaseAuth.GetAuth(app);
+    }
+
+    private static string? ResolveFirebaseProjectId(IConfiguration configuration) =>
+        Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID")
+        ?? configuration["Firebase:ProjectId"]
+        ?? Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT")
+        ?? Environment.GetEnvironmentVariable("PROJECT_ID");
 
     private static string ResolveFirestoreProjectId(IConfiguration configuration)
     {

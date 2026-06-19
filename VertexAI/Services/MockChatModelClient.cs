@@ -85,14 +85,14 @@ public sealed class MockChatModelClient : IChatModelClient
     public async IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
     {
         var trimmed = request.Message.Trim();
-        var imageCount = request.Images.Count;
+        var attachmentCount = request.Attachments.Count;
         var historyCount = _history.Count;
         var searchText = request.EnableSearch ? " Search is enabled." : "";
         var promptText = string.IsNullOrWhiteSpace(_currentSystemPrompt)
             ? ""
             : $" Custom prompt length: {_currentSystemPrompt.Length}.";
 
-        CurrentTokenCount = EstimateTokens(trimmed) + imageCount * 256 + historyCount * 16;
+        CurrentTokenCount = EstimateTokens(trimmed) + attachmentCount * 256 + historyCount * 16;
 
         await Task.Yield();
 
@@ -104,15 +104,15 @@ public sealed class MockChatModelClient : IChatModelClient
 
         yield return new ChatChunk
         {
-            Text = string.IsNullOrWhiteSpace(trimmed) ? "an image-only request." : $"\"{trimmed}\".",
+            Text = string.IsNullOrWhiteSpace(trimmed) ? "an attachment-only request." : $"\"{trimmed}\".",
             IsThinking = false
         };
 
-        if (imageCount > 0 || request.EnableSearch || historyCount > 0 || !string.IsNullOrWhiteSpace(promptText))
+        if (attachmentCount > 0 || request.EnableSearch || historyCount > 0 || !string.IsNullOrWhiteSpace(promptText))
         {
             yield return new ChatChunk
             {
-                Text = $" Images: {imageCount}. History messages: {historyCount}.{searchText}{promptText}",
+                Text = $" Attachments: {attachmentCount}. History messages: {historyCount}.{searchText}{promptText}",
                 IsThinking = false
             };
         }

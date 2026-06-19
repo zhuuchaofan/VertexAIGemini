@@ -60,12 +60,12 @@ public class ChatOrchestrator
                     request.User,
                     "user",
                     message,
-                    attachments: request.Images);
+                    attachments: request.Attachments);
             }
 
             var modelRequest = new ChatModelRequest(
                 message,
-                request.Images,
+                request.Attachments,
                 request.EnableSearch);
 
             await foreach (var chunk in model.StreamChatAsync(modelRequest))
