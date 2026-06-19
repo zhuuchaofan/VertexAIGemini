@@ -73,12 +73,12 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// <summary>
     /// 切换系统提示词
     /// </summary>
-    public void SetSystemPrompt(string presetId, string? customPrompt = null, string? defaultAssistantPrompt = null)
+    public void SetSystemPrompt(string presetId, string? customPrompt = null)
     {
         _currentPresetId = presetId;
 
         var matchedPreset = Presets.FirstOrDefault(p => p.Id == presetId);
-        _currentSystemPrompt = ResolveSystemPrompt(presetId, matchedPreset, customPrompt, defaultAssistantPrompt);
+        _currentSystemPrompt = ResolveSystemPrompt(presetId, matchedPreset, customPrompt);
 
         _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
         ClearHistory();
@@ -127,7 +127,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
         if (!string.IsNullOrWhiteSpace(options.PresetId))
         {
-            SetSystemPrompt(options.PresetId, options.CustomPrompt, options.DefaultAssistantPrompt);
+            SetSystemPrompt(options.PresetId, options.CustomPrompt);
         }
 
         ApplyThinkingOptions(options);
@@ -148,7 +148,10 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     /// </summary>
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(string userMessage, bool enableSearch)
     {
-        return StreamChatAsync(new ChatModelRequest(userMessage, []), enableSearch);
+        return StreamChatAsync(new ChatModelRequest(
+            userMessage,
+            [],
+            enableSearch ? SearchModes.Auto : SearchModes.Off));
     }
 
     /// <summary>
@@ -161,7 +164,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
     {
-        return StreamChatAsync(request, request.EnableSearch);
+        return StreamChatAsync(request, SearchModes.EnablesWebSearch(request.SearchMode));
     }
 
     public Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages)
@@ -179,17 +182,11 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     private static string ResolveSystemPrompt(
         string presetId,
         PromptPresetConfig? matchedPreset,
-        string? customPrompt,
-        string? defaultAssistantPrompt)
+        string? customPrompt)
     {
         if (presetId == "custom" && !string.IsNullOrWhiteSpace(customPrompt))
         {
             return customPrompt;
-        }
-
-        if (presetId == "default" && !string.IsNullOrWhiteSpace(defaultAssistantPrompt))
-        {
-            return defaultAssistantPrompt;
         }
 
         return matchedPreset?.Prompt ?? "";

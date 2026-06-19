@@ -165,11 +165,6 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             return options.CustomPrompt;
         }
 
-        if (options.PresetId == "default" && !string.IsNullOrWhiteSpace(options.DefaultAssistantPrompt))
-        {
-            return options.DefaultAssistantPrompt;
-        }
-
         return Presets.FirstOrDefault(p => p.Id == options.PresetId)?.Prompt ?? "";
     }
 

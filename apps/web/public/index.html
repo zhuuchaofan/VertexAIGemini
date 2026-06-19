@@ -64,8 +64,6 @@
         </div>
 
         <button id="logout-button" class="ghost hidden" type="button">退出登录</button>
-        <button id="settings-button" class="ghost" type="button">设置</button>
-
         <section class="workspace-settings" aria-label="会话设置">
           <label>
             提供商
@@ -84,9 +82,13 @@
             自定义提示词
             <textarea id="custom-prompt" rows="4" placeholder="输入本次会话的 system prompt"></textarea>
           </label>
-          <label class="toggle-row">
-            <input id="enable-search" type="checkbox" />
-            <span>联网搜索</span>
+          <label>
+            搜索模式
+            <select id="search-mode">
+              <option value="auto">自动联网</option>
+              <option value="off">关闭联网</option>
+              <option value="force">强制查证</option>
+            </select>
           </label>
           <button id="new-chat" class="ghost" type="button">新对话</button>
         </section>
@@ -152,29 +154,6 @@
       </main>
     </div>
 
-    <div class="settings-modal hidden" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="settings-panel">
-        <header class="settings-header">
-          <div>
-            <p class="eyebrow">Account settings</p>
-            <h2 id="settings-title">设置</h2>
-          </div>
-          <button id="settings-close" class="icon-button" type="button" title="关闭设置" aria-label="关闭设置">×</button>
-        </header>
-        <form id="settings-form" class="settings-form">
-          <label>
-            默认助手提示词
-            <textarea id="default-assistant-prompt" rows="10" maxlength="12000"></textarea>
-          </label>
-          <div class="settings-actions">
-            <button id="settings-reset" class="ghost" type="button">恢复系统默认</button>
-            <button class="primary" type="submit">保存</button>
-          </div>
-          <p id="settings-message" class="status-line"></p>
-        </form>
-      </div>
-    </div>
-
     <template id="message-template">
       <article class="message">
         <div class="message-role"></div>
@@ -188,6 +167,6 @@
       </article>
     </template>
 
-    <script type="module" src="/app.js?v=20260619-3"></script>
+    <script type="module" src="/app.js?v=20260619-5"></script>
   </body>
 </html>

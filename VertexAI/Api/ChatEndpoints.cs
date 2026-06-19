@@ -1,7 +1,6 @@
 using System.Text.Json;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
-using VertexAI.Services.UserSettings;
 
 namespace VertexAI.Api;
 
@@ -20,7 +19,6 @@ public static class ChatEndpoints
         ApiChatSendRequest request,
         HttpContext context,
         IUserContext users,
-        IUserSettingsStore userSettings,
         ChatOrchestrator chat)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
@@ -52,7 +50,7 @@ public static class ChatEndpoints
         context.Response.Headers.Connection = "keep-alive";
         context.Response.ContentType = "text/event-stream; charset=utf-8";
 
-        var defaultAssistantPrompt = await userSettings.GetDefaultAssistantPromptAsync(currentUser);
+        var searchMode = SearchModes.Normalize(request.SearchMode, request.EnableSearch);
 
         var result = await chat.SendAsync(
             new ChatSendRequest(
@@ -60,7 +58,7 @@ public static class ChatEndpoints
                 currentUser,
                 request.Message,
                 attachments,
-                request.EnableSearch,
+                searchMode,
                 new ChatSessionOptions(
                     request.ProviderId,
                     request.ModelName,
@@ -68,8 +66,7 @@ public static class ChatEndpoints
                     request.CustomPrompt,
                     request.ThinkingEnabled,
                     request.ThinkingLevel,
-                    request.ThinkingBudget,
-                    defaultAssistantPrompt)),
+                    request.ThinkingBudget)),
             update => WriteEventAsync(context, "update", update));
 
         await WriteEventAsync(context, "final", new ApiChatFinalResponse(
@@ -94,7 +91,8 @@ public static class ChatEndpoints
         string Message,
         IReadOnlyCollection<ChatAttachment> Attachments,
         IReadOnlyCollection<ChatAttachment> Images,
-        bool EnableSearch,
+        string? SearchMode,
+        bool? EnableSearch,
         string? ProviderId,
         string? ModelName,
         string? PresetId,

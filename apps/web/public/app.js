@@ -17,7 +17,6 @@ const state = {
   visibleMessageStart: 0,
   messagePageSize: 80,
   workspaceConfig: null,
-  userSettings: null,
   firebaseAuth: null,
   firebaseSdk: null,
   firebaseAuthReady: false,
@@ -50,13 +49,6 @@ const elements = {
   googleLogin: document.querySelector("#google-login"),
   forgotPassword: document.querySelector("#forgot-password"),
   logoutButton: document.querySelector("#logout-button"),
-  settingsButton: document.querySelector("#settings-button"),
-  settingsModal: document.querySelector("#settings-modal"),
-  settingsClose: document.querySelector("#settings-close"),
-  settingsForm: document.querySelector("#settings-form"),
-  settingsReset: document.querySelector("#settings-reset"),
-  defaultAssistantPrompt: document.querySelector("#default-assistant-prompt"),
-  settingsMessage: document.querySelector("#settings-message"),
   sessionLabel: document.querySelector("#session-label"),
   connectionState: document.querySelector("#connection-state"),
   providerSelect: document.querySelector("#provider-select"),
@@ -65,7 +57,7 @@ const elements = {
   presetSelect: document.querySelector("#preset-select"),
   customPromptLabel: document.querySelector("#custom-prompt-label"),
   customPrompt: document.querySelector("#custom-prompt"),
-  enableSearch: document.querySelector("#enable-search"),
+  searchMode: document.querySelector("#search-mode"),
   newChat: document.querySelector("#new-chat"),
   refreshConversations: document.querySelector("#refresh-conversations"),
   conversationList: document.querySelector("#conversation-list"),
@@ -91,15 +83,6 @@ elements.authForm.addEventListener("submit", submitAuth);
 elements.googleLogin.addEventListener("click", signInWithGoogle);
 elements.forgotPassword.addEventListener("click", sendPasswordReset);
 elements.logoutButton.addEventListener("click", logout);
-elements.settingsButton.addEventListener("click", openSettings);
-elements.settingsClose.addEventListener("click", closeSettings);
-elements.settingsModal.addEventListener("click", event => {
-  if (event.target === elements.settingsModal) {
-    closeSettings();
-  }
-});
-elements.settingsForm.addEventListener("submit", saveUserSettings);
-elements.settingsReset.addEventListener("click", resetUserSettings);
 elements.newChat.addEventListener("click", () => {
   startNewChat();
   collapseSidebarOnMobile();
@@ -123,8 +106,8 @@ elements.presetSelect.addEventListener("change", () => {
 elements.customPrompt.addEventListener("input", () => {
   saveWorkspacePreference("customPrompt", elements.customPrompt.value);
 });
-elements.enableSearch.addEventListener("change", () => {
-  saveWorkspacePreference("enableSearch", elements.enableSearch.checked);
+elements.searchMode.addEventListener("change", () => {
+  saveWorkspacePreference("searchMode", elements.searchMode.value);
 });
 elements.chatForm.addEventListener("submit", sendMessage);
 elements.messages.addEventListener("click", handleMessagesClick);
@@ -269,7 +252,6 @@ async function submitAuth(event) {
 
     state.user = toFirebaseUserInfo(credential.user);
     renderSession();
-    await loadUserSettings();
     await refreshConversations();
     setAuthMessage(state.mode === "login" ? "已登录" : "已注册并登录");
     setConnection("ready", "API 已连接");
@@ -295,7 +277,6 @@ async function signInWithGoogle() {
     const credential = await state.firebaseSdk.signInWithPopup(state.firebaseAuth, provider);
     state.user = toFirebaseUserInfo(credential.user);
     renderSession();
-    await loadUserSettings();
     await refreshConversations();
     setAuthMessage("已使用 Google 登录");
     setConnection("ready", "API 已连接");
@@ -341,11 +322,9 @@ async function logout() {
   state.conversations = [];
   state.conversationOffset = 0;
   state.conversationsHasMore = false;
-  state.userSettings = null;
   renderSession();
   renderConversations();
   startNewChat();
-  closeSettings();
   setAuthMessage("已退出登录");
   setConnection("", "API 未连接");
 }
@@ -355,7 +334,6 @@ async function refreshSession() {
   state.user = toFirebaseUserInfo(state.firebaseAuth?.currentUser);
   if (state.user) {
     setConnection("ready", "API 已连接");
-    await loadUserSettings();
     await refreshConversations();
   }
 
@@ -377,76 +355,6 @@ function renderSession() {
     elements.authScreen.classList.remove("hidden");
     elements.workspaceShell.classList.add("hidden");
   }
-}
-
-async function loadUserSettings() {
-  if (!state.user) return null;
-
-  const response = await apiFetch("/api/user/settings/");
-  const settings = await readJson(response);
-  if (!response.ok || !settings) {
-    return null;
-  }
-
-  state.userSettings = settings;
-  return settings;
-}
-
-async function openSettings() {
-  if (!state.user) return;
-
-  const settings = state.userSettings ?? await loadUserSettings();
-  renderSettings(settings);
-  elements.settingsModal.classList.remove("hidden");
-  elements.defaultAssistantPrompt.focus();
-}
-
-function closeSettings() {
-  elements.settingsModal.classList.add("hidden");
-  setSettingsMessage("");
-}
-
-function renderSettings(settings) {
-  const fallbackPrompt = settings?.systemDefaultAssistantPrompt ?? "";
-  elements.defaultAssistantPrompt.value = settings?.defaultAssistantPrompt ?? fallbackPrompt;
-  setSettingsMessage("");
-}
-
-async function saveUserSettings(event) {
-  event.preventDefault();
-  try {
-    await updateUserSettings(elements.defaultAssistantPrompt.value);
-    setSettingsMessage("已保存");
-  } catch {
-    // Message is already rendered by updateUserSettings.
-  }
-}
-
-async function resetUserSettings() {
-  try {
-    const settings = await updateUserSettings(null);
-    renderSettings(settings);
-    setSettingsMessage("已恢复系统默认");
-  } catch {
-    // Message is already rendered by updateUserSettings.
-  }
-}
-
-async function updateUserSettings(defaultAssistantPrompt) {
-  const response = await apiFetch("/api/user/settings/", {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ defaultAssistantPrompt })
-  });
-  const settings = await readJson(response);
-
-  if (!response.ok || !settings) {
-    setSettingsMessage(settings?.error ?? "保存失败");
-    throw new Error(settings?.error ?? "保存失败");
-  }
-
-  state.userSettings = settings;
-  return settings;
 }
 
 function startNewChat() {
@@ -487,7 +395,7 @@ function renderWorkspaceConfig() {
   if (!setSelectValue(elements.providerSelect, workspacePreferences.providerId)) {
     setSelectValue(elements.providerSelect, state.workspaceConfig?.defaultProviderId);
   }
-  elements.enableSearch.checked = Boolean(workspacePreferences.enableSearch);
+  setSelectValue(elements.searchMode, getSavedSearchMode());
   elements.customPrompt.value = workspacePreferences.customPrompt ?? "";
 
   renderProviderCatalog();
@@ -550,6 +458,16 @@ function loadWorkspacePreferences() {
   } catch {
     return {};
   }
+}
+
+function getSavedSearchMode() {
+  if (workspacePreferences.searchMode === "off"
+    || workspacePreferences.searchMode === "force"
+    || workspacePreferences.searchMode === "auto") {
+    return workspacePreferences.searchMode;
+  }
+
+  return workspacePreferences.enableSearch === false ? "off" : "auto";
 }
 
 function saveWorkspacePreferences() {
@@ -1143,7 +1061,7 @@ async function sendMessage(event) {
         conversationId: state.conversationId,
         message,
         attachments,
-        enableSearch: elements.enableSearch.checked,
+        searchMode: elements.searchMode.value || "auto",
         providerId: elements.providerSelect.value || null,
         modelName: elements.modelSelect.value || null,
         presetId: elements.presetSelect.value || null,
@@ -1568,10 +1486,6 @@ function getDownloadFileName(response) {
 
 function setAuthMessage(message) {
   elements.authMessage.textContent = message;
-}
-
-function setSettingsMessage(message) {
-  elements.settingsMessage.textContent = message;
 }
 
 function setConnection(kind, message) {

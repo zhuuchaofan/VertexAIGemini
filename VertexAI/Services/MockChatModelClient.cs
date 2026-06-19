@@ -67,7 +67,6 @@ public sealed class MockChatModelClient : IChatModelClient
             _currentSystemPrompt = options.PresetId switch
             {
                 "custom" => options.CustomPrompt ?? "",
-                "default" when !string.IsNullOrWhiteSpace(options.DefaultAssistantPrompt) => options.DefaultAssistantPrompt,
                 _ => ""
             };
         }
@@ -87,7 +86,8 @@ public sealed class MockChatModelClient : IChatModelClient
         var trimmed = request.Message.Trim();
         var attachmentCount = request.Attachments.Count;
         var historyCount = _history.Count;
-        var searchText = request.EnableSearch ? " Search is enabled." : "";
+        var searchMode = SearchModes.Normalize(request.SearchMode);
+        var searchText = SearchModes.EnablesWebSearch(searchMode) ? $" Search mode: {searchMode}." : "";
         var promptText = string.IsNullOrWhiteSpace(_currentSystemPrompt)
             ? ""
             : $" Custom prompt length: {_currentSystemPrompt.Length}.";
@@ -108,7 +108,7 @@ public sealed class MockChatModelClient : IChatModelClient
             IsThinking = false
         };
 
-        if (attachmentCount > 0 || request.EnableSearch || historyCount > 0 || !string.IsNullOrWhiteSpace(promptText))
+        if (attachmentCount > 0 || SearchModes.EnablesWebSearch(searchMode) || historyCount > 0 || !string.IsNullOrWhiteSpace(promptText))
         {
             yield return new ChatChunk
             {

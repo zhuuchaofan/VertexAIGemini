@@ -117,46 +117,6 @@ textarea {
   text-decoration: underline;
 }
 
-.settings-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: grid;
-  place-items: center;
-  background: rgb(24 32 42 / 0.38);
-  padding: 20px;
-}
-
-.settings-panel {
-  display: grid;
-  width: min(640px, 100%);
-  max-height: min(720px, calc(100dvh - 40px));
-  overflow: auto;
-  gap: 18px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfaf7;
-  padding: 22px;
-  box-shadow: 0 18px 55px rgb(24 32 42 / 0.18);
-}
-
-.settings-header,
-.settings-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settings-form {
-  gap: 14px;
-}
-
-.settings-form textarea {
-  min-height: 260px;
-  resize: vertical;
-}
-
 .workspace-shell {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);

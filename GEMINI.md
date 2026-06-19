@@ -33,7 +33,6 @@ Firestore is the only application persistence layer. It stores:
 
 - `Api`: minimal API endpoint groups.
 - `Services/Auth`: Firebase ID token verification and current-user resolution.
-- `Services/UserSettings`: Firestore-backed user settings under `users/{uid}`.
 - `Services/Chat`: chat request contracts, model provider abstraction, streaming
   orchestration, Firestore persistence, attachment validation, and error mapping.
 - `Services/Firestore`: Firestore ownership/document ID helpers.

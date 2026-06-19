@@ -177,7 +177,6 @@ The startup path is intentionally split between the standalone frontend and API 
 - `Configuration/ServiceCollectionExtensions.cs` owns dependency registration.
 - `Configuration/WebApplicationExtensions.cs` owns middleware and endpoint mapping.
 - `Services/Auth/FirebaseUserContext.cs` owns Firebase ID token verification.
-- `Services/UserSettings/FirestoreUserSettingsStore.cs` owns `users/{uid}` settings.
 - `Services/Chat/ChatOrchestrator.cs` owns chat sending, streaming, persistence, and token updates.
 - `Services/Chat/FirestoreConversationStore.cs` owns `conversations` and `messages` Firestore documents.
 - `Services/Chat/IChatModelClient.cs` and `IConversationStore.cs` isolate model providers and persistence from chat orchestration.

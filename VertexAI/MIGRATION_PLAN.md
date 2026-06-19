@@ -58,7 +58,6 @@ messages/{messageId}
 
 Required fields:
 
-- `users/{uid}`: `email`, `createdAt`, `lastLoginAt`, `defaultAssistantPrompt`.
 - `conversations/{conversationId}`: `uid`, `title`, `providerId`, `modelName`, `presetId`, `customPrompt`, `historySummary`, `tokenCount`, `createdAt`, `updatedAt`.
 - `messages/{messageId}`: `uid`, `conversationId`, `role`, `content`, `thinkingContent`, `attachments`, `createdAt`.
 
@@ -108,11 +107,10 @@ Status: complete for the Firestore runtime path.
 ### Phase 4: Firestore Persistence
 
 - Add a Firestore-backed conversation store that preserves the existing `IConversationStore` behavior.
-- Move user settings reads/writes to Firestore.
 - Move conversation list/detail/title/delete/export reads to Firestore.
 - Handle delete cascades explicitly because Firestore does not enforce relational cascade deletes.
 
-Status: complete. User settings read/write through `FirestoreUserSettingsStore`, conversations/messages use `FirestoreConversationStore`, and PostgreSQL fallback has been removed.
+Status: complete. Conversations/messages use `FirestoreConversationStore`, and PostgreSQL fallback has been removed.
 
 ### Phase 5: Firestore Environment Verification
 
@@ -160,6 +158,5 @@ only `GET /api/auth/status` remains for Firebase Bearer-token user status.
 
 - `ChatOrchestrator` already matches the target orchestration role and should remain the central chat flow.
 - `FirebaseUserContext` verifies Firebase tokens and produces the current authenticated user.
-- `FirestoreUserSettingsStore` owns `users/{uid}` settings.
 - `FirestoreConversationStore` owns Firestore conversations and messages.
 - `IConversationStore` remains the persistence boundary for chat orchestration and export flows.

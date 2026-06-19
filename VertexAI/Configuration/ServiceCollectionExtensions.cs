@@ -6,7 +6,6 @@ using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Health;
-using VertexAI.Services.UserSettings;
 
 namespace VertexAI.Configuration;
 
@@ -52,8 +51,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
         services.AddScoped<FirestoreConversationStore>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<FirestoreConversationStore>());
-        services.AddScoped<FirestoreUserSettingsStore>();
-        services.AddScoped<IUserSettingsStore>(sp => sp.GetRequiredService<FirestoreUserSettingsStore>());
         services.AddScoped<ChatOrchestrator>();
 
         return services;

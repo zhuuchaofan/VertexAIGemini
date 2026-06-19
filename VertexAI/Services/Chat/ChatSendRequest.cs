@@ -7,5 +7,5 @@ public sealed record ChatSendRequest(
     AuthenticatedUser User,
     string Message,
     IReadOnlyCollection<ChatAttachment> Attachments,
-    bool EnableSearch = false,
+    string SearchMode = SearchModes.Auto,
     ChatSessionOptions? Options = null);

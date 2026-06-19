@@ -64,9 +64,9 @@ public class ChatOrchestrator
             }
 
             var modelRequest = new ChatModelRequest(
-                message,
+                ApplySearchInstruction(message, request.SearchMode),
                 request.Attachments,
-                request.EnableSearch);
+                request.SearchMode);
 
             await foreach (var chunk in model.StreamChatAsync(modelRequest))
             {
@@ -163,5 +163,18 @@ public class ChatOrchestrator
         }
 
         return DefaultMaxHistoryMessages;
+    }
+
+    private static string ApplySearchInstruction(string message, string searchMode)
+    {
+        if (!SearchModes.RequiresWebSearch(searchMode))
+        {
+            return message;
+        }
+
+        const string instruction = "请先联网查证最新信息，并在回答中优先引用可验证来源。";
+        return string.IsNullOrWhiteSpace(message)
+            ? instruction
+            : $"{instruction}\n\n用户问题：{message}";
     }
 }
