@@ -34,6 +34,8 @@ internal static class ChatErrorMapper
             var value when Contains(value, "Unavailable") => "AI \u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
             var value when Contains(value, "firestore") && Contains(value, "permission") => "会话存储权限不足，请检查 Cloud Run 服务账号的 Firestore 权限",
             var value when Contains(value, "storage") && Contains(value, "permission") => "附件存储权限不足，请检查 Cloud Run 服务账号的 Cloud Storage 权限",
+            var value when Contains(value, "blocked by safety") => "当前预设或输入触发了模型安全过滤，请切换为默认助手或调整内容后重试",
+            var value when Contains(value, "response was empty") => "AI 服务没有返回有效内容，请切换预设或稍后重试",
             var value when Contains(value, "permission") || Contains(value, "IAM_PERMISSION_DENIED") => "AI 服务权限不足，请检查 Cloud Run 服务账号的 Vertex AI 权限",
             _ => null
         };

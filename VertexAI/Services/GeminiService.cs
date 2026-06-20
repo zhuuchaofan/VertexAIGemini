@@ -223,6 +223,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         // 累积完整回复（流式响应每次只返回增量片段）
         var responseBuilder = new System.Text.StringBuilder();
         var thinkingBuilder = new System.Text.StringBuilder();
+        FinishReason? blockedFinishReason = null;
 
         // 动态克隆或构建本次请求的 Config，不污染全局的 _config 实例，保障线程安全性
         var requestConfig = new GenerateContentConfig
@@ -251,6 +252,12 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             if (response.Candidates is not { Count: > 0 }) continue;
 
             var candidate = response.Candidates[0];
+            if (IsBlockedFinishReason(candidate.FinishReason))
+            {
+                blockedFinishReason = candidate.FinishReason;
+                continue;
+            }
+
             var parts = candidate.Content?.Parts;
 
             // 提取 Grounding 引用信息 (Google Search Citations)
@@ -312,6 +319,13 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
 
         // 构建完整的 AI 回复并加入历史
         var responseText = responseBuilder.ToString();
+        if (string.IsNullOrWhiteSpace(responseText))
+        {
+            throw blockedFinishReason == null
+                ? new InvalidOperationException("Gemini response was empty.")
+                : new InvalidOperationException($"Gemini response was blocked by safety settings: {blockedFinishReason}");
+        }
+
         if (!string.IsNullOrEmpty(responseText))
         {
             var responseParts = new List<Part> { new Part { Text = responseText } };
@@ -474,11 +488,11 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             TopP = 0.9,
             SafetySettings =
             [
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HARASSMENT, Threshold = HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, Threshold = HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, Threshold = HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HARASSMENT, Threshold = HarmBlockThreshold.OFF },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, Threshold = HarmBlockThreshold.OFF },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, Threshold = HarmBlockThreshold.OFF },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
+                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
             ]
         };
     }
@@ -528,6 +542,14 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             "high" => ThinkingLevel.HIGH,
             _ => ThinkingLevel.MEDIUM
         };
+
+    private static bool IsBlockedFinishReason(FinishReason? finishReason) =>
+        finishReason is FinishReason.SAFETY
+            or FinishReason.BLOCKLIST
+            or FinishReason.PROHIBITED_CONTENT
+            or FinishReason.SPII
+            or FinishReason.IMAGE_SAFETY
+            or FinishReason.IMAGE_PROHIBITED_CONTENT;
 
     private static string ToThinkingLevelValue(ThinkingLevel level) =>
         level.ToString() switch
