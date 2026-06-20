@@ -37,6 +37,19 @@ env:
   FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
   FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
   DEFAULT_PROVIDER_ID: ${{ vars.DEFAULT_PROVIDER_ID || 'gemini' }}
+  ATTACHMENT_STORAGE_BUCKET: ${{ vars.ATTACHMENT_STORAGE_BUCKET || format('{0}-vertex-ai-attachments', vars.GCP_PROJECT_ID) }}
+  API_CPU: ${{ vars.API_CPU || '1' }}
+  API_MEMORY: ${{ vars.API_MEMORY || '1Gi' }}
+  API_CONCURRENCY: ${{ vars.API_CONCURRENCY || '20' }}
+  API_TIMEOUT: ${{ vars.API_TIMEOUT || '300s' }}
+  API_MIN_INSTANCES: ${{ vars.API_MIN_INSTANCES || '0' }}
+  API_MAX_INSTANCES: ${{ vars.API_MAX_INSTANCES || '10' }}
+  WEB_CPU: ${{ vars.WEB_CPU || '1' }}
+  WEB_MEMORY: ${{ vars.WEB_MEMORY || '512Mi' }}
+  WEB_CONCURRENCY: ${{ vars.WEB_CONCURRENCY || '80' }}
+  WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT || '60s' }}
+  WEB_MIN_INSTANCES: ${{ vars.WEB_MIN_INSTANCES || '0' }}
+  WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES || '5' }}
 
 jobs:
   deploy:
@@ -51,14 +64,20 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore
-        run: dotnet restore VertexAI.slnx
+      - name: Restore API
+        run: dotnet restore VertexAI/VertexAI.csproj
 
-      - name: Build
-        run: dotnet build VertexAI.slnx --no-restore
+      - name: Restore tests
+        run: dotnet restore VertexAI.Tests/VertexAI.Tests.csproj
+
+      - name: Build API
+        run: dotnet build VertexAI/VertexAI.csproj --no-restore --disable-build-servers
+
+      - name: Build tests
+        run: dotnet build VertexAI.Tests/VertexAI.Tests.csproj --no-restore --disable-build-servers
 
       - name: Run service tests
-        run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-restore
+        run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build
 
       - name: Validate deployment configuration
         run: |
@@ -105,6 +124,19 @@ jobs:
               --description="Vertex AI workspace containers"
           fi
 
+      - name: Ensure attachment storage bucket
+        run: |
+          if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
+            gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access
+          fi
+
+          gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+            --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+            --role="roles/storage.objectUser" >/dev/null
+
       - name: Build and deploy API
         if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'api'
         run: |
@@ -121,7 +153,13 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --allow-unauthenticated \
             --port=8080 \
-            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID}"
+            --cpu="${API_CPU}" \
+            --memory="${API_MEMORY}" \
+            --concurrency="${API_CONCURRENCY}" \
+            --timeout="${API_TIMEOUT}" \
+            --min-instances="${API_MIN_INSTANCES}" \
+            --max-instances="${API_MAX_INSTANCES}" \
+            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
 
       - name: Resolve API URL
         id: api
@@ -147,6 +185,12 @@ jobs:
             --image="${web_image}" \
             --allow-unauthenticated \
             --port=8080 \
+            --cpu="${WEB_CPU}" \
+            --memory="${WEB_MEMORY}" \
+            --concurrency="${WEB_CONCURRENCY}" \
+            --timeout="${WEB_TIMEOUT}" \
+            --min-instances="${WEB_MIN_INSTANCES}" \
+            --max-instances="${WEB_MAX_INSTANCES}" \
             --set-env-vars="BACKEND_URL=${{ steps.api.outputs.url }}"
 
       - name: Smoke check API

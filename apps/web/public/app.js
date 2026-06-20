@@ -10,6 +10,7 @@ const state = {
   conversationId: null,
   conversations: [],
   conversationOffset: 0,
+  conversationCursor: null,
   conversationPageSize: 30,
   conversationsHasMore: false,
   conversationsLoading: false,
@@ -26,11 +27,14 @@ const state = {
 };
 
 const MAX_ATTACHMENTS = 8;
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_FILE_BYTES = 512 * 1024;
+const MAX_IMAGE_UPLOAD_BYTES = 700 * 1024;
+const IMAGE_MAX_DIMENSION = 1600;
+const IMAGE_WEBP_QUALITY = 0.82;
 const TEXT_FILE_EXTENSIONS = new Set([
-  "css", "csv", "cs", "go", "html", "java", "js", "json", "jsx", "md", "markdown",
-  "py", "rs", "sql", "ts", "tsx", "txt", "xml", "yaml", "yml"
+  "csv", "cs", "go", "java", "json", "md", "markdown",
+  "py", "rs", "sql", "txt", "yaml", "yml"
 ]);
 const STREAM_RENDER_INTERVAL_MS = 80;
 
@@ -703,12 +707,14 @@ async function refreshConversations() {
   if (!state.user) {
     state.conversations = [];
     state.conversationOffset = 0;
+    state.conversationCursor = null;
     state.conversationsHasMore = false;
     renderConversations();
     return;
   }
 
   state.conversationOffset = 0;
+  state.conversationCursor = null;
   await fetchConversationsPage(false);
 }
 
@@ -725,9 +731,11 @@ async function fetchConversationsPage(append) {
   elements.loadMoreConversations.disabled = true;
 
   const params = new URLSearchParams({
-    offset: String(append ? state.conversationOffset : 0),
     limit: String(state.conversationPageSize)
   });
+  if (append && state.conversationCursor) {
+    params.set("cursor", state.conversationCursor);
+  }
   const response = await apiFetch(`/api/conversations/?${params}`);
   if (!response.ok) {
     elements.conversationEmpty.textContent = "无法加载会话";
@@ -741,6 +749,7 @@ async function fetchConversationsPage(append) {
   const items = Array.isArray(page) ? page : page.items ?? [];
   state.conversations = append ? [...state.conversations, ...items] : items;
   state.conversationOffset = state.conversations.length;
+  state.conversationCursor = Array.isArray(page) ? null : page.nextCursor ?? null;
   state.conversationsHasMore = Array.isArray(page)
     ? items.length === state.conversationPageSize
     : Boolean(page.hasMore);
@@ -1527,19 +1536,25 @@ async function handleAttachmentSelection(event) {
       continue;
     }
 
-    const maxBytes = mimeType.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
+    const maxBytes = mimeType.startsWith("image/") ? MAX_SOURCE_IMAGE_BYTES : MAX_FILE_BYTES;
     if (file.size > maxBytes) {
       setConnection("error", mimeType.startsWith("image/")
-        ? "单张图片最大支持 4MB"
+        ? "单张原图最大支持 12MB"
         : "单个文件最大支持 512KB");
       continue;
     }
 
-    state.pendingAttachments.push({
-      base64Data: await readFileAsBase64(file),
-      mimeType,
-      fileName: file.name
-    });
+    try {
+      state.pendingAttachments.push(mimeType.startsWith("image/")
+        ? await createCompressedImageAttachment(file)
+        : {
+            base64Data: await readFileAsBase64(file),
+            mimeType,
+            fileName: file.name
+          });
+    } catch (error) {
+      setConnection("error", error instanceof Error ? error.message : "附件处理失败");
+    }
   }
 
   elements.imageInput.value = "";
@@ -1595,6 +1610,70 @@ function readFileAsBase64(file) {
   });
 }
 
+async function createCompressedImageAttachment(file) {
+  const compressed = await compressImageToWebp(file);
+  if (compressed.size > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("图片压缩后仍然过大，请裁剪或选择更小的图片");
+  }
+
+  return {
+    base64Data: await blobToBase64(compressed.blob),
+    mimeType: compressed.mimeType,
+    fileName: toWebpFileName(file.name)
+  };
+}
+
+async function compressImageToWebp(file) {
+  if (!supportsCanvasImageCompression()) {
+    return {
+      blob: file,
+      mimeType: normalizeFileMimeType(file),
+      size: file.size
+    };
+  }
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    let blob = await canvasToBlob(canvas, "image/webp", IMAGE_WEBP_QUALITY);
+    if (!blob || blob.size > MAX_IMAGE_UPLOAD_BYTES) {
+      blob = await canvasToBlob(canvas, "image/webp", 0.68);
+    }
+    if (!blob) {
+      throw new Error("图片压缩失败");
+    }
+
+    return { blob, mimeType: "image/webp", size: blob.size };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+function supportsCanvasImageCompression() {
+  return typeof createImageBitmap === "function";
+}
+
+function canvasToBlob(canvas, mimeType, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, mimeType, quality));
+}
+
+function blobToBase64(blob) {
+  return readFileAsBase64(blob);
+}
+
+function toWebpFileName(fileName) {
+  const baseName = fileName.replace(/\.[^.]+$/, "");
+  return `${baseName || "image"}.webp`;
+}
+
 function toDataUrl(image) {
   return `data:${image.mimeType};base64,${image.base64Data}`;
 }
@@ -1622,22 +1701,23 @@ function normalizeFileMimeType(file) {
   if (extension === "json") return "application/json";
   if (extension === "csv") return "text/csv";
   if (extension === "md" || extension === "markdown") return "text/markdown";
-  if (extension === "xml") return "text/xml";
   if (extension === "yaml" || extension === "yml") return "text/yaml";
   if (TEXT_FILE_EXTENSIONS.has(extension)) return "text/plain";
   return "application/octet-stream";
 }
 
 function isAllowedAttachment(file, mimeType) {
-  if (mimeType.startsWith("image/") || mimeType.startsWith("text/")) {
+  if (mimeType.startsWith("image/")) {
     return true;
   }
 
   if (mimeType === "application/pdf"
     || mimeType === "application/json"
-    || mimeType === "application/xml"
-    || mimeType === "application/javascript"
-    || mimeType === "application/x-yaml") {
+    || mimeType === "application/x-yaml"
+    || mimeType === "text/csv"
+    || mimeType === "text/markdown"
+    || mimeType === "text/plain"
+    || mimeType === "text/yaml") {
     return true;
   }
 

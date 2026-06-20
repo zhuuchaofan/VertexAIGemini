@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using VertexAI.Services.Attachments;
 using VertexAI.Services.Auth;
 
 namespace VertexAI.Services.Chat;
@@ -6,10 +7,12 @@ namespace VertexAI.Services.Chat;
 public sealed class FirestoreConversationStore : IConversationStore
 {
     private readonly FirestoreDb _db;
+    private readonly IChatAttachmentStore _attachments;
 
-    public FirestoreConversationStore(FirestoreDb db)
+    public FirestoreConversationStore(FirestoreDb db, IChatAttachmentStore attachments)
     {
         _db = db;
+        _attachments = attachments;
     }
 
     public async Task<List<Conversation>> GetUserConversationsAsync(
@@ -22,6 +25,32 @@ public sealed class FirestoreConversationStore : IConversationStore
             .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
             .OrderByDescending(FirestoreConversationSchema.UpdatedAt)
             .Offset(Math.Max(0, offset))
+            .Limit(Math.Max(1, limit))
+            .GetSnapshotAsync();
+
+        return snapshot.Documents
+            .Select(FirestoreConversationMapper.ToConversation)
+            .Where(conversation => conversation != null)
+            .Cast<Conversation>()
+            .ToList();
+    }
+
+    public async Task<List<Conversation>> GetUserConversationsPageAsync(
+        AuthenticatedUser user,
+        string? cursor,
+        int limit)
+    {
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
+        var query = _db.Collection(FirestoreConversationSchema.ConversationsCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .OrderByDescending(FirestoreConversationSchema.UpdatedAt);
+
+        if (TryParseCursor(cursor, out var cursorUpdatedAt))
+        {
+            query = query.StartAfter(Timestamp.FromDateTime(cursorUpdatedAt));
+        }
+
+        var snapshot = await query
             .Limit(Math.Max(1, limit))
             .GetSnapshotAsync();
 
@@ -48,12 +77,18 @@ public sealed class FirestoreConversationStore : IConversationStore
             .OrderBy(FirestoreConversationSchema.CreatedAt)
             .GetSnapshotAsync();
 
-        conversation.Messages = messagesSnapshot.Documents
+        var messages = messagesSnapshot.Documents
             .Select(FirestoreConversationMapper.ToMessage)
             .Where(message => message != null)
             .Cast<Message>()
             .ToList();
 
+        foreach (var message in messages)
+        {
+            message.AttachmentsJson = await LoadAttachmentsJsonAsync(message.AttachmentsJson);
+        }
+
+        conversation.Messages = messages;
         return conversation;
     }
 
@@ -101,11 +136,19 @@ public sealed class FirestoreConversationStore : IConversationStore
             .Limit(take)
             .GetSnapshotAsync();
 
-        return snapshot.Documents
+        var messages = snapshot.Documents
             .Select(FirestoreConversationMapper.ToMessage)
             .Where(message => message != null)
             .Cast<Message>()
             .OrderBy(message => message.CreatedAt)
+            .ToList();
+
+        foreach (var message in messages)
+        {
+            message.AttachmentsJson = await LoadAttachmentsJsonAsync(message.AttachmentsJson);
+        }
+
+        return messages
             .Select(message => new ChatHistoryEntry(
                 message.Role,
                 message.Content,
@@ -129,16 +172,27 @@ public sealed class FirestoreConversationStore : IConversationStore
             return null;
         }
 
-        var attachmentsJson = ChatAttachmentSerializer.Serialize(attachments);
         var message = new Message
         {
             Id = Guid.NewGuid(),
             ConversationId = conversationId,
             Role = role,
             Content = content,
-            ThinkingContent = thinkingContent,
-            AttachmentsJson = attachmentsJson
+            ThinkingContent = thinkingContent
         };
+        var storedAttachments = await SaveAttachmentsAsync(
+            attachments,
+            conversationId,
+            message.Id);
+        var inlineError = _attachments.IsEnabled
+            ? null
+            : ChatAttachmentValidator.ValidateInlineFirestorePayload(storedAttachments);
+        if (inlineError != null)
+        {
+            throw new InvalidOperationException(inlineError);
+        }
+
+        message.AttachmentsJson = ChatAttachmentSerializer.Serialize(storedAttachments);
 
         await _db.Collection(FirestoreConversationSchema.MessagesCollection)
             .Document(message.Id.ToString("D"))
@@ -196,6 +250,14 @@ public sealed class FirestoreConversationStore : IConversationStore
 
         foreach (var message in messages.Documents)
         {
+            if (message.TryGetValue<string>(FirestoreConversationSchema.AttachmentsJson, out var attachmentsJson))
+            {
+                foreach (var attachment in ChatAttachmentSerializer.Deserialize(attachmentsJson))
+                {
+                    await _attachments.DeleteAsync(attachment);
+                }
+            }
+
             await message.Reference.DeleteAsync();
         }
 
@@ -220,6 +282,55 @@ public sealed class FirestoreConversationStore : IConversationStore
 
     private DocumentReference GetConversationDocument(Guid conversationId) =>
         _db.Collection(FirestoreConversationSchema.ConversationsCollection).Document(conversationId.ToString("D"));
+
+    private static bool TryParseCursor(string? cursor, out DateTime updatedAt)
+    {
+        updatedAt = default;
+        return !string.IsNullOrWhiteSpace(cursor)
+            && DateTime.TryParse(
+                cursor,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                out updatedAt);
+    }
+
+    private async Task<IReadOnlyList<ChatAttachment>> SaveAttachmentsAsync(
+        IReadOnlyCollection<ChatAttachment>? attachments,
+        Guid conversationId,
+        Guid messageId)
+    {
+        if (attachments is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var stored = new List<ChatAttachment>(attachments.Count);
+        var index = 0;
+        foreach (var attachment in attachments)
+        {
+            stored.Add(await _attachments.SaveAsync(attachment, conversationId, messageId, index));
+            index++;
+        }
+
+        return stored;
+    }
+
+    private async Task<string?> LoadAttachmentsJsonAsync(string? attachmentsJson)
+    {
+        var attachments = ChatAttachmentSerializer.Deserialize(attachmentsJson);
+        if (attachments.Count == 0)
+        {
+            return attachmentsJson;
+        }
+
+        var loaded = new List<ChatAttachment>(attachments.Count);
+        foreach (var attachment in attachments)
+        {
+            loaded.Add(await _attachments.LoadAsync(attachment));
+        }
+
+        return ChatAttachmentSerializer.Serialize(loaded);
+    }
 
     private static string CreateTitle(string content, int attachmentCount)
     {

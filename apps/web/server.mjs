@@ -2,9 +2,9 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 
-const port = Number.parseInt(process.env.PORT ?? "5173", 10);
-const host = process.env.HOST ?? "127.0.0.1";
-const backendUrl = new URL(process.env.BACKEND_URL ?? "http://localhost:5000");
+const port = Number.parseInt(process.env.PORT ?? "8080", 10);
+const host = process.env.HOST ?? "0.0.0.0";
+const backendUrl = resolveBackendUrl();
 const publicDir = new URL("./public/", import.meta.url);
 
 const contentTypes = {
@@ -33,6 +33,14 @@ createServer(async (req, res) => {
   console.log(`Web workspace listening on http://${host}:${port}`);
   console.log(`Proxying /api requests to ${backendUrl.origin}`);
 });
+
+function resolveBackendUrl() {
+  if (process.env.BACKEND_URL) {
+    return new URL(process.env.BACKEND_URL);
+  }
+
+  throw new Error("BACKEND_URL is required.");
+}
 
 async function proxyApi(req, res) {
   const target = new URL(req.url, backendUrl);
@@ -84,7 +92,7 @@ async function proxyApi(req, res) {
 }
 
 async function serveStatic(req, res) {
-  const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
+  const requestPath = new URL(req.url ?? "/", "https://cloud-run.invalid").pathname;
   const safePath = normalize(decodeURIComponent(requestPath)).replace(/^(\.\.[/\\])+/, "");
   const relativePath = safePath === "/" ? "index.html" : safePath.slice(1);
   const fileUrl = new URL(join(publicDir.pathname, relativePath), "file://");

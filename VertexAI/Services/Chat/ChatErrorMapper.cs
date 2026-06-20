@@ -26,13 +26,15 @@ internal static class ChatErrorMapper
     private static string? ToProviderMessage(string message) =>
         message switch
         {
-            var value when Contains(value, "not configured") => "Vertex AI 服务端配置未完成，请先检查 ProjectId 和模型名称",
-            var value when Contains(value, "application default credentials") => "Vertex AI 凭据未正确配置，请检查 GOOGLE_APPLICATION_CREDENTIALS 指向的 JSON 文件",
-            var value when Contains(value, "credential file") => "Vertex AI 凭据文件无法读取，请检查 GCP_KEY_PATH 是否指向真实 JSON 文件",
-            var value when Contains(value, "Access to the path") => "Vertex AI 凭据文件无法读取，请检查容器挂载路径和文件权限",
+            var value when Contains(value, "not configured") => "AI 服务端配置未完成，请检查 Cloud Run 环境变量",
+            var value when Contains(value, "application default credentials") => "AI 服务账号凭据不可用，请检查 Cloud Run 运行时服务账号",
+            var value when Contains(value, "credential file") => "AI 服务账号凭据不可用，请检查 Cloud Run 运行时服务账号",
+            var value when Contains(value, "Access to the path") => "服务无法读取必要资源，请检查 Cloud Run 运行时权限",
             var value when Contains(value, "quota") => "API \u914d\u989d\u5df2\u7528\u5c3d\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5",
             var value when Contains(value, "Unavailable") => "AI \u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
-            var value when Contains(value, "permission") || Contains(value, "IAM_PERMISSION_DENIED") => "Vertex AI 权限不足，请为服务账号授予包含 aiplatform.endpoints.predict 的权限",
+            var value when Contains(value, "firestore") && Contains(value, "permission") => "会话存储权限不足，请检查 Cloud Run 服务账号的 Firestore 权限",
+            var value when Contains(value, "storage") && Contains(value, "permission") => "附件存储权限不足，请检查 Cloud Run 服务账号的 Cloud Storage 权限",
+            var value when Contains(value, "permission") || Contains(value, "IAM_PERMISSION_DENIED") => "AI 服务权限不足，请检查 Cloud Run 服务账号的 Vertex AI 权限",
             _ => null
         };
 

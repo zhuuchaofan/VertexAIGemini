@@ -150,8 +150,8 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             ["model"] = _modelName,
             ["stream"] = true,
             ["messages"] = messages,
-            // 显式限制最大输出 Token 数，防止被接口默认值提前截断
-            ["max_tokens"] = 20480
+            // Explicitly cap output cost instead of relying on provider defaults.
+            ["max_tokens"] = 8192
         };
 
         ApplyThinkingOptions(body);
@@ -284,6 +284,11 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
         foreach (var attachment in attachments)
         {
+            if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+            {
+                continue;
+            }
+
             if (IsImage(attachment))
             {
                 content.Add(new
@@ -318,6 +323,11 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             return $"[Attached file: {fileName} ({attachment.MimeType}). This provider cannot read this binary file directly.]";
         }
 
+        if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+        {
+            return $"[Attached file: {fileName} ({attachment.MimeType}) is unavailable.]";
+        }
+
         try
         {
             var text = Encoding.UTF8.GetString(Convert.FromBase64String(attachment.Base64Data));
@@ -330,11 +340,12 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
     }
 
     private static bool IsTextLike(string mimeType) =>
-        mimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
-        || mimeType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
-        || mimeType.Equals("application/xml", StringComparison.OrdinalIgnoreCase)
-        || mimeType.Equals("application/javascript", StringComparison.OrdinalIgnoreCase)
-        || mimeType.Equals("application/x-yaml", StringComparison.OrdinalIgnoreCase);
+        mimeType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("application/x-yaml", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("text/csv", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)
+        || mimeType.Equals("text/yaml", StringComparison.OrdinalIgnoreCase);
 
     private static ChatChunk ExtractDelta(string data)
     {

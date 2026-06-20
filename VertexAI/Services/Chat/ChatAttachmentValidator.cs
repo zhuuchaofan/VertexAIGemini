@@ -5,6 +5,7 @@ public static class ChatAttachmentValidator
     private const int MaxAttachments = 8;
     private const int MaxImageBytes = 4 * 1024 * 1024;
     private const int MaxFileBytes = 512 * 1024;
+    private const int MaxInlineFirestoreBytes = 700 * 1024;
 
     private static readonly HashSet<string> AllowedImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -18,14 +19,10 @@ public static class ChatAttachmentValidator
     {
         "application/pdf",
         "application/json",
-        "application/xml",
-        "application/javascript",
         "application/x-yaml",
         "text/csv",
-        "text/html",
         "text/markdown",
         "text/plain",
-        "text/xml",
         "text/yaml"
     };
 
@@ -65,6 +62,19 @@ public static class ChatAttachmentValidator
         return null;
     }
 
+    public static string? ValidateInlineFirestorePayload(IReadOnlyCollection<ChatAttachment> attachments)
+    {
+        var attachmentsJson = ChatAttachmentSerializer.Serialize(attachments);
+        if (string.IsNullOrWhiteSpace(attachmentsJson))
+        {
+            return null;
+        }
+
+        return System.Text.Encoding.UTF8.GetByteCount(attachmentsJson) > MaxInlineFirestoreBytes
+            ? "附件过大，请压缩后上传。"
+            : null;
+    }
+
     private static bool IsAllowedMimeType(string mimeType)
     {
         if (string.IsNullOrWhiteSpace(mimeType))
@@ -73,8 +83,7 @@ public static class ChatAttachmentValidator
         }
 
         return AllowedImageMimeTypes.Contains(mimeType)
-            || AllowedFileMimeTypes.Contains(mimeType)
-            || mimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+            || AllowedFileMimeTypes.Contains(mimeType);
     }
 
     private static bool IsImage(string mimeType) =>

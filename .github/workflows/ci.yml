@@ -20,11 +20,17 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore
-        run: dotnet restore VertexAI.slnx
+      - name: Restore API
+        run: dotnet restore VertexAI/VertexAI.csproj
 
-      - name: Build
-        run: dotnet build VertexAI.slnx --no-restore
+      - name: Restore tests
+        run: dotnet restore VertexAI.Tests/VertexAI.Tests.csproj
+
+      - name: Build API
+        run: dotnet build VertexAI/VertexAI.csproj --no-restore --disable-build-servers
+
+      - name: Build tests
+        run: dotnet build VertexAI.Tests/VertexAI.Tests.csproj --no-restore --disable-build-servers
 
       - name: Run service tests
-        run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-restore
+        run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build

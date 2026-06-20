@@ -11,17 +11,20 @@ public class ChatOrchestrator
     private readonly IChatProviderCatalog _providers;
     private readonly IConversationStore _conversations;
     private readonly ILogger<ChatOrchestrator> _logger;
+    private readonly IReadOnlyList<IChatRequestAugmenter> _augmenters;
     private readonly int _maxHistoryMessages;
 
     public ChatOrchestrator(
         IChatProviderCatalog providers,
         IConversationStore conversations,
         ILogger<ChatOrchestrator> logger,
-        IOptions<GeminiSettings>? geminiSettings = null)
+        IOptions<GeminiSettings>? geminiSettings = null,
+        IEnumerable<IChatRequestAugmenter>? augmenters = null)
     {
         _providers = providers;
         _conversations = conversations;
         _logger = logger;
+        _augmenters = (augmenters ?? [new WebSearchInstructionAugmenter()]).ToArray();
         _maxHistoryMessages = ResolveMaxHistoryMessages(geminiSettings?.Value);
     }
 
@@ -43,10 +46,11 @@ public class ChatOrchestrator
 
             conversationId = await EnsureConversationAsync(request, providerId, model);
             var message = request.Message.Trim();
+            IReadOnlyList<ChatHistoryEntry> history = [];
 
             if (conversationId.HasValue && request.ConversationId.HasValue)
             {
-                var history = await _conversations.GetHistoryAsync(
+                history = await _conversations.GetHistoryAsync(
                     conversationId.Value,
                     request.User,
                     _maxHistoryMessages);
@@ -63,8 +67,19 @@ public class ChatOrchestrator
                     attachments: request.Attachments);
             }
 
+            var augmentation = await AugmentRequestAsync(
+                new ChatRequestContext(
+                    conversationId,
+                    request.User,
+                    message,
+                    request.Attachments,
+                    request.SearchMode,
+                    history,
+                    request.Options));
+            AddCitations(allCitations, augmentation.Citations);
+
             var modelRequest = new ChatModelRequest(
-                ApplySearchInstruction(message, request.SearchMode),
+                augmentation.Message,
                 request.Attachments,
                 request.SearchMode);
 
@@ -81,13 +96,7 @@ public class ChatOrchestrator
 
                 if (chunk.Citations != null && chunk.Citations.Count > 0)
                 {
-                    foreach (var cite in chunk.Citations)
-                    {
-                        if (!allCitations.Any(c => c.Uri == cite.Uri))
-                        {
-                            allCitations.Add(cite);
-                        }
-                    }
+                    AddCitations(allCitations, chunk.Citations);
                 }
 
                 await onUpdate(new ChatStreamUpdate(
@@ -165,16 +174,32 @@ public class ChatOrchestrator
         return DefaultMaxHistoryMessages;
     }
 
-    private static string ApplySearchInstruction(string message, string searchMode)
+    private async Task<ChatRequestAugmentation> AugmentRequestAsync(ChatRequestContext context)
     {
-        if (!SearchModes.RequiresWebSearch(searchMode))
+        var current = new ChatRequestAugmentation(context.OriginalMessage);
+        foreach (var augmenter in _augmenters)
         {
-            return message;
+            current = await augmenter.AugmentAsync(context, current);
         }
 
-        const string instruction = "请先联网查证最新信息，并在回答中优先引用可验证来源。";
-        return string.IsNullOrWhiteSpace(message)
-            ? instruction
-            : $"{instruction}\n\n用户问题：{message}";
+        return current;
+    }
+
+    private static void AddCitations(
+        List<SearchCitation> citations,
+        IReadOnlyCollection<SearchCitation>? additions)
+    {
+        if (additions == null || additions.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var cite in additions)
+        {
+            if (!citations.Any(c => c.Uri == cite.Uri))
+            {
+                citations.Add(cite);
+            }
+        }
     }
 }

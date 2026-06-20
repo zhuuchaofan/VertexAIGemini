@@ -1,8 +1,14 @@
 using Google.Cloud.Firestore;
+using Google.Cloud.Storage.V1;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.RateLimiting;
 using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
+using Microsoft.AspNetCore.RateLimiting;
 using VertexAI.Services;
+using VertexAI.Services.Attachments;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Health;
@@ -21,11 +27,49 @@ public static class ServiceCollectionExtensions
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.AddApplicationServices(configuration);
+        services.AddVertexRateLimiting();
 
         services.AddHealthChecks()
             .AddCheck<FirestoreHealthCheck>("firestore", tags: ["ready"]);
 
         return services;
+    }
+
+    private static IServiceCollection AddVertexRateLimiting(this IServiceCollection services)
+    {
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    ResolveRateLimitPartitionKey(context),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 30,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
+        });
+
+        return services;
+    }
+
+    private static string ResolveRateLimitPartitionKey(HttpContext context)
+    {
+        var authorization = context.Request.Headers.Authorization.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(authorization))
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(authorization));
+            return "auth:" + Convert.ToHexString(hash.AsSpan(0, 16));
+        }
+
+        var forwarded = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        var ip = !string.IsNullOrWhiteSpace(forwarded)
+            ? forwarded.Split(',')[0].Trim()
+            : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return "ip:" + ip;
     }
 
     private static IServiceCollection AddApplicationServices(
@@ -49,8 +93,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(CreateFirebaseAuth(configuration));
         services.AddScoped<IUserContext, FirebaseUserContext>();
         services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
+        services.AddSingleton(StorageClient.Create());
+        services.AddSingleton<IChatAttachmentStore>(sp =>
+        {
+            var store = ActivatorUtilities.CreateInstance<CloudStorageChatAttachmentStore>(sp);
+            return store.IsEnabled ? store : new NoOpChatAttachmentStore();
+        });
         services.AddScoped<FirestoreConversationStore>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<FirestoreConversationStore>());
+        services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
         services.AddScoped<ChatOrchestrator>();
 
         return services;

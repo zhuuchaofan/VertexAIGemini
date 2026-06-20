@@ -6,6 +6,8 @@ public interface IConversationStore
 {
     Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user, int offset, int limit);
 
+    Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit);
+
     Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user);
 
     Task<Conversation?> CreateConversationAsync(

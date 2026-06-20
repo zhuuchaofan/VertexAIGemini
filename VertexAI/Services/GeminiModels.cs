@@ -13,9 +13,9 @@ public class GeminiSettings
     public string? SystemPrompt { get; set; }
 
     // 历史管理配置
-    public int MaxHistoryTokens { get; set; } = 100000;   // 最大历史 Token 数
-    public int MaxHistoryRounds { get; set; } = 20;        // 最大对话轮数
-    public int SummaryThreshold { get; set; } = 80000;     // 触发摘要的 Token 阈值
+    public int MaxHistoryTokens { get; set; } = 32000;     // 最大历史 Token 数
+    public int MaxHistoryRounds { get; set; } = 10;        // 最大对话轮数
+    public int SummaryThreshold { get; set; } = 24000;     // 触发摘要的 Token 阈值
 
     // 新增配置绑定支持
     public List<ChatModelOption> Models { get; set; } = [];

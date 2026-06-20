@@ -2,22 +2,12 @@ using Serilog;
 using Serilog.Events;
 using VertexAI.Configuration;
 
-DotNetEnv.Env.Load();
-
 var loggerConfiguration = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}");
-
-if (string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase))
-{
-    loggerConfiguration.WriteTo.File(
-        path: "logs/antigravity-studio-.json",
-        rollingInterval: RollingInterval.Day,
-        formatter: new Serilog.Formatting.Compact.CompactJsonFormatter());
-}
 
 Log.Logger = loggerConfiguration.CreateLogger();
 

@@ -11,6 +11,7 @@ var tests = new (string Name, Action Test)[]
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
+    ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
     ("ChatAttachmentSerializer round-trips and tolerates invalid json", ChatAttachmentSerializerTests.RoundTripsAndToleratesInvalidJson),
     ("ChatErrorMapper maps common exceptions", ChatErrorMapperTests.MapCommonExceptions),
     ("ChatOrchestrator streams and persists successful responses", ChatOrchestratorTests.StreamsAndPersistsSuccess),
@@ -19,6 +20,7 @@ var tests = new (string Name, Action Test)[]
     ("ChatOrchestrator loads existing conversation history", ChatOrchestratorTests.LoadsExistingConversationHistory),
     ("ChatOrchestrator reuses existing conversation", ChatOrchestratorTests.ReusesExistingConversation),
     ("ChatOrchestrator applies model session options", ChatOrchestratorTests.AppliesModelSessionOptions),
+    ("ChatOrchestrator applies request augmenters", ChatOrchestratorTests.AppliesRequestAugmenters),
     ("ChatOrchestrator maps model failures", ChatOrchestratorTests.MapsModelFailures),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
@@ -70,7 +72,7 @@ internal static class GeminiPartFactoryTests
     public static void CreateTextAndImageParts()
     {
         var imageBytes = new byte[] { 1, 2, 3, 4 };
-        var image = new ChatImageAttachment(
+        var image = new ChatAttachment(
             Convert.ToBase64String(imageBytes),
             "image/png",
             "sample.png");
@@ -110,7 +112,7 @@ internal static class ChatAttachmentValidatorTests
 {
     public static void ValidatePayloads()
     {
-        var validImage = new ChatImageAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "ok.png");
+        var validImage = new ChatAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "ok.png");
 
         Assert.Null(ChatAttachmentValidator.Validate([validImage]));
         Assert.NotNull(ChatAttachmentValidator.Validate([
@@ -119,12 +121,30 @@ internal static class ChatAttachmentValidatorTests
             validImage,
             validImage,
             validImage,
+            validImage,
+            validImage,
+            validImage,
             validImage
         ]));
-        Assert.NotNull(ChatAttachmentValidator.Validate([validImage with { MimeType = "text/plain" }]));
+        Assert.NotNull(ChatAttachmentValidator.Validate([validImage with { MimeType = "application/octet-stream" }]));
         Assert.NotNull(ChatAttachmentValidator.Validate([validImage with { Base64Data = "not-base64" }]));
         Assert.NotNull(ChatAttachmentValidator.Validate([
             validImage with { Base64Data = Convert.ToBase64String(new byte[4 * 1024 * 1024 + 1]) }
+        ]));
+    }
+
+    public static void BlocksActiveContent()
+    {
+        var payload = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("content"));
+
+        Assert.Null(ChatAttachmentValidator.Validate([
+            new ChatAttachment(payload, "text/markdown", "notes.md")
+        ]));
+        Assert.NotNull(ChatAttachmentValidator.Validate([
+            new ChatAttachment(payload, "text/html", "page.html")
+        ]));
+        Assert.NotNull(ChatAttachmentValidator.Validate([
+            new ChatAttachment(payload, "application/javascript", "script.js")
         ]));
     }
 }
@@ -133,7 +153,7 @@ internal static class ChatAttachmentSerializerTests
 {
     public static void RoundTripsAndToleratesInvalidJson()
     {
-        var image = new ChatImageAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "ok.png");
+        var image = new ChatAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "ok.png");
 
         var json = ChatAttachmentSerializer.Serialize([image]);
         var restored = ChatAttachmentSerializer.Deserialize(json);
@@ -152,7 +172,7 @@ internal static class ChatErrorMapperTests
     {
         Assert.Equal("请求超时，请重试", ChatErrorMapper.ToUserMessage(new TaskCanceledException()));
         Assert.Equal("网络连接异常，请检查网络后重试", ChatErrorMapper.ToUserMessage(new HttpRequestException()));
-        Assert.Contains("Vertex AI", ChatErrorMapper.ToUserMessage(new InvalidOperationException("Vertex AI project is not configured.")));
+        Assert.Contains("Cloud Run", ChatErrorMapper.ToUserMessage(new InvalidOperationException("Vertex AI project is not configured.")));
         Assert.Contains("配额", ChatErrorMapper.ToUserMessage(new Exception("quota exceeded")));
         Assert.Contains("权限", ChatErrorMapper.ToUserMessage(new Exception("permission denied")));
     }
@@ -205,8 +225,8 @@ internal static class ChatOrchestratorTests
         var lastRequest = model.LastRequest;
         Assert.NotNull(lastRequest);
         Assert.Equal("hi", lastRequest!.Message);
-        Assert.Equal(0, lastRequest.Images.Count);
-        Assert.False(lastRequest.EnableSearch);
+        Assert.Equal(0, lastRequest.Attachments.Count);
+        Assert.Equal(SearchModes.Auto, lastRequest.SearchMode);
     }
 
     public static void MapsModelFailures()
@@ -230,7 +250,7 @@ internal static class ChatOrchestratorTests
             _ => Task.CompletedTask));
 
         Assert.False(result.Succeeded);
-        Assert.Contains("Vertex AI", result.ErrorMessage ?? "");
+        Assert.Contains("Cloud Run", result.ErrorMessage ?? "");
         Assert.Equal(1, store.Messages.Count);
         Assert.Equal("user", store.Messages[0].Role);
         Assert.Equal((conversationId, userId, 7), store.TokenUpdates.Single());
@@ -241,7 +261,7 @@ internal static class ChatOrchestratorTests
         var userId = Guid.NewGuid();
         var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
-        var image = new ChatImageAttachment(
+        var image = new ChatAttachment(
             Convert.ToBase64String([1, 2, 3]),
             "image/png",
             "diagram.png");
@@ -256,16 +276,16 @@ internal static class ChatOrchestratorTests
             NullLogger<ChatOrchestrator>.Instance);
 
         var result = Run(orchestrator.SendAsync(
-            new ChatSendRequest(null, user, "  explain this  ", [image], EnableSearch: true),
+            new ChatSendRequest(null, user, "  explain this  ", [image], SearchModes.Force),
             _ => Task.CompletedTask));
 
         Assert.True(result.Succeeded);
         var lastRequest = model.LastRequest;
         Assert.NotNull(lastRequest);
-        Assert.Equal("explain this", lastRequest!.Message);
-        Assert.Equal(1, lastRequest.Images.Count);
-        Assert.Equal(image, lastRequest.Images.Single());
-        Assert.True(lastRequest.EnableSearch);
+        Assert.Contains("用户问题：explain this", lastRequest!.Message);
+        Assert.Equal(1, lastRequest.Attachments.Count);
+        Assert.Equal(image, lastRequest.Attachments.Single());
+        Assert.Equal(SearchModes.Force, lastRequest.SearchMode);
         Assert.Equal(1, store.Messages[0].Attachments.Count);
         Assert.Equal(image, store.Messages[0].Attachments.Single());
     }
@@ -275,7 +295,7 @@ internal static class ChatOrchestratorTests
         var userId = Guid.NewGuid();
         var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
-        var image = new ChatImageAttachment(Convert.ToBase64String([4, 5, 6]), "image/png", "history.png");
+        var image = new ChatAttachment(Convert.ToBase64String([4, 5, 6]), "image/png", "history.png");
         var history = new[]
         {
             new ChatHistoryEntry("user", "hello", Attachments: [image]),
@@ -311,7 +331,7 @@ internal static class ChatOrchestratorTests
         var userId = Guid.NewGuid();
         var user = TestUser(userId);
         var conversationId = Guid.NewGuid();
-        var image = new ChatImageAttachment(Convert.ToBase64String([7, 8, 9]), "image/png", "scan.png");
+        var image = new ChatAttachment(Convert.ToBase64String([7, 8, 9]), "image/png", "scan.png");
         var model = new FakeChatModelClient
         {
             Chunks = [new ChatChunk { Text = "image received" }]
@@ -330,7 +350,7 @@ internal static class ChatOrchestratorTests
         Assert.Equal("image received", result.Content);
         Assert.NotNull(model.LastRequest);
         Assert.Equal("", model.LastRequest!.Message);
-        Assert.Equal(image, model.LastRequest.Images.Single());
+        Assert.Equal(image, model.LastRequest.Attachments.Single());
         Assert.Equal(2, store.Messages.Count);
         Assert.Equal(("user", "", null), (store.Messages[0].Role, store.Messages[0].Content, store.Messages[0].ThinkingContent));
         Assert.Equal(image, store.Messages[0].Attachments.Single());
@@ -398,6 +418,40 @@ internal static class ChatOrchestratorTests
         Assert.Equal("Stay concise.", store.CreatedCustomPrompt);
     }
 
+    public static void AppliesRequestAugmenters()
+    {
+        var userId = Guid.NewGuid();
+        var user = TestUser(userId);
+        var conversationId = Guid.NewGuid();
+        var citation = new SearchCitation
+        {
+            Title = "Knowledge chunk",
+            Uri = "kb://chunk/1"
+        };
+        var model = new FakeChatModelClient
+        {
+            Chunks = [new ChatChunk { Text = "augmented" }]
+        };
+        var store = new FakeConversationStore { CreatedConversationId = conversationId };
+        var augmenter = new FakeRequestAugmenter("[context] ", citation);
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance,
+            augmenters: [augmenter]);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "hi", []),
+            _ => Task.CompletedTask));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("[context] hi", model.LastRequest?.Message);
+        Assert.Equal("hi", store.Messages[0].Content);
+        Assert.Equal(citation.Uri, result.Citations?.Single().Uri);
+        Assert.Equal(0, augmenter.LastContext.History.Count);
+        Assert.Equal(SearchModes.Auto, augmenter.LastContext.SearchMode);
+    }
+
     private static T Run<T>(Task<T> task) =>
         task.GetAwaiter().GetResult();
 
@@ -425,6 +479,31 @@ internal sealed class FakeProviderCatalog : IChatProviderCatalog
     {
         _client.LastProviderId = providerId;
         return _client;
+    }
+}
+
+internal sealed class FakeRequestAugmenter : IChatRequestAugmenter
+{
+    private readonly string _prefix;
+    private readonly SearchCitation _citation;
+
+    public FakeRequestAugmenter(string prefix, SearchCitation citation)
+    {
+        _prefix = prefix;
+        _citation = citation;
+    }
+
+    public ChatRequestContext LastContext { get; private set; } = null!;
+
+    public Task<ChatRequestAugmentation> AugmentAsync(
+        ChatRequestContext context,
+        ChatRequestAugmentation current,
+        CancellationToken cancellationToken = default)
+    {
+        LastContext = context;
+        return Task.FromResult(new ChatRequestAugmentation(
+            $"{_prefix}{current.Message}",
+            [_citation]));
     }
 }
 
@@ -462,11 +541,11 @@ internal static class MockChatModelClientTests
     public static void StreamsMultimodalResponse()
     {
         var client = new MockChatModelClient();
-        var image = new ChatImageAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "pixel.png");
+        var image = new ChatAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "pixel.png");
 
         Run(client.ConfigureAsync(new ChatSessionOptions("mock", "mock-detailed", "custom", "Be brief.")));
         Run(client.LoadHistoryAsync([new ChatHistoryEntry("user", "previous")]));
-        var chunks = Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("", [image], EnableSearch: true))));
+        var chunks = Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("", [image], SearchModes.Force))));
 
         Assert.True(chunks.Count > 0);
         Assert.Contains("Mock provider mock-detailed", string.Concat(chunks.Select(c => c.Text)));
@@ -532,12 +611,12 @@ internal static class OpenAICompatibleChatModelClientTests
             new ChatHistoryEntry(
                 "user",
                 "Previous image",
-                Attachments: [new ChatImageAttachment(Convert.ToBase64String([9, 8, 7]), "image/png", "history.png")]),
+                Attachments: [new ChatAttachment(Convert.ToBase64String([9, 8, 7]), "image/png", "history.png")]),
             new ChatHistoryEntry("model", "Previous answer")
         ]));
         var chunks = Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest(
             "Describe",
-            [new ChatImageAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "image.png")]))));
+            [new ChatAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "image.png")]))));
 
         Assert.Equal("Hello", string.Concat(chunks.Select(c => c.Text)));
         Assert.Equal("Bearer", handler.AuthorizationScheme);
@@ -891,6 +970,9 @@ internal sealed class FakeConversationStore : IConversationStore
     public Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user, int offset, int limit) =>
         Task.FromResult(new List<Conversation>());
 
+    public Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit) =>
+        Task.FromResult(new List<Conversation>());
+
     public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user) =>
         Task.FromResult<Conversation?>(null);
 
@@ -930,7 +1012,7 @@ internal sealed class FakeConversationStore : IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatImageAttachment>? attachments = null)
+        IReadOnlyCollection<ChatAttachment>? attachments = null)
     {
         Messages.Add(new FakeStoredMessage(
             role,
@@ -963,7 +1045,7 @@ internal sealed record FakeStoredMessage(
     string Role,
     string Content,
     string? ThinkingContent,
-    IReadOnlyList<ChatImageAttachment> Attachments);
+    IReadOnlyList<ChatAttachment> Attachments);
 
 internal static class Assert
 {

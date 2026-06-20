@@ -20,7 +20,7 @@ public sealed class MockChatModelClient : IChatModelClient
         {
             Name = "Mock Fast",
             ModelName = "mock-fast",
-            Description = "Local deterministic provider for UI and API testing without cloud credentials.",
+            Description = "Deterministic provider for UI and API tests without cloud credentials.",
             SupportsThinking = true,
             MaxTokens = 8192
         },
@@ -28,7 +28,7 @@ public sealed class MockChatModelClient : IChatModelClient
         {
             Name = "Mock Detailed",
             ModelName = "mock-detailed",
-            Description = "Local deterministic provider with a slightly richer streamed response.",
+            Description = "Deterministic provider with a slightly richer streamed response.",
             SupportsThinking = true,
             MaxTokens = 32768
         }
@@ -40,8 +40,8 @@ public sealed class MockChatModelClient : IChatModelClient
         {
             Id = "default",
             Name = "Mock Assistant",
-            Prompt = "You are a local mock assistant used for testing.",
-            Description = "Deterministic local test assistant"
+            Prompt = "You are a deterministic mock assistant used for testing.",
+            Description = "Deterministic test assistant"
         },
         new()
         {

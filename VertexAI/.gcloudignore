@@ -4,8 +4,6 @@
 .env.*
 bin/
 obj/
-*.md
-*.txt
 logs/
 GCPKey/
 appsettings.*.json

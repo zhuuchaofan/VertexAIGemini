@@ -19,6 +19,7 @@ public static class ConversationEndpoints
     private static async Task<IResult> ListAsync(
         [FromQuery] int? offset,
         [FromQuery] int? limit,
+        [FromQuery] string? cursor,
         HttpContext context,
         IUserContext users,
         IConversationStore conversations)
@@ -28,14 +29,21 @@ public static class ConversationEndpoints
 
         var pageOffset = Math.Max(0, offset ?? 0);
         var pageLimit = Math.Clamp(limit ?? 30, 1, 100);
-        var items = await conversations.GetUserConversationsAsync(currentUser, pageOffset, pageLimit + 1);
+        var items = offset is > 0
+            ? await conversations.GetUserConversationsAsync(currentUser, pageOffset, pageLimit + 1)
+            : await conversations.GetUserConversationsPageAsync(currentUser, cursor, pageLimit + 1);
         var hasMore = items.Count > pageLimit;
+        var pageItems = items.Take(pageLimit).ToList();
+        var nextCursor = hasMore
+            ? pageItems.LastOrDefault()?.UpdatedAt.ToUniversalTime().ToString("O")
+            : null;
 
         return Results.Ok(new ConversationListResponse(
-            items.Take(pageLimit).Select(ToSummary).ToList(),
+            pageItems.Select(ToSummary).ToList(),
             pageOffset,
             pageLimit,
-            hasMore));
+            hasMore,
+            nextCursor));
     }
 
     private static async Task<IResult> GetAsync(
@@ -138,7 +146,8 @@ public static class ConversationEndpoints
         IReadOnlyList<ConversationSummaryResponse> Items,
         int Offset,
         int Limit,
-        bool HasMore);
+        bool HasMore,
+        string? NextCursor);
 
     private sealed record ConversationDetailResponse(
         Guid Id,

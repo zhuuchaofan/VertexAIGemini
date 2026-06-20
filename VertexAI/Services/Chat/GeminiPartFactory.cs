@@ -16,6 +16,11 @@ internal static class GeminiPartFactory
 
         foreach (var attachment in attachments)
         {
+            if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+            {
+                continue;
+            }
+
             parts.Add(new Part
             {
                 InlineData = new Blob

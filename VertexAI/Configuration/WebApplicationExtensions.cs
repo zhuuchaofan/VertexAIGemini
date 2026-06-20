@@ -11,6 +11,7 @@ public static class WebApplicationExtensions
         {
             ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
         });
+        app.UseRateLimiter();
 
         if (app.Environment.IsDevelopment())
         {
