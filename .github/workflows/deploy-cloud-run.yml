@@ -31,6 +31,7 @@ env:
   WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
   DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
   RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+  WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.WEB_INVOKER_SERVICE_ACCOUNT }}
   FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
   FIRESTORE_PROJECT_ID: ${{ vars.FIRESTORE_PROJECT_ID || vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
   FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
@@ -38,6 +39,7 @@ env:
   FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
   DEFAULT_PROVIDER_ID: ${{ vars.DEFAULT_PROVIDER_ID || 'gemini' }}
   ATTACHMENT_STORAGE_BUCKET: ${{ vars.ATTACHMENT_STORAGE_BUCKET || format('{0}-vertex-ai-attachments', vars.GCP_PROJECT_ID) }}
+  ATTACHMENT_STORAGE_ROLE: ${{ vars.ATTACHMENT_STORAGE_ROLE || format('projects/{0}/roles/vertexAiAttachmentObjectUser', vars.GCP_PROJECT_ID) }}
   API_CPU: ${{ vars.API_CPU || '1' }}
   API_MEMORY: ${{ vars.API_MEMORY || '1Gi' }}
   API_CONCURRENCY: ${{ vars.API_CONCURRENCY || '20' }}
@@ -90,6 +92,7 @@ jobs:
             WIF_PROVIDER
             DEPLOY_SERVICE_ACCOUNT
             RUNTIME_SERVICE_ACCOUNT
+            WEB_INVOKER_SERVICE_ACCOUNT
             FIREBASE_PROJECT_ID
             FIRESTORE_PROJECT_ID
             FIREBASE_AUTH_DOMAIN
@@ -135,7 +138,7 @@ jobs:
 
           gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
             --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
-            --role="roles/storage.objectUser" >/dev/null
+            --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
 
       - name: Build and deploy API
         if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'api'
@@ -151,7 +154,7 @@ jobs:
             --region="${REGION}" \
             --image="${api_image}" \
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
             --port=8080 \
             --cpu="${API_CPU}" \
             --memory="${API_MEMORY}" \
@@ -160,6 +163,12 @@ jobs:
             --min-instances="${API_MIN_INSTANCES}" \
             --max-instances="${API_MAX_INSTANCES}" \
             --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
+
+          gcloud run services add-iam-policy-binding "${API_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" >/dev/null
 
       - name: Resolve API URL
         id: api

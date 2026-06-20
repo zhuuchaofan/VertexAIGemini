@@ -7,6 +7,8 @@ REPOSITORY="${REPOSITORY:-vertex-ai}"
 API_SERVICE="${API_SERVICE:-vertex-ai-api}"
 WEB_SERVICE="${WEB_SERVICE:-vertex-ai-web}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
+WEB_INVOKER_SERVICE_ACCOUNT="${WEB_INVOKER_SERVICE_ACCOUNT:-151587524132-compute@developer.gserviceaccount.com}"
+ATTACHMENT_STORAGE_ROLE="${ATTACHMENT_STORAGE_ROLE:-projects/${PROJECT_ID}/roles/vertexAiAttachmentObjectUser}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
 API_CPU="${API_CPU:-1}"
 API_MEMORY="${API_MEMORY:-1Gi}"
@@ -74,7 +76,7 @@ fi
 echo "[INFO] Granting Cloud Run service account object access to gs://${ATTACHMENT_STORAGE_BUCKET}..."
 gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
   --member="serviceAccount:${SERVICE_ACCOUNT}" \
-  --role="roles/storage.objectUser" >/dev/null
+  --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
 
 echo "[INFO] Building API image ${API_IMAGE}..."
 gcloud builds submit VertexAI \
@@ -87,7 +89,7 @@ gcloud run deploy "$API_SERVICE" \
   --region="$REGION" \
   --image="$API_IMAGE" \
   --service-account="$SERVICE_ACCOUNT" \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --port=8080 \
   --cpu="$API_CPU" \
   --memory="$API_MEMORY" \
@@ -96,6 +98,12 @@ gcloud run deploy "$API_SERVICE" \
   --min-instances="$API_MIN_INSTANCES" \
   --max-instances="$API_MAX_INSTANCES" \
   --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
+
+gcloud run services add-iam-policy-binding "$API_SERVICE" \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
+  --role="roles/run.invoker" >/dev/null
 
 API_URL="$(gcloud run services describe "$API_SERVICE" \
   --project="$PROJECT_ID" \

@@ -49,7 +49,8 @@ public sealed class FirebaseUserContext : IUserContext
         return new AuthenticatedUser(
             CreateStableLocalUserId(token.Uid),
             token.Uid,
-            ReadEmail(token));
+            ReadEmail(token),
+            ReadAdminClaim(token));
     }
 
     private static string? ReadBearerToken(HttpContext context)
@@ -68,6 +69,11 @@ public sealed class FirebaseUserContext : IUserContext
         token.Claims.TryGetValue("email", out var value)
             ? value as string
             : null;
+
+    private static bool ReadAdminClaim(FirebaseToken token) =>
+        token.Claims.TryGetValue("admin", out var value)
+        && value is bool admin
+        && admin;
 
     private static Guid CreateStableLocalUserId(string firebaseUid)
     {

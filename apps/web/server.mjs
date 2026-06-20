@@ -6,6 +6,7 @@ const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const backendUrl = resolveBackendUrl();
 const publicDir = new URL("./public/", import.meta.url);
+let serverlessTokenCache = null;
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -57,6 +58,7 @@ async function proxyApi(req, res) {
       headers.set(name, value);
     }
   }
+  await addServerlessAuthorization(headers);
 
   const response = await fetch(target, {
     method: req.method,
@@ -89,6 +91,46 @@ async function proxyApi(req, res) {
   }
 
   res.end();
+}
+
+async function addServerlessAuthorization(headers) {
+  const token = await getServerlessIdentityToken();
+  if (token) {
+    headers.set("x-serverless-authorization", `Bearer ${token}`);
+  }
+}
+
+async function getServerlessIdentityToken() {
+  if (process.env.DISABLE_SERVERLESS_AUTH === "true") {
+    return null;
+  }
+
+  const now = Date.now();
+  if (serverlessTokenCache && serverlessTokenCache.expiresAt > now + 60_000) {
+    return serverlessTokenCache.token;
+  }
+
+  const metadataUrl = new URL("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity");
+  metadataUrl.searchParams.set("audience", backendUrl.origin);
+  metadataUrl.searchParams.set("format", "full");
+
+  try {
+    const response = await fetch(metadataUrl, {
+      headers: { "Metadata-Flavor": "Google" }
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const token = await response.text();
+    serverlessTokenCache = {
+      token,
+      expiresAt: now + 50 * 60 * 1000
+    };
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 async function serveStatic(req, res) {

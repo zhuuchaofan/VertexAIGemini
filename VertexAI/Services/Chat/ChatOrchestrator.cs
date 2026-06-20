@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VertexAI.Services.Quota;
 
 namespace VertexAI.Services.Chat;
 
@@ -12,6 +13,7 @@ public class ChatOrchestrator
     private readonly IConversationStore _conversations;
     private readonly ILogger<ChatOrchestrator> _logger;
     private readonly IReadOnlyList<IChatRequestAugmenter> _augmenters;
+    private readonly IChatQuotaService _quota;
     private readonly int _maxHistoryMessages;
 
     public ChatOrchestrator(
@@ -19,12 +21,14 @@ public class ChatOrchestrator
         IConversationStore conversations,
         ILogger<ChatOrchestrator> logger,
         IOptions<GeminiSettings>? geminiSettings = null,
-        IEnumerable<IChatRequestAugmenter>? augmenters = null)
+        IEnumerable<IChatRequestAugmenter>? augmenters = null,
+        IChatQuotaService? quota = null)
     {
         _providers = providers;
         _conversations = conversations;
         _logger = logger;
         _augmenters = (augmenters ?? [new WebSearchInstructionAugmenter()]).ToArray();
+        _quota = quota ?? new NoOpChatQuotaService();
         _maxHistoryMessages = ResolveMaxHistoryMessages(geminiSettings?.Value);
     }
 
@@ -37,9 +41,12 @@ public class ChatOrchestrator
         var responseBuilder = new StringBuilder();
         var thinkingBuilder = new StringBuilder();
         var allCitations = new List<SearchCitation>();
+        var quotaRequest = CreateQuotaRequest(request);
 
         try
         {
+            await _quota.CheckAndReserveAsync(quotaRequest);
+
             var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
             model = _providers.CreateClient(providerId);
             await model.ConfigureAsync(request.Options);
@@ -140,8 +147,40 @@ public class ChatOrchestrator
                     conversationId.Value,
                     request.User,
                     model.CurrentTokenCount);
+                await _quota.RecordTokenUsageAsync(
+                    quotaRequest,
+                    Math.Max(0, model.CurrentTokenCount));
             }
         }
+    }
+
+    private static ChatQuotaRequest CreateQuotaRequest(ChatSendRequest request) =>
+        new(
+            request.User,
+            RequestCount: 1,
+            EstimatedTokens: EstimateTokens(request.Message, request.Attachments),
+            SearchCount: SearchModes.EnablesWebSearch(request.SearchMode) ? 1 : 0,
+            AttachmentBytes: request.Attachments.Sum(EstimateAttachmentBytes));
+
+    private static int EstimateTokens(string message, IReadOnlyCollection<ChatAttachment> attachments)
+    {
+        var textChars = message.Length + attachments.Sum(attachment => attachment.Base64Data?.Length ?? 0);
+        return Math.Max(1, textChars / 4);
+    }
+
+    private static long EstimateAttachmentBytes(ChatAttachment attachment)
+    {
+        if (attachment.SizeBytes is > 0)
+        {
+            return attachment.SizeBytes.Value;
+        }
+
+        if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+        {
+            return 0;
+        }
+
+        return attachment.Base64Data.Length * 3L / 4L;
     }
 
     private async Task<Guid?> EnsureConversationAsync(

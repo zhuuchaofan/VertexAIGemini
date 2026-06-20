@@ -3,7 +3,8 @@ namespace VertexAI.Services.Auth;
 public sealed record AuthenticatedUser(
     Guid LocalUserId,
     string? FirebaseUid,
-    string? Email);
+    string? Email,
+    bool IsAdmin = false);
 
 public interface IUserContext
 {

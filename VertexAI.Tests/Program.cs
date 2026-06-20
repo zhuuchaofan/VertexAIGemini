@@ -5,6 +5,7 @@ using VertexAI.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using VertexAI.Services.Quota;
 
 var tests = new (string Name, Action Test)[]
 {
@@ -21,6 +22,7 @@ var tests = new (string Name, Action Test)[]
     ("ChatOrchestrator reuses existing conversation", ChatOrchestratorTests.ReusesExistingConversation),
     ("ChatOrchestrator applies model session options", ChatOrchestratorTests.AppliesModelSessionOptions),
     ("ChatOrchestrator applies request augmenters", ChatOrchestratorTests.AppliesRequestAugmenters),
+    ("ChatOrchestrator enforces quota", ChatOrchestratorTests.EnforcesQuota),
     ("ChatOrchestrator maps model failures", ChatOrchestratorTests.MapsModelFailures),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
@@ -254,6 +256,36 @@ internal static class ChatOrchestratorTests
         Assert.Equal(1, store.Messages.Count);
         Assert.Equal("user", store.Messages[0].Role);
         Assert.Equal((conversationId, userId, 7), store.TokenUpdates.Single());
+    }
+
+    public static void EnforcesQuota()
+    {
+        var userId = Guid.NewGuid();
+        var user = TestUser(userId);
+        var model = new FakeChatModelClient
+        {
+            Chunks = [new ChatChunk { Text = "Hello" }]
+        };
+        var store = new FakeConversationStore();
+        var quota = new FakeQuotaService
+        {
+            Failure = new InvalidOperationException("Daily request quota exceeded.")
+        };
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance,
+            quota: quota);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "hi", []),
+            _ => Task.CompletedTask));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("请求次数", result.ErrorMessage ?? "");
+        Assert.Equal(0, store.Messages.Count);
+        Assert.Equal(1, quota.CheckCount);
+        Assert.Equal(0, quota.RecordCount);
     }
 
     public static void PassesMultimodalModelRequest()
@@ -1037,6 +1069,30 @@ internal sealed class FakeConversationStore : IConversationStore
     public Task UpdateTokenCountAsync(Guid conversationId, AuthenticatedUser user, int tokenCount)
     {
         TokenUpdates.Add((conversationId, user.LocalUserId, tokenCount));
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class FakeQuotaService : IChatQuotaService
+{
+    public Exception? Failure { get; set; }
+    public int CheckCount { get; private set; }
+    public int RecordCount { get; private set; }
+
+    public Task CheckAndReserveAsync(ChatQuotaRequest request, CancellationToken cancellationToken = default)
+    {
+        CheckCount++;
+        if (Failure != null)
+        {
+            throw Failure;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task RecordTokenUsageAsync(ChatQuotaRequest request, int actualTokens, CancellationToken cancellationToken = default)
+    {
+        RecordCount++;
         return Task.CompletedTask;
     }
 }

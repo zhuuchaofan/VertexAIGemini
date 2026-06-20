@@ -12,6 +12,7 @@ using VertexAI.Services.Attachments;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Health;
+using VertexAI.Services.Quota;
 
 namespace VertexAI.Configuration;
 
@@ -26,6 +27,7 @@ public static class ServiceCollectionExtensions
         services.Configure<PersistenceSettings>(configuration.GetSection("Persistence"));
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
+        services.Configure<QuotaSettings>(configuration.GetSection("Quota"));
         services.AddApplicationServices(configuration);
         services.AddVertexRateLimiting();
 
@@ -101,6 +103,7 @@ public static class ServiceCollectionExtensions
         });
         services.AddScoped<FirestoreConversationStore>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<FirestoreConversationStore>());
+        services.AddScoped<IChatQuotaService, FirestoreChatQuotaService>();
         services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
         services.AddScoped<ChatOrchestrator>();
 
