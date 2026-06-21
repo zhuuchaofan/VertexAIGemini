@@ -42,6 +42,7 @@ public static class WebApplicationExtensions
         app.MapConversationEndpoints();
         app.MapWorkspaceEndpoints();
         app.MapExportEndpoints();
+        app.MapAdminEndpoints();
 
         return app;
     }

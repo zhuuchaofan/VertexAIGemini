@@ -81,7 +81,7 @@ public static class ConversationEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DeleteAsync(
+    internal static async Task<IResult> DeleteAsync(
         Guid conversationId,
         HttpContext context,
         IUserContext users,

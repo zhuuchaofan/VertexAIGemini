@@ -16,7 +16,7 @@ public static class ExportEndpoints
         group.MapGet("/{conversationId:guid}/json", ExportJsonAsync);
     }
 
-    private static async Task<IResult> ExportMarkdownAsync(
+    internal static async Task<IResult> ExportMarkdownAsync(
         Guid conversationId,
         HttpContext httpContext,
         IConversationStore conversations,
@@ -78,7 +78,7 @@ public static class ExportEndpoints
         return Results.File(fileContent, "text/markdown", fileName);
     }
 
-    private static async Task<IResult> ExportJsonAsync(
+    internal static async Task<IResult> ExportJsonAsync(
         Guid conversationId,
         HttpContext httpContext,
         IConversationStore conversations,

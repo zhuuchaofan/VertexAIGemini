@@ -20,4 +20,12 @@ public class GeminiSettings
     // 新增配置绑定支持
     public List<ChatModelOption> Models { get; set; } = [];
     public List<PromptPresetConfig> Presets { get; set; } = [];
+    public GeminiSafetySettings Safety { get; set; } = new();
+}
+
+public sealed class GeminiSafetySettings
+{
+    public string DefaultThreshold { get; set; } = "BLOCK_MEDIUM_AND_ABOVE";
+    public string AdminThreshold { get; set; } = "OFF";
+    public bool AdminCanDisable { get; set; } = true;
 }

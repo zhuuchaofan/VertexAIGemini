@@ -11,7 +11,7 @@ public static class AuthEndpoints
         group.MapGet("/status", GetStatusAsync);
     }
 
-    private static async Task<IResult> GetStatusAsync(
+    internal static async Task<IResult> GetStatusAsync(
         HttpContext context,
         IUserContext users)
     {

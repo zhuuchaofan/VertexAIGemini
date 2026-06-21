@@ -1,25 +1,46 @@
 # P0 Remediation Checklist
 
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## P0-1 Gemini Safety Policy
 
-Status: planned policy split.
+Status: implemented in code; deploy with production config.
 
 - Admin users: may disable Gemini safety settings for private/admin workflows.
 - Normal users: should use a compliance safety profile by default.
 - Role source: Firebase custom claim `admin=true`.
 - Current code foundation: `AuthenticatedUser.IsAdmin` is populated from Firebase custom claims.
-- Next implementation: add a runtime safety policy option that chooses `OFF` for admins and a compliance threshold for normal users.
+- Runtime policy: `ChatOrchestrator` passes the server-authenticated user to Gemini clients; `GeminiSafetyPolicy` chooses the Gemini safety threshold from that trusted user context.
+- Default user threshold: `BLOCK_MEDIUM_AND_ABOVE`.
+- Admin threshold: `OFF` when `VertexAI:Safety:AdminCanDisable` is enabled.
+
+Configuration section:
+
+```json
+"VertexAI": {
+  "Safety": {
+    "DefaultThreshold": "BLOCK_MEDIUM_AND_ABOVE",
+    "AdminThreshold": "OFF",
+    "AdminCanDisable": true
+  }
+}
+```
+
+Maintenance:
+
+- Keep normal-user production defaults at a compliance threshold unless a formal policy change is approved.
+- Keep admin bypass tied to Firebase custom claim `admin=true`; never trust a browser-supplied admin flag.
+- Regression coverage: `GeminiSafetyPolicy splits admin and default thresholds` and `ChatOrchestrator passes authenticated user to aware model clients`.
 
 ## P0-2 User Budget And Quota
 
-Status: implemented foundation.
+Status: implemented foundation and admin observability endpoint.
 
 Server-side daily quota is enforced before model calls and recorded in Firestore:
 
 - Collection: `usageQuotas`
 - Key shape: `{firebaseUid}_{yyyyMMdd}`
+- Query fields: `userId`, `date`
 - Limits:
   - daily requests
   - daily estimated tokens
@@ -27,6 +48,10 @@ Server-side daily quota is enforced before model calls and recorded in Firestore
   - daily web searches
   - daily attachment bytes
 - Admin bypass: enabled through Firebase custom claim `admin=true`.
+- Admin usage endpoint: `GET /api/admin/quotas/daily?date=yyyy-MM-dd&limit=100&userId=optional`
+  - Requires server-authenticated Firebase custom claim `admin=true`.
+  - Returns entries plus aggregate totals for requests, estimated tokens, actual tokens, web searches, and attachment bytes.
+  - Date accepts `yyyy-MM-dd` or `yyyyMMdd` and is treated as a calendar date, not converted through local time zones.
 
 Configuration section:
 
@@ -44,8 +69,8 @@ Configuration section:
 Follow-up:
 
 - Tune production limits after real usage data.
-- Add admin UI or ops command to inspect daily usage.
 - Add alerting for aggregate daily spend.
+- Backfill `userId` and `date` onto older `usageQuotas` documents if historical admin reports need to include pre-observability records.
 
 ## P0-3 Storage Least Privilege
 
@@ -77,7 +102,7 @@ Maintenance:
 
 ## P0-4 Private API Boundary
 
-Status: in progress; code foundation implemented.
+Status: implemented and verified in Cloud Run on 2026-06-21.
 
 Target architecture:
 
@@ -91,14 +116,47 @@ Current code foundation:
 - `apps/web/server.mjs` fetches an identity token from the Cloud Run metadata server.
 - The token audience is the API origin.
 - The proxy sends it as `X-Serverless-Authorization` so the browser Firebase `Authorization` header remains untouched.
+- `scripts/deploy-cloud-run.sh` and `.github/workflows/deploy-cloud-run.yml` deploy the API with `--no-allow-unauthenticated`, grant `roles/run.invoker` to the web service account, and remove stale `allUsers` invoker bindings.
+- CI smoke checks now expect direct unauthenticated API access to return `403` and validate `/api/workspace/config` through the public web proxy.
 
-Implementation plan:
+Verified:
 
-1. Deploy the updated web service.
-2. Grant `roles/run.invoker` on the API service to the web runtime service account.
-3. Remove public `allUsers` invoker from the API service.
-4. Validate:
-   - Web `/` returns 200.
-   - Web `/api/workspace/config` returns 200.
-   - Direct unauthenticated API request returns 403.
-   - Authenticated browser chat still streams responses.
+- API revision: `vertex-ai-api-00012-mlc`, serving 100% traffic.
+- Web revision: `vertex-ai-web-00012-8m4`, serving 100% traffic.
+- Direct unauthenticated API `/health/live` returns 403.
+- Web `/` returns 200.
+- Web `/api/workspace/config` returns 200 with provider catalog.
+- Authenticated chat through the web proxy streams successfully.
+
+## P0 Test Coverage
+
+Status: endpoint-level coverage expanded; Firestore-backed integration tests still pending.
+
+Implemented regression coverage:
+
+- Gemini safety policy splits normal-user and admin thresholds.
+- Chat orchestration passes server-authenticated user context to user-aware model clients.
+- Admin quota usage endpoint requires admin and returns daily usage query parameters.
+- Export endpoints require authentication, enforce conversation ownership, and include attachment metadata.
+- Conversation delete endpoint requires authentication and dispatches deletion with the authenticated owner.
+
+Remaining:
+
+- Firebase-token integration tests around authenticated API endpoints.
+- Firestore-backed integration coverage for actual conversation ownership queries, export hydration, attachment deletion, and message delete cascades.
+- Live verification that Firestore composite indexes from `firestore.indexes.json` are in `READY` state after deployment.
+
+## P0 Firestore Indexes
+
+Status: deployment automation implemented and live readiness verified on 2026-06-21.
+
+- Source of truth: `firestore.indexes.json`.
+- Manual deploy: `FIRESTORE_PROJECT_ID=... node scripts/deploy-firestore-indexes.mjs`.
+- Scripted deploy: `scripts/deploy-cloud-run.sh` runs the index deployment before building Cloud Run images.
+- CI deploy: `.github/workflows/deploy-cloud-run.yml` runs the same script before deploying services.
+- The script treats already-existing indexes as success so repeated deploys remain safe.
+
+Verified:
+
+- Target Firestore project: `my-agent-app-a5e42`.
+- All three required composite indexes are `READY`.

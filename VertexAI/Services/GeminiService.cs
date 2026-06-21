@@ -3,6 +3,7 @@ using Google.GenAI.Types;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
@@ -10,12 +11,13 @@ namespace VertexAI.Services;
 /// <summary>
 /// Gemini 聊天服务 - 封装与 Vertex AI 的流式交互
 /// </summary>
-public class GeminiService : IChatModelClient, IAsyncDisposable
+public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelClient, IAsyncDisposable
 {
     private readonly Client _client;
     private readonly string _projectId;
     private readonly ChatHistoryManager _historyManager;
     private readonly ILogger<GeminiService> _logger;
+    private readonly GeminiSafetyPolicy _safetyPolicy;
     private string _modelName;
     private GenerateContentConfig _config;
 
@@ -25,6 +27,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     private bool? _thinkingEnabled;
     private string? _thinkingLevel;
     private int? _thinkingBudget;
+    private AuthenticatedUser? _requestUser;
 
     // 公开属性 - 委托给 HistoryManager
     public int CurrentTokenCount => _historyManager.CurrentTokenCount;
@@ -41,9 +44,13 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     public IReadOnlyList<PromptPresetConfig> Presets { get; } = [];
     public IReadOnlyList<ChatModelOption> ModelOptions { get; } = [];
 
-    public GeminiService(IOptions<GeminiSettings> settings, ILogger<GeminiService> logger)
+    public GeminiService(
+        IOptions<GeminiSettings> settings,
+        ILogger<GeminiService> logger,
+        GeminiSafetyPolicy safetyPolicy)
     {
         _logger = logger;
+        _safetyPolicy = safetyPolicy;
         var config = settings.Value;
         _projectId = config.ProjectId;
         ModelOptions = GeminiCatalog.CreateModelOptions(config);
@@ -64,7 +71,13 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         _historyManager = new ChatHistoryManager(_client, _modelName, config);
 
         // 配置生成参数
-        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+        _config = BuildConfig(
+            _currentSystemPrompt,
+            GetCurrentThinking(),
+            _thinkingEnabled,
+            _thinkingLevel,
+            _thinkingBudget,
+            _safetyPolicy.CreateSafetySettings(_requestUser));
 
         _logger.LogInformation("GeminiService 初始化完成, Model={Model}, Project={Project}",
             _modelName, _projectId);
@@ -80,7 +93,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         var matchedPreset = Presets.FirstOrDefault(p => p.Id == presetId);
         _currentSystemPrompt = ResolveSystemPrompt(presetId, matchedPreset, customPrompt);
 
-        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+        RebuildConfig();
         ClearHistory();
     }
 
@@ -91,7 +104,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
     {
         _thinkingLevel = ToThinkingLevelValue(level);
         _thinkingEnabled = _thinkingLevel != "off";
-        _config = BuildConfig(_currentSystemPrompt, GetCurrentThinking(), _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+        RebuildConfig();
     }
 
     /// <summary>
@@ -133,6 +146,12 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         ApplyThinkingOptions(options);
 
         return Task.CompletedTask;
+    }
+
+    public void SetAuthenticatedUser(AuthenticatedUser user)
+    {
+        _requestUser = user;
+        RebuildConfig();
     }
 
     /// <summary>
@@ -426,7 +445,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             _thinkingEnabled = null;
             _thinkingLevel = null;
             _thinkingBudget = null;
-            _config = BuildConfig(_currentSystemPrompt, thinking, _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+            RebuildConfig();
             return;
         }
 
@@ -438,7 +457,18 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             ? NormalizeThinkingBudget(thinking, options?.ThinkingBudget)
             : null;
 
-        _config = BuildConfig(_currentSystemPrompt, thinking, _thinkingEnabled, _thinkingLevel, _thinkingBudget);
+        RebuildConfig();
+    }
+
+    private void RebuildConfig()
+    {
+        _config = BuildConfig(
+            _currentSystemPrompt,
+            GetCurrentThinking(),
+            _thinkingEnabled,
+            _thinkingLevel,
+            _thinkingBudget,
+            _safetyPolicy.CreateSafetySettings(_requestUser));
     }
 
     private static string? NormalizeThinkingLevel(ChatThinkingConfig thinking, string? requested)
@@ -472,7 +502,8 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
         ChatThinkingConfig? thinking,
         bool? thinkingEnabled,
         string? thinkingLevel,
-        int? thinkingBudget)
+        int? thinkingBudget,
+        IReadOnlyList<SafetySetting> safetySettings)
     {
         var isThinkingDisabled = thinking == null || thinkingEnabled == false || thinkingLevel == "off";
 
@@ -486,14 +517,7 @@ public class GeminiService : IChatModelClient, IAsyncDisposable
             MaxOutputTokens = 8192,
             Temperature = 1,
             TopP = 0.9,
-            SafetySettings =
-            [
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HARASSMENT, Threshold = HarmBlockThreshold.OFF },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_HATE_SPEECH, Threshold = HarmBlockThreshold.OFF },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, Threshold = HarmBlockThreshold.OFF },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
-                new SafetySetting { Category = HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, Threshold = HarmBlockThreshold.OFF },
-            ]
+            SafetySettings = safetySettings.ToList()
         };
     }
 

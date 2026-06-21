@@ -7,7 +7,8 @@ REPOSITORY="${REPOSITORY:-vertex-ai}"
 API_SERVICE="${API_SERVICE:-vertex-ai-api}"
 WEB_SERVICE="${WEB_SERVICE:-vertex-ai-web}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
-WEB_INVOKER_SERVICE_ACCOUNT="${WEB_INVOKER_SERVICE_ACCOUNT:-151587524132-compute@developer.gserviceaccount.com}"
+WEB_SERVICE_ACCOUNT="${WEB_SERVICE_ACCOUNT:-}"
+WEB_INVOKER_SERVICE_ACCOUNT="${WEB_INVOKER_SERVICE_ACCOUNT:-}"
 ATTACHMENT_STORAGE_ROLE="${ATTACHMENT_STORAGE_ROLE:-projects/${PROJECT_ID}/roles/vertexAiAttachmentObjectUser}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
 API_CPU="${API_CPU:-1}"
@@ -40,6 +41,9 @@ if [[ -z "$SERVICE_ACCOUNT" ]]; then
   echo "[ERROR] SERVICE_ACCOUNT is required, for example SERVICE_ACCOUNT=cloud-run-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
   exit 1
 fi
+
+WEB_SERVICE_ACCOUNT="${WEB_SERVICE_ACCOUNT:-${WEB_INVOKER_SERVICE_ACCOUNT:-$SERVICE_ACCOUNT}}"
+WEB_INVOKER_SERVICE_ACCOUNT="${WEB_INVOKER_SERVICE_ACCOUNT:-$WEB_SERVICE_ACCOUNT}"
 
 if [[ -z "$FIREBASE_PROJECT_ID" || -z "$FIRESTORE_PROJECT_ID" ]]; then
   echo "[ERROR] FIREBASE_PROJECT_ID and FIRESTORE_PROJECT_ID are required."
@@ -78,6 +82,9 @@ gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}
   --member="serviceAccount:${SERVICE_ACCOUNT}" \
   --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
 
+echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
+FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
+
 echo "[INFO] Building API image ${API_IMAGE}..."
 gcloud builds submit VertexAI \
   --project="$PROJECT_ID" \
@@ -105,6 +112,12 @@ gcloud run services add-iam-policy-binding "$API_SERVICE" \
   --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
   --role="roles/run.invoker" >/dev/null
 
+gcloud run services remove-iam-policy-binding "$API_SERVICE" \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --member="allUsers" \
+  --role="roles/run.invoker" >/dev/null 2>&1 || true
+
 API_URL="$(gcloud run services describe "$API_SERVICE" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
@@ -120,6 +133,7 @@ gcloud run deploy "$WEB_SERVICE" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
   --image="$WEB_IMAGE" \
+  --service-account="$WEB_SERVICE_ACCOUNT" \
   --allow-unauthenticated \
   --port=8080 \
   --cpu="$WEB_CPU" \
@@ -138,5 +152,5 @@ WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
 echo "[INFO] API URL: ${API_URL}"
 echo "[INFO] Web URL: ${WEB_URL}"
 echo "[INFO] Smoke checks:"
-echo "curl -i ${API_URL}/health/live"
-echo "curl -i ${API_URL}/health/ready"
+echo "curl -i ${API_URL}/health/live    # expected: 403 direct unauthenticated"
+echo "curl -i ${WEB_URL}/api/workspace/config    # expected: 200 through web proxy"

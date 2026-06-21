@@ -49,6 +49,11 @@ public class ChatOrchestrator
 
             var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
             model = _providers.CreateClient(providerId);
+            if (model is IAuthenticatedUserAwareChatModelClient userAwareModel)
+            {
+                userAwareModel.SetAuthenticatedUser(request.User);
+            }
+
             await model.ConfigureAsync(request.Options);
 
             conversationId = await EnsureConversationAsync(request, providerId, model);

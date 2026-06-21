@@ -1,9 +1,13 @@
 using VertexAI.Services;
+using VertexAI.Api;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Configuration;
+using HarmBlockThreshold = Google.GenAI.Types.HarmBlockThreshold;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using VertexAI.Services.Quota;
 
@@ -11,6 +15,7 @@ var tests = new (string Name, Action Test)[]
 {
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
+    ("GeminiSafetyPolicy splits admin and default thresholds", GeminiSafetyPolicyTests.SplitsAdminAndDefaultThresholds),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
     ("ChatAttachmentSerializer round-trips and tolerates invalid json", ChatAttachmentSerializerTests.RoundTripsAndToleratesInvalidJson),
@@ -22,8 +27,14 @@ var tests = new (string Name, Action Test)[]
     ("ChatOrchestrator reuses existing conversation", ChatOrchestratorTests.ReusesExistingConversation),
     ("ChatOrchestrator applies model session options", ChatOrchestratorTests.AppliesModelSessionOptions),
     ("ChatOrchestrator applies request augmenters", ChatOrchestratorTests.AppliesRequestAugmenters),
+    ("ChatOrchestrator passes authenticated user to aware model clients", ChatOrchestratorTests.PassesAuthenticatedUserToAwareModelClients),
     ("ChatOrchestrator enforces quota", ChatOrchestratorTests.EnforcesQuota),
     ("ChatOrchestrator maps model failures", ChatOrchestratorTests.MapsModelFailures),
+    ("Auth status endpoint reports authentication state", AuthEndpointTests.StatusReportsAuthenticationState),
+    ("Export endpoints enforce ownership and include attachments", ExportEndpointTests.EnforcesOwnershipAndIncludesAttachments),
+    ("Conversation delete endpoint passes authenticated owner to store", ConversationEndpointTests.DeletePassesAuthenticatedOwnerToStore),
+    ("Admin quota usage endpoint requires admin", AdminEndpointTests.QuotaUsageRequiresAdmin),
+    ("Admin quota usage endpoint returns daily usage", AdminEndpointTests.QuotaUsageReturnsDailyUsage),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
@@ -107,6 +118,32 @@ internal static class GeminiCatalogTests
         Assert.True(pro.SupportsThinking);
         Assert.False(pro.Thinking?.CanDisable ?? true);
         Assert.False(pro.Thinking?.Options.Any(option => option.Value == "off") ?? true);
+    }
+}
+
+internal static class GeminiSafetyPolicyTests
+{
+    public static void SplitsAdminAndDefaultThresholds()
+    {
+        var policy = new GeminiSafetyPolicy(Options.Create(new GeminiSettings
+        {
+            Safety = new GeminiSafetySettings
+            {
+                DefaultThreshold = "BLOCK_MEDIUM_AND_ABOVE",
+                AdminThreshold = "OFF",
+                AdminCanDisable = true
+            }
+        }));
+
+        var normalUser = new AuthenticatedUser(Guid.NewGuid(), "normal", "normal@example.com");
+        var adminUser = normalUser with { IsAdmin = true };
+
+        var normalSettings = policy.CreateSafetySettings(normalUser);
+        var adminSettings = policy.CreateSafetySettings(adminUser);
+
+        Assert.True(normalSettings.Count >= 5);
+        Assert.True(normalSettings.All(setting => setting.Threshold == HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE));
+        Assert.True(adminSettings.All(setting => setting.Threshold == HarmBlockThreshold.OFF));
     }
 }
 
@@ -484,11 +521,247 @@ internal static class ChatOrchestratorTests
         Assert.Equal(SearchModes.Auto, augmenter.LastContext.SearchMode);
     }
 
+    public static void PassesAuthenticatedUserToAwareModelClients()
+    {
+        var userId = Guid.NewGuid();
+        var user = TestUser(userId) with { IsAdmin = true };
+        var model = new FakeChatModelClient
+        {
+            Chunks = [new ChatChunk { Text = "ok" }]
+        };
+        var store = new FakeConversationStore { CreatedConversationId = Guid.NewGuid() };
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "hi", []),
+            _ => Task.CompletedTask));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(user, model.LastAuthenticatedUser);
+    }
+
     private static T Run<T>(Task<T> task) =>
         task.GetAwaiter().GetResult();
 
     private static AuthenticatedUser TestUser(Guid userId) =>
         new(userId, $"firebase-{userId:N}", "test@example.com");
+}
+
+internal static class AdminEndpointTests
+{
+    public static void QuotaUsageRequiresAdmin()
+    {
+        var reader = new FakeQuotaUsageReader();
+
+        var anonymousStatus = ExecuteStatusCode(AdminEndpoints.GetDailyQuotaUsageAsync(
+            null,
+            null,
+            null,
+            new DefaultHttpContext(),
+            new FakeUserContext(null),
+            reader));
+
+        var normalUser = new AuthenticatedUser(Guid.NewGuid(), "normal", "normal@example.com");
+        var forbiddenStatus = ExecuteStatusCode(AdminEndpoints.GetDailyQuotaUsageAsync(
+            null,
+            null,
+            null,
+            new DefaultHttpContext(),
+            new FakeUserContext(normalUser),
+            reader));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, anonymousStatus);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbiddenStatus);
+        Assert.Equal(0, reader.CallCount);
+    }
+
+    public static void QuotaUsageReturnsDailyUsage()
+    {
+        var admin = new AuthenticatedUser(Guid.NewGuid(), "admin", "admin@example.com", IsAdmin: true);
+        var reader = new FakeQuotaUsageReader
+        {
+            Report = new QuotaUsageReport(
+                "20260621",
+                [
+                    new QuotaUsageEntry(
+                        "user-1",
+                        "20260621",
+                        Requests: 2,
+                        EstimatedTokens: 100,
+                        ActualTokens: 80,
+                        Searches: 1,
+                        AttachmentBytes: 2048,
+                        UpdatedAt: new DateTime(2026, 6, 21, 1, 2, 3, DateTimeKind.Utc))
+                ],
+                new QuotaUsageTotals(2, 100, 80, 1, 2048))
+        };
+
+        var status = ExecuteStatusCode(AdminEndpoints.GetDailyQuotaUsageAsync(
+            "2026-06-21",
+            50,
+            " user-1 ",
+            new DefaultHttpContext(),
+            new FakeUserContext(admin),
+            reader));
+
+        Assert.Equal(StatusCodes.Status200OK, status);
+        Assert.Equal(1, reader.CallCount);
+        Assert.Equal("20260621", reader.LastDate);
+        Assert.Equal(50, reader.LastLimit);
+        Assert.Equal("user-1", reader.LastUserId);
+    }
+
+    private static int ExecuteStatusCode(Task<IResult> task)
+    {
+        return ResultTestHelpers.Execute(task).StatusCode;
+    }
+}
+
+internal static class AuthEndpointTests
+{
+    public static void StatusReportsAuthenticationState()
+    {
+        var user = new AuthenticatedUser(Guid.NewGuid(), "firebase-user", "user@example.com");
+
+        var anonymous = ResultTestHelpers.Execute(AuthEndpoints.GetStatusAsync(
+            new DefaultHttpContext(),
+            new FakeUserContext(null)));
+        var authenticated = ResultTestHelpers.Execute(AuthEndpoints.GetStatusAsync(
+            new DefaultHttpContext(),
+            new FakeUserContext(user)));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.StatusCode);
+        Assert.Equal(StatusCodes.Status200OK, authenticated.StatusCode);
+        Assert.Contains("\"success\":true", authenticated.Body);
+        Assert.Contains("\"email\":\"user@example.com\"", authenticated.Body);
+        Assert.Contains($"\"id\":\"{user.LocalUserId:D}\"", authenticated.Body);
+    }
+}
+
+internal static class ExportEndpointTests
+{
+    public static void EnforcesOwnershipAndIncludesAttachments()
+    {
+        var owner = new AuthenticatedUser(Guid.NewGuid(), "owner", "owner@example.com");
+        var other = new AuthenticatedUser(Guid.NewGuid(), "other", "other@example.com");
+        var conversationId = Guid.NewGuid();
+        var attachment = new ChatAttachment(
+            Convert.ToBase64String([1, 2, 3]),
+            "image/png",
+            "pixel.png");
+        var store = new FakeConversationStore();
+        store.Conversations[conversationId] = new Conversation
+        {
+            Id = conversationId,
+            UserId = owner.LocalUserId,
+            ProviderId = "gemini",
+            ModelName = "gemini-3.5-flash",
+            PresetId = "default",
+            Title = "Export Check",
+            TokenCount = 42,
+            CreatedAt = new DateTime(2026, 6, 21, 1, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 6, 21, 1, 1, 0, DateTimeKind.Utc),
+            Messages =
+            [
+                new Message
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = conversationId,
+                    Role = "user",
+                    Content = "hello",
+                    AttachmentsJson = ChatAttachmentSerializer.Serialize([attachment]),
+                    CreatedAt = new DateTime(2026, 6, 21, 1, 2, 0, DateTimeKind.Utc)
+                }
+            ]
+        };
+
+        var anonymous = ResultTestHelpers.Execute(ExportEndpoints.ExportJsonAsync(
+            conversationId,
+            new DefaultHttpContext(),
+            store,
+            new FakeUserContext(null)));
+        var notOwner = ResultTestHelpers.Execute(ExportEndpoints.ExportJsonAsync(
+            conversationId,
+            new DefaultHttpContext(),
+            store,
+            new FakeUserContext(other)));
+        var exported = ResultTestHelpers.Execute(ExportEndpoints.ExportMarkdownAsync(
+            conversationId,
+            new DefaultHttpContext(),
+            store,
+            new FakeUserContext(owner)));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.StatusCode);
+        Assert.Equal(StatusCodes.Status404NotFound, notOwner.StatusCode);
+        Assert.Equal(StatusCodes.Status200OK, exported.StatusCode);
+        Assert.Contains("pixel.png", exported.Body);
+        Assert.Contains("image/png", exported.Body);
+        Assert.Contains("Export Check", exported.Body);
+    }
+}
+
+internal static class ConversationEndpointTests
+{
+    public static void DeletePassesAuthenticatedOwnerToStore()
+    {
+        var user = new AuthenticatedUser(Guid.NewGuid(), "owner", "owner@example.com");
+        var conversationId = Guid.NewGuid();
+        var store = new FakeConversationStore();
+
+        var anonymous = ResultTestHelpers.Execute(ConversationEndpoints.DeleteAsync(
+            conversationId,
+            new DefaultHttpContext(),
+            new FakeUserContext(null),
+            store));
+        var deleted = ResultTestHelpers.Execute(ConversationEndpoints.DeleteAsync(
+            conversationId,
+            new DefaultHttpContext(),
+            new FakeUserContext(user),
+            store));
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent, deleted.StatusCode);
+        Assert.Equal((conversationId, user.LocalUserId), store.DeletedConversations.Single());
+    }
+}
+
+internal static class ResultTestHelpers
+{
+    public static ExecutedResult Execute(Task<IResult> task)
+    {
+        var context = new DefaultHttpContext();
+        var body = new MemoryStream();
+        context.Response.Body = body;
+        context.Features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(body));
+        context.RequestServices = new ServiceCollection()
+            .AddLogging()
+            .BuildServiceProvider();
+
+        var result = task.GetAwaiter().GetResult();
+        result.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        body.Position = 0;
+        using var reader = new StreamReader(body, leaveOpen: true);
+        return new ExecutedResult(context.Response.StatusCode, reader.ReadToEnd());
+    }
+}
+
+internal sealed record ExecutedResult(int StatusCode, string Body);
+
+internal sealed class FakeUserContext : IUserContext
+{
+    private readonly AuthenticatedUser? _user;
+
+    public FakeUserContext(AuthenticatedUser? user)
+    {
+        _user = user;
+    }
+
+    public Task<AuthenticatedUser?> GetCurrentUserAsync(HttpContext context) =>
+        Task.FromResult(_user);
 }
 
 internal sealed class FakeProviderCatalog : IChatProviderCatalog
@@ -929,7 +1202,7 @@ internal sealed class FakeProvider : IChatModelProvider
     public IChatModelClient CreateClient() => Client;
 }
 
-internal sealed class FakeChatModelClient : IChatModelClient
+internal sealed class FakeChatModelClient : IChatModelClient, IAuthenticatedUserAwareChatModelClient
 {
     public int CurrentTokenCount { get; set; }
     public string CurrentModelName { get; set; } = "fake-model";
@@ -942,8 +1215,14 @@ internal sealed class FakeChatModelClient : IChatModelClient
     public IReadOnlyList<ChatHistoryEntry> LoadedHistory { get; private set; } = [];
     public ChatSessionOptions? LastOptions { get; private set; }
     public string? LastProviderId { get; set; }
+    public AuthenticatedUser? LastAuthenticatedUser { get; private set; }
 
     public ChatModelRequest? LastRequest { get; private set; }
+
+    public void SetAuthenticatedUser(AuthenticatedUser user)
+    {
+        LastAuthenticatedUser = user;
+    }
 
     public Task ConfigureAsync(ChatSessionOptions? options)
     {
@@ -998,6 +1277,8 @@ internal sealed class FakeConversationStore : IConversationStore
     public IReadOnlyList<ChatHistoryEntry> History { get; init; } = [];
     public int? LastHistoryMaxMessages { get; private set; }
     public List<(Guid ConversationId, Guid UserId, int TokenCount)> TokenUpdates { get; } = [];
+    public Dictionary<Guid, Conversation> Conversations { get; } = [];
+    public List<(Guid ConversationId, Guid UserId)> DeletedConversations { get; } = [];
 
     public Task<List<Conversation>> GetUserConversationsAsync(AuthenticatedUser user, int offset, int limit) =>
         Task.FromResult(new List<Conversation>());
@@ -1005,8 +1286,16 @@ internal sealed class FakeConversationStore : IConversationStore
     public Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit) =>
         Task.FromResult(new List<Conversation>());
 
-    public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user) =>
-        Task.FromResult<Conversation?>(null);
+    public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user)
+    {
+        if (!Conversations.TryGetValue(conversationId, out var conversation)
+            || conversation.UserId != user.LocalUserId)
+        {
+            return Task.FromResult<Conversation?>(null);
+        }
+
+        return Task.FromResult<Conversation?>(conversation);
+    }
 
     public Task<Conversation?> CreateConversationAsync(
         AuthenticatedUser user,
@@ -1063,8 +1352,11 @@ internal sealed class FakeConversationStore : IConversationStore
     public Task UpdateTitleAsync(Guid conversationId, AuthenticatedUser user, string title) =>
         Task.CompletedTask;
 
-    public Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user) =>
-        Task.CompletedTask;
+    public Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user)
+    {
+        DeletedConversations.Add((conversationId, user.LocalUserId));
+        return Task.CompletedTask;
+    }
 
     public Task UpdateTokenCountAsync(Guid conversationId, AuthenticatedUser user, int tokenCount)
     {
@@ -1094,6 +1386,32 @@ internal sealed class FakeQuotaService : IChatQuotaService
     {
         RecordCount++;
         return Task.CompletedTask;
+    }
+}
+
+internal sealed class FakeQuotaUsageReader : IQuotaUsageReader
+{
+    public QuotaUsageReport Report { get; set; } = new(
+        "20260621",
+        [],
+        new QuotaUsageTotals(0, 0, 0, 0, 0));
+
+    public int CallCount { get; private set; }
+    public string? LastDate { get; private set; }
+    public int LastLimit { get; private set; }
+    public string? LastUserId { get; private set; }
+
+    public Task<QuotaUsageReport> GetDailyUsageAsync(
+        string date,
+        int limit,
+        string? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        CallCount++;
+        LastDate = date;
+        LastLimit = limit;
+        LastUserId = userId;
+        return Task.FromResult(Report);
     }
 }
 

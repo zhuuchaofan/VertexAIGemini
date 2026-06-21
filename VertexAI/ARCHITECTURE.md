@@ -55,7 +55,7 @@ Request augmentation is handled by `IChatRequestAugmenter` implementations. Each
 
 ## Remaining Work
 
-1. Deploy Firestore composite indexes from `firestore.indexes.json`.
+1. Verify Firestore composite indexes from `firestore.indexes.json` are `READY` after deployment.
 2. Add Firebase-token integration tests around authenticated API endpoints.
-3. Add Firestore-backed integration coverage for conversation ownership, export, and delete cascades.
+3. Add Firestore-backed integration coverage for conversation ownership, export, and delete cascades. Endpoint-level regression coverage now verifies export ownership, attachment metadata export, and authenticated delete dispatch.
 4. Convert the lightweight test runner to a full test framework if CI reporting needs richer output.

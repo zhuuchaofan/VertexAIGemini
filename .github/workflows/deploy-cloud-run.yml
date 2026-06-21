@@ -31,7 +31,8 @@ env:
   WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
   DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
   RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
-  WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.WEB_INVOKER_SERVICE_ACCOUNT }}
+  WEB_SERVICE_ACCOUNT: ${{ vars.WEB_SERVICE_ACCOUNT || vars.WEB_INVOKER_SERVICE_ACCOUNT || vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+  WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.WEB_INVOKER_SERVICE_ACCOUNT || vars.WEB_SERVICE_ACCOUNT || vars.CLOUD_RUN_SERVICE_ACCOUNT }}
   FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
   FIRESTORE_PROJECT_ID: ${{ vars.FIRESTORE_PROJECT_ID || vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
   FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
@@ -92,6 +93,7 @@ jobs:
             WIF_PROVIDER
             DEPLOY_SERVICE_ACCOUNT
             RUNTIME_SERVICE_ACCOUNT
+            WEB_SERVICE_ACCOUNT
             WEB_INVOKER_SERVICE_ACCOUNT
             FIREBASE_PROJECT_ID
             FIRESTORE_PROJECT_ID
@@ -140,6 +142,9 @@ jobs:
             --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
             --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
 
+      - name: Ensure Firestore indexes
+        run: node scripts/deploy-firestore-indexes.mjs
+
       - name: Build and deploy API
         if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'api'
         run: |
@@ -170,6 +175,12 @@ jobs:
             --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
             --role="roles/run.invoker" >/dev/null
 
+          gcloud run services remove-iam-policy-binding "${API_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --member="allUsers" \
+            --role="roles/run.invoker" >/dev/null 2>&1 || true
+
       - name: Resolve API URL
         id: api
         run: |
@@ -192,6 +203,7 @@ jobs:
             --project="${PROJECT_ID}" \
             --region="${REGION}" \
             --image="${web_image}" \
+            --service-account="${WEB_SERVICE_ACCOUNT}" \
             --allow-unauthenticated \
             --port=8080 \
             --cpu="${WEB_CPU}" \
@@ -202,7 +214,22 @@ jobs:
             --max-instances="${WEB_MAX_INSTANCES}" \
             --set-env-vars="BACKEND_URL=${{ steps.api.outputs.url }}"
 
-      - name: Smoke check API
+      - name: Resolve web URL
+        id: web
         run: |
-          curl -fsS "${{ steps.api.outputs.url }}/health/live"
-          curl -fsS "${{ steps.api.outputs.url }}/health/ready"
+          web_url="$(gcloud run services describe "${WEB_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          echo "url=${web_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Smoke check private API boundary
+        run: |
+          api_status="$(curl -sS -o /dev/null -w '%{http_code}' "${{ steps.api.outputs.url }}/health/live")"
+          if [[ "${api_status}" != "403" ]]; then
+            echo "::error::Expected direct unauthenticated API /health/live to return 403, got ${api_status}"
+            exit 1
+          fi
+
+          curl -fsS "${{ steps.web.outputs.url }}/"
+          curl -fsS "${{ steps.web.outputs.url }}/api/workspace/config" >/dev/null

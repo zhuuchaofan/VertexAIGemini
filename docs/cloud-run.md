@@ -24,13 +24,18 @@ If Firebase/Firestore and Vertex AI live in different Google Cloud projects, gra
 
 ## Scripted Deployment
 
-The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact Registry repository if missing, builds both images with Cloud Build, deploys the API service, reads its URL, then deploys the web service with `BACKEND_URL` pointing at the API.
+The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact
+Registry repository if missing, builds both images with Cloud Build, deploys the
+private API service, grants the web service account `roles/run.invoker` on that
+API service, reads the API URL, then deploys the public web service with
+`BACKEND_URL` pointing at the API.
 
 All deployment values are provided through shell environment variables or CI
 variables/secrets. The script does not read env files.
 
 ```bash
 SERVICE_ACCOUNT=cloud-run-runtime@your-gcp-project-id.iam.gserviceaccount.com \
+WEB_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com \
 PROJECT_ID=your-gcp-project-id \
 FIREBASE_API_KEY=your-firebase-web-api-key \
 FIREBASE_APP_ID=your-firebase-web-app-id \
@@ -46,6 +51,8 @@ REPOSITORY=vertex-ai
 IMAGE_TAG=git-sha-or-release-id
 API_SERVICE=vertex-ai-api
 WEB_SERVICE=vertex-ai-web
+WEB_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com
+WEB_INVOKER_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com
 FIREBASE_PROJECT_ID=your-firebase-project-id
 FIRESTORE_PROJECT_ID=your-firebase-project-id
 FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
@@ -56,8 +63,8 @@ ATTACHMENT_STORAGE_BUCKET=your-gcp-project-id-vertex-ai-attachments
 ## Automated Deployment
 
 The mainstream production pattern is to deploy from CI. This repository
-includes `.github/workflows/deploy-cloud-run.yml`, which
-builds, tests, deploys Cloud Run revisions, and runs API smoke checks.
+includes `.github/workflows/deploy-cloud-run.yml`, which builds, tests, deploys
+Cloud Run revisions, and runs private-boundary smoke checks.
 
 Recommended setup:
 
@@ -78,6 +85,7 @@ ARTIFACT_REPOSITORY
 API_SERVICE
 WEB_SERVICE
 CLOUD_RUN_SERVICE_ACCOUNT
+WEB_SERVICE_ACCOUNT
 GCP_DEPLOY_SERVICE_ACCOUNT
 WIF_PROVIDER
 FIREBASE_PROJECT_ID
@@ -102,33 +110,29 @@ After the web service URL is created, add its host to Firebase Authentication
 authorized domains. Without that Firebase setting, browser login can fail even
 when the Cloud Run services are healthy.
 
+## Private API Boundary
+
+The production boundary is:
+
+- `vertex-ai-web` is public.
+- `vertex-ai-api` is private and deployed with `--no-allow-unauthenticated`.
+- The web service runs as `WEB_SERVICE_ACCOUNT`.
+- The API grants `roles/run.invoker` only to the web service account.
+- The web proxy sends Cloud Run's identity token in
+  `X-Serverless-Authorization`.
+- Browser Firebase ID tokens stay in `Authorization` and are verified by the
+  API application.
+
+The deployment script and CI remove any stale `allUsers` `roles/run.invoker`
+binding from the API service after deployment.
+
 ## Firestore Indexes
 
-Deploy indexes before routing traffic:
+Deploy indexes before routing traffic. The deploy script and CI run this
+automatically from `firestore.indexes.json`:
 
 ```bash
-gcloud firestore indexes composite create \
-  --project=your-firebase-project-id \
-  --collection-group=conversations \
-  --query-scope=COLLECTION \
-  --field-config=field-path=uid,order=ASCENDING \
-  --field-config=field-path=updatedAt,order=DESCENDING
-
-gcloud firestore indexes composite create \
-  --project=your-firebase-project-id \
-  --collection-group=messages \
-  --query-scope=COLLECTION \
-  --field-config=field-path=uid,order=ASCENDING \
-  --field-config=field-path=conversationId,order=ASCENDING \
-  --field-config=field-path=createdAt,order=ASCENDING
-
-gcloud firestore indexes composite create \
-  --project=your-firebase-project-id \
-  --collection-group=messages \
-  --query-scope=COLLECTION \
-  --field-config=field-path=uid,order=ASCENDING \
-  --field-config=field-path=conversationId,order=ASCENDING \
-  --field-config=field-path=createdAt,order=DESCENDING
+FIRESTORE_PROJECT_ID=your-firebase-project-id node scripts/deploy-firestore-indexes.mjs
 ```
 
 Check readiness:
@@ -157,7 +161,7 @@ gcloud run deploy vertex-ai-api \
   --region=REGION \
   --image=REGION-docker.pkg.dev/your-gcp-project-id/REPOSITORY/vertex-ai-api:IMAGE_TAG \
   --service-account=SERVICE_ACCOUNT_EMAIL \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --port=8080 \
   --cpu=1 \
   --memory=1Gi \
@@ -209,6 +213,7 @@ gcloud run deploy vertex-ai-web \
   --project=your-gcp-project-id \
   --region=REGION \
   --image=REGION-docker.pkg.dev/your-gcp-project-id/REPOSITORY/vertex-ai-web:IMAGE_TAG \
+  --service-account=WEB_SERVICE_ACCOUNT_EMAIL \
   --allow-unauthenticated \
   --port=8080 \
   --cpu=1 \
@@ -226,8 +231,13 @@ Cloud Run serves the web container on port `8080`.
 
 ```bash
 curl -i https://API_URL/health/live
-curl -i https://API_URL/health/ready
+# Expected: 403, because the API service is private.
+
 curl -i https://WEB_URL/
+# Expected: 200.
+
+curl -i https://WEB_URL/api/workspace/config
+# Expected: 200 through the web proxy.
 ```
 
 Then sign in through the web service and send a short chat message. A successful request should create:
@@ -440,4 +450,57 @@ Smoke check results:
 GET API /health/live: 200 Healthy
 GET API /health/ready: 200 Healthy
 GET Web /: 200 OK
+```
+
+### 2026-06-21 P0 Hardening Deployment
+
+This rollout deployed the P0 hardening changes:
+
+- Gemini safety policy split for normal users and admins.
+- Admin quota usage endpoint.
+- Endpoint-level export ownership and delete dispatch regression coverage.
+- Private API boundary deployment automation.
+- Firestore index deployment automation.
+
+Pre-deployment checks:
+
+```bash
+npm run check --prefix apps/web
+dotnet build VertexAI/VertexAI.csproj --no-restore /p:NuGetAudit=false
+dotnet build VertexAI.Tests/VertexAI.Tests.csproj --no-restore /p:NuGetAudit=false
+dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-restore
+git diff --check
+```
+
+Cloud Build results:
+
+```text
+API build: ca53f995-2325-4d39-a4f9-f358f38f4863 SUCCESS
+API image: asia-east1-docker.pkg.dev/copper-affinity-467409-k7/vertex-ai/vertex-ai-api:p0-20260621-hardening
+API digest: sha256:e86add409da12acb67f26c369d3b035d97ee1aca37f5179399c1587032713807
+
+Web build: 6b26bcf5-23e5-42e5-88f9-e92f5391be38 SUCCESS
+Web image: asia-east1-docker.pkg.dev/copper-affinity-467409-k7/vertex-ai/vertex-ai-web:p0-20260621-hardening
+Web digest: sha256:ae67dfa2c36eb43a9326698392da36a6816431b26ac9c7f3a7715c15a0a3af0f
+```
+
+Cloud Run results:
+
+```text
+API revision: vertex-ai-api-00012-mlc
+API URL: https://vertex-ai-api-151587524132.asia-east1.run.app
+
+Web revision: vertex-ai-web-00012-8m4
+Web URL: https://vertex-ai-web-151587524132.asia-east1.run.app
+```
+
+Smoke check results:
+
+```text
+GET direct API /health/live: 403 Forbidden
+GET Web /: 200 OK
+GET Web /api/workspace/config: 200 OK
+Provider catalog: defaultProviderId=gemini, providerCount=1, modelCount=4
+Authenticated chat through web proxy: 200 OK, finalSucceeded=true
+Firestore indexes in my-agent-app-a5e42: 3 READY
 ```

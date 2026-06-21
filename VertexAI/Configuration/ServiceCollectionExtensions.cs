@@ -81,6 +81,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddHttpClient(nameof(OpenAICompatibleChatModelClient));
 
+        services.AddSingleton<GeminiSafetyPolicy>();
         services.AddScoped<GeminiService>();
         services.AddScoped<IChatModelProvider, GeminiProvider>();
         foreach (var providerSettings in LoadOpenAICompatibleProviders(configuration))
@@ -104,6 +105,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<FirestoreConversationStore>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<FirestoreConversationStore>());
         services.AddScoped<IChatQuotaService, FirestoreChatQuotaService>();
+        services.AddScoped<IQuotaUsageReader, FirestoreQuotaUsageReader>();
         services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
         services.AddScoped<ChatOrchestrator>();
 
