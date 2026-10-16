@@ -56,7 +56,7 @@ PR #1（草稿）创建后 CI 自动运行。对包含全部代码改动的提�
 | scripts-test（发布脚本测试，假 gcloud） | ✅ 成功 |
 | firestore-emulator-test（Firestore 模拟器，87 项） | ✅ 成功（约 2 分钟） |
 
-后续仅文档的提交（`d754550` 起）会再次触发 CI；代码未变。**CI 首次运行即全绿，没有需要修复的 CI 失败。** 注意：CI 不运行浏览器端到端脚本，也不接触任何云端。
+**第二轮复审后的 head `25aa8ea`（[run #31](https://github.com/zhuuchaofan/VertexAIGemini/actions/runs/38875919679)）**：build-test、web-test、scripts-test（含发布脚本测试与仓库卫生检查）、firestore-emulator-test 四个作业**全部成功**。没有需要修复的 CI 失败。注意：CI 不运行浏览器端到端脚本，也不接触任何云端。PR 仍为 Draft；部署工作流本身没有出现在 PR 的任何运行里。
 
 ## 3. 模型生命周期、区域与 Standard PayGo
 官方页面（`docs.cloud.google.com`）在本环境无法直接打开；以下来自对官方页面的**搜索摘录**，凡标"未核实"的需你对照官方页面。
@@ -279,3 +279,35 @@ web Cloud Run 超时        330s
 | 仓库卫生检查 | ✅ 14 项 |
 | 浏览器端到端 | ✅ 6 项 |
 | 变异验证 | ✅ 本轮新增 5 种脚本变异 + 4 种仓库卫生变异，均被捕获 |
+
+## 14. 是否已具备开始"候选环境验收"的条件
+
+**代码和流水线：具备。** 发布脚本、部署工作流和仓库卫生已通过自动化测试与 CI；工作流只能手动触发，PR 与合并都不会部署。
+
+**云端环境：尚不具备。** 开始第 8.2 节用例之前，你需要先完成（我没有也不会替你操作）：
+1. 一个可用于验收的 Cloud Run 环境：**独立的测试服务**（推荐，复制一份服务名/项目）或现有项目里的 `--no-traffic` 候选。首次部署的服务不受候选保护，所以不要把首次创建直接放在生产服务上。
+2. GitHub 仓库变量/机密（`GCP_PROJECT_ID`、`WIF_PROVIDER`、`GCP_DEPLOY_SERVICE_ACCOUNT`、`CLOUD_RUN_SERVICE_ACCOUNT`、`FIREBASE_AUTH_DOMAIN`、`FIREBASE_API_KEY`、`FIREBASE_APP_ID`），以及 B7 的令牌签发配置（`CRR_IDENTITY_TOKEN_SA`）。
+3. 访问白名单（B2）与 Spend cap / 预算告警（B3）已配置，避免验收期间产生不受控费用。
+4. （如使用）Secret Manager 迁移（B6）。
+完成后，在 GitHub Actions 里手动运行 `Deploy Cloud Run`，先对测试环境，按 8.2 逐项验收。
+
+## 15. 状态一览（截至第二轮复审）
+
+### 已彻底解决（代码 + 自动化测试 + CI）
+- 误提交的模拟器日志：已移除、已忽略、CI 拦截；无凭据，无需轮换。
+- `crr_promote` 错误传播；切流后核实；回滚范围与回滚核实；回滚失败的告警。
+- 切流前的 IAM 变更（服务级 IAM 标志、`allUsers` 的静默移除、授权前移、桶授权重复写入）。
+- 取不到私有 API 候选令牌时跳过检查（现为停止）。
+- 部署工作流的自动触发（现为仅手动）；CI 只读；CI 无云端认证、无写仓库步骤。
+- 第一轮的 6 个缺陷（配额跨日、冲突提示、超时分层、绕过防护、密钥格式、候选闸门）与思考关闭映射。
+
+### 需要真实 Google Cloud 验证
+- B1 全部：Vertex 调用与区域、图片/PDF、思考档位、搜索、取消后上游停止、断线表现、旧会话读取。
+- 候选标签 URL 的拼接规则；标签 URL 是否接受以服务 URL 为受众的令牌；`--min/max-instances` 是否随候选立即生效。
+- `update-traffic --to-latest` 后 `status.traffic` 的真实形态（脚本已按"带标签的 0% 条目可能在前"处理，用 JSON 解析 `percent==100`）。
+- `--no-allow-unauthenticated` 之外，现有服务不带该参数时的访问策略是否保持不变。
+- 真实 Firestore 在高并发下全站计数的冲突表现；Firestore 安全规则；IAM 实际授权；Billing / Spend cap 的适用性。
+- Secret 迁移的类型冲突报错文案；`CRR_IDENTITY_TOKEN_SA` 的 IAM 配置是否足以签发令牌。
+
+### 仍属 Phase 1 的已知项（本轮未扩大范围）
+- 把"创建仓库/桶/索引"从每次发布移到一次性 bootstrap；分片计数；供应商真实 usage 结算；JSON 日志与告警；会话分页；web 与 API 使用不同服务账号。
