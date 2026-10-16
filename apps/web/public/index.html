@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>球球布丁工作室</title>
-    <link rel="stylesheet" href="/styles.css?v=20261016" />
+    <link rel="stylesheet" href="/styles.css?v=20261016b" />
   </head>
   <body>
     <main class="app-loading" id="app-loading" aria-live="polite" aria-busy="true">
@@ -64,6 +64,8 @@
         </div>
 
         <button id="logout-button" class="ghost hidden" type="button">退出登录</button>
+        <details class="settings-fold" id="settings-fold" open>
+        <summary>会话设置</summary>
         <section class="workspace-settings" aria-label="会话设置">
           <label>
             提供商
@@ -90,8 +92,9 @@
               <option value="force">强制查证</option>
             </select>
           </label>
-          <button id="new-chat" class="ghost" type="button">新对话</button>
         </section>
+        </details>
+        <button id="new-chat" class="primary" type="button">＋ 新对话</button>
 
         <section class="conversation-panel" aria-label="会话">
           <div class="panel-heading">
@@ -167,6 +170,6 @@
       </article>
     </template>
 
-    <script type="module" src="/app.js?v=20261016"></script>
+    <script type="module" src="/app.js?v=20261016b"></script>
   </body>
 </html>

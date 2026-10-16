@@ -1030,3 +1030,13 @@ button:disabled {
 .messages { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media (max-width: 820px) { .message.user { max-width: 92%; } .message.assistant { max-width: 100%; } }
+
+.message-content pre .code-copy { position: absolute; top: 6px; right: 6px; padding: 3px 8px; border: 1px solid #334155; border-radius: 6px; background: #1e293b; color: #cbd5e1; font-size: 11px; opacity: 0; transition: opacity 120ms ease; }
+.message-content pre:hover .code-copy, .message-content pre .code-copy:focus-visible { opacity: 1; }
+@media (hover: none) { .message-content pre .code-copy { opacity: 1; } }
+.settings-fold > summary { cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 700; list-style: none; padding: 4px 0 12px; }
+.settings-fold > summary::before { content: "▾ "; }
+.settings-fold:not([open]) > summary::before { content: "▸ "; }
+.settings-fold > summary::-webkit-details-marker { display: none; }
+.sidebar { gap: 16px; }
+.conversation-panel { min-height: 0; }

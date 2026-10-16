@@ -123,6 +123,14 @@ elements.messageInput.addEventListener("keydown", event => {
 });
 elements.messageInput.addEventListener("input", resizeComposer);
 
+const settingsFold = document.querySelector("#settings-fold");
+try {
+  settingsFold.open = localStorage.getItem("vertex-settings-open") !== "false";
+} catch { /* storage unavailable */ }
+settingsFold.addEventListener("toggle", () => {
+  try { localStorage.setItem("vertex-settings-open", String(settingsFold.open)); } catch { /* ignore */ }
+});
+
 renderSidebarState();
 await loadWorkspaceConfig();
 await initializeFirebaseAuth();
@@ -908,6 +916,14 @@ async function loadConversation(conversationId) {
 
 function handleMessagesClick(event) {
   const actionTarget = event.target.closest("[data-action]");
+  if (actionTarget?.dataset.action === "copy-code") {
+    const code = actionTarget.parentElement.querySelector("code")?.textContent ?? "";
+    navigator.clipboard?.writeText(code).then(() => {
+      actionTarget.textContent = "已复制";
+      window.setTimeout(() => { actionTarget.textContent = "复制"; }, 1500);
+    }).catch(() => { actionTarget.textContent = "失败"; });
+    return;
+  }
   if (actionTarget?.dataset.action !== "load-older-messages") {
     return;
   }

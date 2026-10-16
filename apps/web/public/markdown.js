@@ -28,7 +28,12 @@ export function parseMarkdown(markdown) {
       code.dataset.language = codeFence.language;
     }
     code.textContent = codeFence.lines.join("\n");
-    pre.append(code);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "code-copy";
+    copy.dataset.action = "copy-code";
+    copy.textContent = "复制";
+    pre.append(copy, code);
     nodes.push(pre);
     codeFence = null;
   };
