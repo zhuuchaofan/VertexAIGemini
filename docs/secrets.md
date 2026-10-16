@@ -32,6 +32,9 @@
    - 为空时部署**不改动**服务上已有的密钥挂载。
    - 推荐写**明确的版本号**而不是 `latest`：每个修订版固化了自己引用的版本，回滚到旧修订版时会连同旧密钥版本一起回去；`latest` 在实例启动时解析，轮换后需要新修订版/新实例才会生效。
 
+## staging 与生产的密钥相互独立
+staging 使用 staging 项目自己的 Secret Manager 和 `STAGING_API_SECRETS`；不要让 staging 的运行账号读取生产密钥，也不要把生产供应商 Key 复制到 staging（用单独的低额度测试 Key）。详见 `docs/staging-and-release-guide.md`。
+
 ## 回滚
 部署脚本在冒烟失败时自动把流量切回上一个修订版（见 `docs/cloud-run.md`）。手工回滚：
 ```bash

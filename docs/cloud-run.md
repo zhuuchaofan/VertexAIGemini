@@ -24,98 +24,81 @@ If Firebase/Firestore and Vertex AI live in different Google Cloud projects, gra
 
 ## Scripted Deployment
 
-The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact
-Registry repository if missing, builds both images with Cloud Build, deploys the
-private API service, grants the web service account `roles/run.invoker` on that
-API service, reads the API URL, then deploys the public web service with
-`BACKEND_URL` pointing at the API.
+`scripts/deploy-cloud-run.sh` builds both images with Cloud Build and runs the release procedure in
+`scripts/lib/cloud-run-release.sh`. **By default it only prepares a no-traffic candidate in the STAGING
+environment.** It never moves traffic unless `CRR_MODE=promote` and the confirmation phrase are both supplied
+(see "发布流程" below). Infrastructure creation (Artifact Registry repository, attachment bucket, bucket IAM,
+Firestore indexes) only happens when `BOOTSTRAP_INFRASTRUCTURE=true` is set together with `CRR_MODE=prepare`.
 
-All deployment values are provided through shell environment variables or CI
-variables/secrets. The script does not read env files.
+All deployment values are provided through shell environment variables or CI variables/secrets. The script does
+not read env files.
 
 ```bash
-SERVICE_ACCOUNT=cloud-run-runtime@your-gcp-project-id.iam.gserviceaccount.com \
-WEB_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com \
-PROJECT_ID=your-gcp-project-id \
-FIREBASE_API_KEY=your-firebase-web-api-key \
-FIREBASE_APP_ID=your-firebase-web-app-id \
+# Staging candidate (the default environment and mode). Staging service names must end with "-staging", the
+# bucket name must contain "staging", and staging must not share Firestore/Firebase/bucket with production.
+CRR_ENV=staging CRR_MODE=prepare \
+SERVICE_ACCOUNT=cloud-run-runtime@your-staging-project.iam.gserviceaccount.com \
+WEB_SERVICE_ACCOUNT=cloud-run-web@your-staging-project.iam.gserviceaccount.com \
+PROJECT_ID=your-staging-project \
+API_SERVICE=vertex-ai-api-staging WEB_SERVICE=vertex-ai-web-staging \
+ATTACHMENT_STORAGE_BUCKET=your-staging-project-attachments-staging \
+ACCESS_ALLOWED_EMAILS=tester@example.com \
+PRODUCTION_FIRESTORE_PROJECT_ID=your-production-project \
+PRODUCTION_FIREBASE_PROJECT_ID=your-production-project \
+PRODUCTION_ATTACHMENT_STORAGE_BUCKET=your-production-bucket \
+FIREBASE_API_KEY=staging-firebase-web-api-key \
+FIREBASE_APP_ID=staging-firebase-web-app-id \
 ./scripts/deploy-cloud-run.sh
 ```
 
-Optional overrides:
+Optional overrides (all per environment):
 
 ```bash
-PROJECT_ID=your-gcp-project-id
 REGION=asia-east1
 REPOSITORY=vertex-ai
-IMAGE_TAG=git-sha-or-release-id
-API_SERVICE=vertex-ai-api
-WEB_SERVICE=vertex-ai-web
-WEB_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com
+IMAGE_TAG=git-sha-or-release-id      # promote must use the SAME tag that prepare deployed
+DEPLOY_TARGET=all                    # all | api | web
 WEB_INVOKER_SERVICE_ACCOUNT=cloud-run-web@your-gcp-project-id.iam.gserviceaccount.com
 FIREBASE_PROJECT_ID=your-firebase-project-id
 FIRESTORE_PROJECT_ID=your-firebase-project-id
 FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
 DEFAULT_PROVIDER_ID=gemini
-ATTACHMENT_STORAGE_BUCKET=your-gcp-project-id-vertex-ai-attachments
 ```
 
-## Automated Deployment
+## Automated Deployment (GitHub Actions, manual dispatch only)
 
-The mainstream production pattern is to deploy from CI. This repository
-includes `.github/workflows/deploy-cloud-run.yml`, which builds, tests, deploys
-Cloud Run revisions, and runs private-boundary smoke checks.
+`.github/workflows/deploy-cloud-run.yml` runs the same procedure from GitHub Actions. **It has no `push` or
+`pull_request` trigger: merging to `main` or opening a PR never deploys.** It is started by hand from the Actions
+tab with these inputs (the defaults are the safe ones):
 
-Recommended setup:
+| Input | Default | Meaning |
+|---|---|---|
+| `target_env` | `staging` | `staging` or `production`. Selects a completely separate set of variables (`STAGING_*` vs the unprefixed production ones). A missing value is never taken from the other environment. |
+| `mode` | `prepare` | `prepare` builds and deploys a no-traffic candidate. `promote` switches traffic to an already prepared candidate. |
+| `deploy_target` | `all` | `all`, `api` or `web`. |
+| `bootstrap_infrastructure` | `false` | First-time setup only (prepare mode): Artifact Registry repo, bucket, bucket IAM, Firestore indexes. |
+| `confirm_promote` | empty | Promote only. Must equal `promote:<env>:<full commit SHA>`; the prepare run prints the exact text. |
+| `acceptance_ref` | empty | Production promote only. Link/ID of the passed `Staging Acceptance` run. |
 
-- Use GitHub Actions Workload Identity Federation for Google Cloud auth. Avoid
-  long-lived JSON service account keys.
-- Store non-secret deployment settings as GitHub Actions repository variables.
-- Store Firebase web app values that should not live in source control as
-  GitHub Actions repository secrets.
-- Deploy immutable image tags using the Git SHA. Avoid relying on `latest` for
-  automated deploys.
+`.github/workflows/staging-acceptance.yml` is a second, staging-only manual workflow that runs the business
+acceptance suite (real model, attachments, thinking, search, cancel, data saved) against the live staging web.
 
-Required repository variables:
+The complete, ordered list of GitHub variables/secrets, GCP IAM, Firebase, Firestore, Cloud Storage and billing
+steps is in [`docs/staging-and-release-guide.md`](staging-and-release-guide.md). Do not duplicate it here.
 
-```text
-GCP_PROJECT_ID
-GCP_REGION
-ARTIFACT_REPOSITORY
-API_SERVICE
-WEB_SERVICE
-CLOUD_RUN_SERVICE_ACCOUNT
-WEB_SERVICE_ACCOUNT
-GCP_DEPLOY_SERVICE_ACCOUNT
-WIF_PROVIDER
-FIREBASE_PROJECT_ID
-FIRESTORE_PROJECT_ID
-FIREBASE_AUTH_DOMAIN
-DEFAULT_PROVIDER_ID
-ATTACHMENT_STORAGE_BUCKET
-```
+Immutable image tags (the Git SHA) are always used; `latest` is never deployed.
 
-Required repository secrets:
-
-```text
-FIREBASE_API_KEY
-FIREBASE_APP_ID
-```
-
-The workflow runs automatically on pushes to `main` or `master`. It can also be
-started manually from GitHub Actions with a deploy target of `all`, `api`, or
-`web`.
-
-After the web service URL is created, add its host to Firebase Authentication
-authorized domains. Without that Firebase setting, browser login can fail even
-when the Cloud Run services are healthy.
+After the web service URL is created, add its host to Firebase Authentication authorized domains (staging and
+production each in their own Firebase project). Without that, browser login can fail even when the Cloud Run
+services are healthy.
 
 ## Private API Boundary
 
 The production boundary is:
 
 - `vertex-ai-web` is public.
-- `vertex-ai-api` is private and deployed with `--no-allow-unauthenticated`.
+- `vertex-ai-api` is private (created with `--no-allow-unauthenticated`; afterwards its IAM is only ever
+  *added to* by the release, never rewritten).
 - The web service runs as `WEB_SERVICE_ACCOUNT`.
 - The API grants `roles/run.invoker` only to the web service account.
 - The web proxy sends Cloud Run's identity token in
@@ -123,8 +106,12 @@ The production boundary is:
 - Browser Firebase ID tokens stay in `Authorization` and are verified by the
   API application.
 
-The deployment script and CI remove any stale `allUsers` `roles/run.invoker`
-binding from the API service after deployment.
+The release procedure does **not** remove or rewrite IAM on an existing API service. Before building anything
+it reads the API's IAM policy and **stops** if `allUsers` or `allAuthenticatedUsers` holds `roles/run.invoker`,
+printing the manual command to remove it. The only IAM change it makes is to *add* `roles/run.invoker` for the web
+service account when that binding is missing (see the release section); it never removes a binding. `--allow-unauthenticated`
+and `--no-allow-unauthenticated` are only passed when a service is created for the first time, because those flags
+rewrite service-level IAM immediately and are not undone by a traffic rollback.
 
 ## Firestore Indexes
 
@@ -143,42 +130,88 @@ gcloud firestore indexes composite list \
   --format='table(name.segment(-1),queryScope,state,fields[].fieldPath,fields[].order)'
 ```
 
-## 发布流程（推荐使用脚本/工作流）
+## 发布流程：候选验收（prepare）与正式发布（promote）完全分离
 
-`scripts/deploy-cloud-run.sh` 与 GitHub 工作流共用 `scripts/lib/cloud-run-release.sh`。**部署工作流目前只支持手动触发（`workflow_dispatch`）**：合并到 `main`、创建 PR、普通推送都不会部署。首次上线验证通过后，若要恢复自动部署，按工作流文件顶部注释把 `push` 触发加回去。
+`scripts/deploy-cloud-run.sh` 与 GitHub 工作流共用 `scripts/lib/cloud-run-release.sh`。**部署工作流只支持手动触发（`workflow_dispatch`）**：合并到 `main`、创建 PR、普通推送都不会部署。完整的云端配置顺序见 [`staging-and-release-guide.md`](staging-and-release-guide.md)。
 
-### 步骤与保证
+### 两个环境、两种模式
+| | `CRR_MODE=prepare`（**默认**） | `CRR_MODE=promote` |
+|---|---|---|
+| 做什么 | 构建镜像，用 `--no-traffic --tag=candidate` 部署候选修订版，做**候选冒烟检查** | 把流量切到**已经 prepare 过的同一提交**的候选，切后校验，失败自动回滚 |
+| 会不会移动流量 | **绝不**（代码里 `crr_run_prepare` 不会调用任何 `update-traffic`；测试用例逐条证明） | 会 |
+| 需要什么 | 无 | `CRR_CONFIRM_PROMOTE=promote:<env>:<IMAGE_TAG>`；生产另需 `CRR_ACCEPTANCE_REF`（已通过的 staging 验收的链接/ID） |
+| 重复执行 | 安全 | 幂等：已经在承载该提交则提示"Nothing to promote" |
+
+`CRR_ENV` 默认 `staging`，所以什么都不设置时只会对 staging 做 prepare。确认口令同时绑定**环境和提交**：给 staging 的口令不能用于 production，给提交 A 的口令不能用于提交 B。口令缺失或不匹配时，**在任何 gcloud 调用之前**就失败。
+
+promote 只会提升"最新就绪修订版的镜像标签等于本次 `IMAGE_TAG`"的候选：没有候选（`absent`）、候选属于别的提交（`mismatch`）都直接拒绝，不会"顺手"构建或部署新代码。
+
+### 候选冒烟检查 ≠ 完整业务验收
+| | 候选冒烟检查（prepare 自动执行） | 完整业务验收（`staging-acceptance`，另行触发） |
+|---|---|---|
+| 证明什么 | 新修订版能启动、依赖可达、web 能转发到 API、私有 API 没有对外开放 | 登录、真实 Vertex 对话与流式、图片/PDF 附件、思考档位、联网搜索、用户取消、数据确实保存、未知模型被明确拒绝、白名单、旧会话兼容 |
+| 数据 | 只读健康检查 | 在 **staging 的 Firestore/附件桶**里创建并删除测试会话，调用真实模型（有少量费用） |
+| 通过含义 | **仅表示"可以进入验收"**，日志会明确打印 `NOT business acceptance` | 才是"可以申请正式发布"的依据 |
+| 能否单独决定上线 | 不能。`/health/ready` 返回 200 不构成通过 | 通过后，其运行链接作为生产 promote 的 `acceptance_ref` |
+
+### Staging 与生产的隔离
+staging 必须是**独立的 GCP 项目 + 独立的 Firebase/Firestore + 独立的附件桶 + 独立的服务名**。脚本强制检查：staging 服务名以 `-staging` 结尾、桶名包含 `staging`、且 Firestore 项目 / Firebase 项目 / 附件桶都不能等于 `PRODUCTION_*` 对应值；生产则拒绝任何看起来像 staging 的资源名；生产**永远不会创建缺失的服务**（只部署到已存在的服务）。工作流还要求 staging 必须配置访问白名单（staging 的 web 在公网可达且调用真实模型）。
+
+**首次部署一个全新服务（例如第一次创建 staging 服务）没有可以回滚的旧修订版**：新服务的第一个修订版直接承载流量，失败时只能删除服务或修复后重新发布。因此 staging 的首次创建是"可丢弃的"，生产首次上线则必须先手工创建好服务（脚本会拒绝替你创建）。
+
+### 步骤与保证（prepare）
 | 阶段 | 做什么 | 对线上的影响 |
 |---|---|---|
-| 0 预检（只读） | 校验超时分层、`API_SECRETS` 格式、认证绕过开关；读取两个服务当前承载流量的修订版；读取 API 的 IAM。API 若对 `allUsers`/`allAuthenticatedUsers` 开放则**直接停止**并给出手工命令 | 无 |
-| 1 构建并部署候选 | 现有服务用 `--no-traffic --tag=candidate` 部署；**不带** `--allow/--no-allow-unauthenticated`（这两个参数会立即改写服务级 IAM，且不随流量回滚恢复）；仅新建服务时才带 | 只创建 0% 流量的新修订版 |
-| 2 候选验证 | 通过 `https://candidate---<服务主机>` 检查 web `/`、`/api/workspace/config`；用 ID 令牌检查私有 API 候选 `/health/ready` | 无流量、无权限变化。**任何失败 = 不切流** |
-| 3 授权（唯一的非流量变更） | 仅当 web 服务账号缺少 API 的 `roles/run.invoker` 时才**新增**（只增不删），紧挨着切流之前执行；本次发布新增的授权在回滚时会被移除，原有授权不会被动 | 可回滚的最小变更 |
-| 4 切流 | 先 API 后 web，`update-traffic --to-latest`；**每一步都校验服务确实在承载新修订版**（退出码为 0 不算数）；移除候选标签是尽力而为，失败不影响结果 | 切流 |
-| 5 冒烟 | 直连 API 必须 403、web `/` 与 config 为 200（带重试）。只在两个服务的切换都被确认后才执行，所以不会拿旧版本的冒烟结果冒充新版本成功 | — |
-| 失败回滚 | 凡是**尝试过**切流的服务（含失败或结果不明的）都切回原修订版并**校验**；回滚失败会明确提示"生产可能仍在新修订版"并打印手工命令 | 恢复 |
+| 0 校验（无云访问） | 模式/环境取值、环境隔离、超时分层、`API_SECRETS` 格式、认证绕过开关 | 无 |
+| 预检（只读） | 读取两个服务当前承载流量的修订版；读取 API 的 IAM。API 若对 `allUsers`/`allAuthenticatedUsers` 开放则**直接停止**并给出手工命令 | 无 |
+| 构建并部署候选 | 现有服务用 `--no-traffic --tag=candidate`；**不带** `--allow/--no-allow-unauthenticated`；仅新建服务时才带 | 只创建 0% 流量的新修订版 |
+| 候选冒烟检查 | 经 `https://candidate---<服务主机>` 检查 web `/`、`/api/workspace/config`；用 ID 令牌检查私有 API 候选 `/health/ready`（受众 = API 服务 URL）；取不到令牌则停止 | 无流量、无权限变化 |
 
-### 切流前会改变线上资源/权限的操作（完整清单）
+### 步骤与保证（promote）
+| 阶段 | 做什么 | 对线上的影响 |
+|---|---|---|
+| 授权校验 | 口令（及生产的验收引用）在任何云调用前校验 | 无 |
+| 候选状态 | 对每个服务判定 `absent/mismatch/live/prepared`；有缺失或不匹配则拒绝 | 无 |
+| 新鲜的候选检查 | 只对需要提升的服务再检查一遍候选（prepare 与 promote 之间可能已变化） | 无 |
+| 授权（唯一的非流量变更） | 仅当 web 服务账号缺少 API 的 `roles/run.invoker` 时才**新增**（只增不删），紧挨着切流前；本次新增的授权在回滚时撤销，原有授权不动 | 可回滚的最小变更 |
+| 切流 | 先 API 后 web；**每一步都校验服务确实在承载新修订版**（退出码 0 不算数）；API 切换后会**再次检查 web 候选能否与"新 API"配合**，再切 web | 切流 |
+| 冒烟 | 直连 API 必须 403、web `/` 与 config 为 200（带重试），只在两个服务都确认切换后才执行 | — |
+| 失败回滚 | 凡是**尝试过**切流的服务（含失败或结果不明的）都按相反顺序切回原修订版并**校验**；回滚失败会明确提示"可能仍在新修订版"并打印手工命令 | 恢复 |
+
+### 候选 web 与候选 API 的联调链路
+候选 web 的 `BACKEND_URL` 指向**API 服务的正式 URL**（不是 API 的标签 URL）：Cloud Run 要求 ID 令牌的 `aud` 是被调用服务的 URL，即使调用的是带标签的 URL 也一样；`apps/web` 在 `BACKEND_URL` 含 `---`（标签 URL）而没有显式 `BACKEND_AUDIENCE` 时会**拒绝启动**，避免因受众错误而在运行时才出现 401/403。
+
+因此：
+- **staging**：先 `prepare`（候选冒烟）→ `promote` 到 staging 的两个服务 → 对 staging 的 web 运行完整业务验收。此时 staging 的 web 与 API 是一对真正的前后端，验收覆盖"登录 → 对话 → 附件 → 流式响应 → 数据保存"全链路。
+- **生产**：候选 web 只能"候选 web → 当前生产 API"。因此 promote 时先切 API，再检查候选 web 能否与新 API 一起工作，然后才切 web；这一步以及切流后的冒烟、回滚就是生产上的联调保证。真正的"候选前端 + 候选后端"完整联调只有在 staging 做过，**这是 staging 必须存在的原因**。
+
+候选标签 URL 是否接受以"服务 URL"为受众的令牌，官方文档的片段表明应以服务 URL 作为受众，但标签 URL 本身的 IAM 行为**未实测**，请在 staging 演练时确认；脚本没有假设它，取不到令牌时会停止（或按 `CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true` 明示放行）。
+
+### 切流前会改变云端资源/权限的操作（完整清单）
 这些在流量回滚时**不会**自动恢复，因此都被限制为"只增、幂等、仅在缺失时"：
 | 操作 | 位置 | 处理 |
 |---|---|---|
 | 推送镜像到 Artifact Registry | 构建 | 无害（不被引用） |
 | 创建新修订版（0% 流量） | 部署 | 无害 |
-| 部署参数 `--allow/--no-allow-unauthenticated`（服务级 IAM） | 部署 | **已改**：仅新建服务时使用 |
-| `add/remove-iam-policy-binding`（API 调用权限） | 原 `crr_ensure_api_access`，在候选验证之前执行 | **已改**：只读预检 + 缺失时才新增、推迟到候选验证之后、回滚时撤销本次新增；**不再自动移除** `allUsers`（发现即停止） |
-| 附件桶的 IAM 绑定 | 部署前置步骤 | **已改**：仅当缺失时才添加（原来每次都重复写入） |
-| 创建 Artifact Registry 仓库 / 附件桶 / Firestore 复合索引 | 部署前置步骤 | 仅在不存在时创建，幂等，不删除任何东西；Phase 1 应移到一次性 bootstrap |
-| 服务级伸缩参数（`--min/max-instances`） | 部署 | **未核实**是否随 0% 流量的候选一起立即生效；请在测试服务演练时确认 |
+| 部署参数 `--allow/--no-allow-unauthenticated`（服务级 IAM） | 部署 | 仅新建服务时使用；生产不新建服务 |
+| `add-iam-policy-binding`（API 调用权限） | promote，切流前一刻 | 缺失时才新增；回滚时撤销本次新增；**不会**移除任何绑定（发现 `allUsers` 即停止） |
+| 给 web 服务账号新增 API 的 `roles/run.invoker`（只增不删） | **仅 staging 的 prepare**（staging 没有需要保护的线上流量，候选与验收要能调用 API） | 仅 staging；生产的 prepare 不碰 IAM，生产的授权发生在 promote 切流前一刻 |
+| 附件桶的 IAM 绑定、创建 Artifact Registry 仓库 / 附件桶 / Firestore 复合索引 | **仅 `bootstrap_infrastructure=true`（prepare 模式）** | 不存在时才创建，幂等，不删除任何东西 |
+| 服务级伸缩参数（`--min/max-instances`） | 部署 | **未核实**是否随 0% 流量的候选一起立即生效；请在 staging 演练时确认 |
 
 ### 私有 API 候选需要身份令牌
 候选 API 是私有的，要验证它必须能调用它。联合身份（WIF）凭据**不能**直接签发 ID 令牌，所以 CI 需要：
 1. 一个专用服务账号（例如 `ci-api-probe@<project>.iam.gserviceaccount.com`），在 **API 服务**上拥有 `roles/run.invoker`；
 2. 部署身份对该服务账号拥有 `roles/iam.serviceAccountTokenCreator`；
-3. 仓库变量 `CRR_IDENTITY_TOKEN_SA` = 该服务账号邮箱。
-**取不到令牌时发布会直接停止**（不会跳过检查），因为 API 候选是风险最高的部分。如果你明确接受"API 候选未经切流前验证、只靠切流后的冒烟与回滚兜底"，可设置仓库变量 `CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true`，日志里会有醒目的警告。
-未核实的假设：候选标签 URL 的拼接规则、标签 URL 是否接受以服务 URL 为受众的令牌——请在测试服务上演练一次。
+3. 仓库变量 `CRR_IDENTITY_TOKEN_SA`（staging 为 `STAGING_CRR_IDENTITY_TOKEN_SA`）= 该服务账号邮箱。
+**取不到令牌时发布会直接停止**（不会跳过检查）。如果你明确接受"API 候选未经切流前验证、只靠切流后的冒烟与回滚兜底"，可设置 `CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true`，日志里会有醒目的警告。生产不建议开启。
 
 配置一律用 `--update-env-vars` / `--update-secrets` 合并，不会覆盖手工配置（见 `docs/secrets.md`）。下面的手工命令同理。
+
+## 手工命令（仅供参考 / 应急）
+
+> 以下手工命令**绕过**上面的所有保护（模式、环境隔离、确认口令、候选校验、自动回滚）。日常发布请使用脚本或工作流。
+> 手工命令里的 `--allow-unauthenticated` / `--no-allow-unauthenticated` 会立即改写服务级 IAM，不随流量回滚恢复，对已有生产服务不要使用。
 
 ## API Service
 
@@ -285,6 +318,8 @@ Then sign in through the web service and send a short chat message. A successful
 - `messages/{messageId}` for the assistant message
 
 ## Deployment Record
+
+> 下面的记录是历史，描述的是**当时**的手工/旧流程（例如 push 触发的自动部署、部署后移除 `allUsers`）。这些做法已被上面的流程取代，不要照做。
 
 ### 2026-06-19 Manual Cloud Run Deployment
 

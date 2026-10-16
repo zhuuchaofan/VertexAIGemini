@@ -311,3 +311,36 @@ web Cloud Run 超时        330s
 
 ### 仍属 Phase 1 的已知项（本轮未扩大范围）
 - 把"创建仓库/桶/索引"从每次发布移到一次性 bootstrap；分片计数；供应商真实 usage 结算；JSON 日志与告警；会话分页；web 与 API 使用不同服务账号。
+
+## 16. 第三轮：候选验收与正式发布完全分离
+
+> 本节取代第 8.1、14 节中关于"单一发布流程"的描述。操作步骤见 [`docs/staging-and-release-guide.md`](../staging-and-release-guide.md)，机制说明见 [`docs/cloud-run.md`](../cloud-run.md)。
+
+### 16.1 本轮改动
+| 需求 | 实现 | 证据 |
+|---|---|---|
+| prepare / promote 两种模式，默认 prepare | `CRR_MODE` 默认 `prepare`，`CRR_ENV` 默认 `staging`；`crr_run_prepare` 的代码路径不含 `update-traffic` | 假 gcloud 测试：prepare 全流程"无任何改变流量/IAM 的调用"；7 个变异测试（删除各项保护后测试必然失败） |
+| promote 必须明确确认 | 口令 `promote:<env>:<IMAGE_TAG>`（绑定环境与提交），缺失/错误在任何 gcloud 调用前失败；生产另需 `CRR_ACCEPTANCE_REF` | 同上；工作流步骤也被测试执行（`scripts/test/deploy-workflow.test.sh`） |
+| promote 只提升已 prepare 的同一提交 | 按服务判定 `absent/mismatch/live/prepared`；缺失/不匹配拒绝；已生效则幂等 | 测试覆盖 absent、mismatch、live、部分 prepare、`all` 但 API 未 prepare |
+| staging 隔离 | 独立项目；服务名 `-staging`、桶名含 `staging`、Firestore/Firebase/桶 ≠ 生产值；生产拒绝 staging 命名；生产不创建服务；staging 必须有访问白名单 | 假 gcloud 测试 + 工作流步骤测试（19 项） |
+| 候选 web ↔ 候选 API 链路 | `BACKEND_URL` 指向 API 的服务 URL；标签 URL 无 `BACKEND_AUDIENCE` 时 web 拒绝启动（`resolveBackendAudience`）；生产 promote：切 API → 再检查候选 web 与新 API → 切 web；staging：完整业务验收跑在已 promote 的真实前后端上 | Node 测试 36 项；链路复查测试 |
+| 冒烟 ≠ 业务验收 | prepare 日志明确打印 `NOT business acceptance`；业务验收是独立脚本 `scripts/acceptance/staging-acceptance.mjs` 与独立的手动工作流 | 验收脚本 10 项测试（假服务器 + 假 Firebase 登录接口，含失败注入） |
+| 云端配置指南 | `docs/staging-and-release-guide.md` | — |
+| 修正 `cloud-run.md` | 删除"push 自动部署""自动移除 allUsers"等；标注手工命令绕过保护；标注历史记录 | grep 无残留 |
+
+### 16.2 测试结果（本地）
+- 发布脚本假 gcloud 测试：203 项通过。
+- 工作流步骤测试（真实执行工作流里的 shell）：19 项通过。
+- 验收脚本测试：10 项通过。
+- Web 代理/前端 Node 测试：36 项通过。
+- .NET 服务测试：75 项通过；仓库卫生检查通过。
+- CI 新增两步：`Deploy workflow tests`、`Staging acceptance suite tests`。
+
+### 16.3 仍然**没有**被证明的（需要真实云端）
+- 所有真实 Vertex / Cloud Run 行为：模型可用性、取消后上游是否停止、>60 秒流式经真实前端、候选标签 URL 的 IAM 与受众行为、`min/max-instances` 是否随候选生效。
+- 验收脚本只在假服务器上测过，**没有对真实 staging 跑过**；真实运行中个别用例（搜索引用、思考档位取值）可能需要根据实际返回调整。
+- 首次部署的新服务没有可回滚的旧修订版。
+- 生产无法做"候选前端 + 候选后端"同时联调，只能在 staging 完成。
+
+### 16.4 现在能否安全创建测试环境？
+**代码与流水线：可以。** staging 的创建需要你先完成云端配置（指南步骤 1–8）；工作流的默认值与隔离检查保证第一次点击也只会对 staging 做 prepare。真实验收通过之前，不应对生产执行 promote。
