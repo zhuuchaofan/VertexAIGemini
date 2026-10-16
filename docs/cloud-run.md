@@ -143,6 +143,16 @@ gcloud firestore indexes composite list \
   --format='table(name.segment(-1),queryScope,state,fields[].fieldPath,fields[].order)'
 ```
 
+## 发布流程（推荐使用脚本/工作流）
+
+`scripts/deploy-cloud-run.sh` 与 GitHub 工作流共用 `scripts/lib/cloud-run-release.sh`：
+1. 记录两个服务当前承载流量的修订版；
+2. 现有服务以 `--no-traffic --tag=candidate` 部署新修订版（旧修订版继续服务；新服务首次部署无法保护）；
+3. API 与 web 都部署成功后才切流；
+4. 冒烟：直连 API 应为 403、web 首页与 `/api/workspace/config` 应为 200（带重试）；
+5. 任一步失败：已切流的服务自动回到第 1 步记录的修订版，命令以非零状态退出。
+配置一律用 `--update-env-vars` / `--update-secrets` 合并，不会覆盖手工配置（见 `docs/secrets.md`）。下面的手工命令同理。
+
 ## API Service
 
 Build and push the API image:
@@ -169,7 +179,7 @@ gcloud run deploy vertex-ai-api \
   --timeout=300s \
   --min-instances=0 \
   --max-instances=10 \
-  --set-env-vars=PROJECT_ID=your-gcp-project-id,VertexAI__ProjectId=your-gcp-project-id,FIREBASE_PROJECT_ID=your-firebase-project-id,FIRESTORE_PROJECT_ID=your-firebase-project-id,Firebase__ProjectId=your-firebase-project-id,Firebase__ApiKey=FIREBASE_WEB_API_KEY,Firebase__AuthDomain=your-firebase-project-id.firebaseapp.com,Firebase__AppId=FIREBASE_WEB_APP_ID,Workspace__DefaultProviderId=gemini,ATTACHMENT_STORAGE_BUCKET=your-gcp-project-id-vertex-ai-attachments,Persistence__AttachmentStorageBucket=your-gcp-project-id-vertex-ai-attachments
+  --update-env-vars=PROJECT_ID=your-gcp-project-id,VertexAI__ProjectId=your-gcp-project-id,FIREBASE_PROJECT_ID=your-firebase-project-id,FIRESTORE_PROJECT_ID=your-firebase-project-id,Firebase__ProjectId=your-firebase-project-id,Firebase__ApiKey=FIREBASE_WEB_API_KEY,Firebase__AuthDomain=your-firebase-project-id.firebaseapp.com,Firebase__AppId=FIREBASE_WEB_APP_ID,Workspace__DefaultProviderId=gemini,ATTACHMENT_STORAGE_BUCKET=your-gcp-project-id-vertex-ai-attachments,Persistence__AttachmentStorageBucket=your-gcp-project-id-vertex-ai-attachments
 ```
 
 Cloud Run provides `PORT`; the API image respects it automatically.
@@ -222,7 +232,7 @@ gcloud run deploy vertex-ai-web \
   --timeout=300s \
   --min-instances=0 \
   --max-instances=5 \
-  --set-env-vars=BACKEND_URL=https://vertex-ai-api-xxxxx-REGION.a.run.app
+  --update-env-vars=BACKEND_URL=https://vertex-ai-api-xxxxx-REGION.a.run.app
 ```
 
 Cloud Run serves the web container on port `8080`.

@@ -46,14 +46,26 @@ env:
   API_CONCURRENCY: ${{ vars.API_CONCURRENCY || '20' }}
   API_TIMEOUT: ${{ vars.API_TIMEOUT || '300s' }}
   API_MIN_INSTANCES: ${{ vars.API_MIN_INSTANCES || '0' }}
-  API_MAX_INSTANCES: ${{ vars.API_MAX_INSTANCES || '10' }}
+  API_MAX_INSTANCES: ${{ vars.API_MAX_INSTANCES || '3' }}
   WEB_CPU: ${{ vars.WEB_CPU || '1' }}
   WEB_MEMORY: ${{ vars.WEB_MEMORY || '512Mi' }}
   WEB_CONCURRENCY: ${{ vars.WEB_CONCURRENCY || '80' }}
   WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT || '300s' }}
   WEB_MIN_INSTANCES: ${{ vars.WEB_MIN_INSTANCES || '0' }}
-  WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES || '5' }}
+  WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES || '2' }}
 
+  # Optional. Provider API keys live in Secret Manager and are mounted by reference, e.g.
+  #   DEEPSEEK_API_KEY=deepseek-api-key:latest,MOONSHOT_API_KEY=moonshot-api-key:latest
+  # (see docs/secrets.md). Empty leaves the service's existing secrets untouched.
+  API_SECRETS: ${{ vars.API_SECRETS }}
+  # Optional access policy and site-wide caps (see docs/cost-controls.md). Empty = leave unchanged.
+  ACCESS_ALLOWED_EMAILS: ${{ vars.ACCESS_ALLOWED_EMAILS }}
+  ACCESS_ALLOWED_EMAIL_DOMAINS: ${{ vars.ACCESS_ALLOWED_EMAIL_DOMAINS }}
+  ACCESS_ALLOWED_UIDS: ${{ vars.ACCESS_ALLOWED_UIDS }}
+  ACCESS_REQUIRE_VERIFIED_EMAIL: ${{ vars.ACCESS_REQUIRE_VERIFIED_EMAIL }}
+  QUOTA_GLOBAL_DAILY_REQUEST_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_REQUEST_LIMIT }}
+  QUOTA_GLOBAL_DAILY_TOKEN_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_TOKEN_LIMIT }}
+  QUOTA_GLOBAL_DAILY_SEARCH_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_SEARCH_LIMIT }}
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -145,91 +157,9 @@ jobs:
       - name: Ensure Firestore indexes
         run: node scripts/deploy-firestore-indexes.mjs
 
-      - name: Build and deploy API
-        if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'api'
+      - name: Release (candidate, promote, smoke test, roll back on failure)
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          api_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${GITHUB_SHA}"
-
-          gcloud builds submit VertexAI \
-            --project="${PROJECT_ID}" \
-            --tag="${api_image}"
-
-          gcloud run deploy "${API_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --image="${api_image}" \
-            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
-            --no-allow-unauthenticated \
-            --port=8080 \
-            --cpu="${API_CPU}" \
-            --memory="${API_MEMORY}" \
-            --concurrency="${API_CONCURRENCY}" \
-            --timeout="${API_TIMEOUT}" \
-            --min-instances="${API_MIN_INSTANCES}" \
-            --max-instances="${API_MAX_INSTANCES}" \
-            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
-
-          gcloud run services add-iam-policy-binding "${API_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
-            --role="roles/run.invoker" >/dev/null
-
-          gcloud run services remove-iam-policy-binding "${API_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --member="allUsers" \
-            --role="roles/run.invoker" >/dev/null 2>&1 || true
-
-      - name: Resolve API URL
-        id: api
-        run: |
-          api_url="$(gcloud run services describe "${API_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --format='value(status.url)')"
-          echo "url=${api_url}" >> "${GITHUB_OUTPUT}"
-
-      - name: Build and deploy web
-        if: env.DEPLOY_TARGET == 'all' || env.DEPLOY_TARGET == 'web'
-        run: |
-          web_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${GITHUB_SHA}"
-
-          gcloud builds submit apps/web \
-            --project="${PROJECT_ID}" \
-            --tag="${web_image}"
-
-          gcloud run deploy "${WEB_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --image="${web_image}" \
-            --service-account="${WEB_SERVICE_ACCOUNT}" \
-            --allow-unauthenticated \
-            --port=8080 \
-            --cpu="${WEB_CPU}" \
-            --memory="${WEB_MEMORY}" \
-            --concurrency="${WEB_CONCURRENCY}" \
-            --timeout="${WEB_TIMEOUT}" \
-            --min-instances="${WEB_MIN_INSTANCES}" \
-            --max-instances="${WEB_MAX_INSTANCES}" \
-            --set-env-vars="BACKEND_URL=${{ steps.api.outputs.url }}"
-
-      - name: Resolve web URL
-        id: web
-        run: |
-          web_url="$(gcloud run services describe "${WEB_SERVICE}" \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --format='value(status.url)')"
-          echo "url=${web_url}" >> "${GITHUB_OUTPUT}"
-
-      - name: Smoke check private API boundary
-        run: |
-          api_status="$(curl -sS -o /dev/null -w '%{http_code}' "${{ steps.api.outputs.url }}/health/live")"
-          if [[ "${api_status}" != "403" ]]; then
-            echo "::error::Expected direct unauthenticated API /health/live to return 403, got ${api_status}"
-            exit 1
-          fi
-
-          curl -fsS "${{ steps.web.outputs.url }}/"
-          curl -fsS "${{ steps.web.outputs.url }}/api/workspace/config" >/dev/null
+          source scripts/lib/cloud-run-release.sh
+          crr_release

@@ -16,13 +16,13 @@ API_MEMORY="${API_MEMORY:-1Gi}"
 API_CONCURRENCY="${API_CONCURRENCY:-20}"
 API_TIMEOUT="${API_TIMEOUT:-300s}"
 API_MIN_INSTANCES="${API_MIN_INSTANCES:-0}"
-API_MAX_INSTANCES="${API_MAX_INSTANCES:-10}"
+API_MAX_INSTANCES="${API_MAX_INSTANCES:-3}"
 WEB_CPU="${WEB_CPU:-1}"
 WEB_MEMORY="${WEB_MEMORY:-512Mi}"
 WEB_CONCURRENCY="${WEB_CONCURRENCY:-80}"
 WEB_TIMEOUT="${WEB_TIMEOUT:-300s}"
 WEB_MIN_INSTANCES="${WEB_MIN_INSTANCES:-0}"
-WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-5}"
+WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-2}"
 
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$PROJECT_ID}"
 FIRESTORE_PROJECT_ID="${FIRESTORE_PROJECT_ID:-$FIREBASE_PROJECT_ID}"
@@ -30,6 +30,8 @@ FIREBASE_API_KEY="${FIREBASE_API_KEY:-}"
 FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-$FIREBASE_PROJECT_ID.firebaseapp.com}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 DEFAULT_PROVIDER_ID="${DEFAULT_PROVIDER_ID:-gemini}"
+DEPLOY_TARGET="${DEPLOY_TARGET:-all}"
+API_SECRETS="${API_SECRETS:-}"
 ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-attachments}"
 
 if [[ -z "$PROJECT_ID" ]]; then
@@ -54,9 +56,6 @@ if [[ -z "$FIREBASE_API_KEY" || -z "$FIREBASE_APP_ID" ]]; then
   echo "[ERROR] FIREBASE_API_KEY and FIREBASE_APP_ID are required."
   exit 1
 fi
-
-API_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${IMAGE_TAG}"
-WEB_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${IMAGE_TAG}"
 
 echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
 if ! gcloud artifacts repositories describe "$REPOSITORY" \
@@ -85,72 +84,18 @@ gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}
 echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
 FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
 
-echo "[INFO] Building API image ${API_IMAGE}..."
-gcloud builds submit VertexAI \
-  --project="$PROJECT_ID" \
-  --tag="$API_IMAGE"
+# Build, deploy as candidates, promote, smoke test, and roll back automatically if verification fails.
+# See scripts/lib/cloud-run-release.sh for the safety properties (merge-only configuration, no-traffic
+# deploys, automatic rollback).
+export PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT
+export RUNTIME_SERVICE_ACCOUNT="$SERVICE_ACCOUNT" IMAGE_TAG DEPLOY_TARGET
+export FIREBASE_PROJECT_ID FIRESTORE_PROJECT_ID FIREBASE_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_APP_ID
+export DEFAULT_PROVIDER_ID ATTACHMENT_STORAGE_BUCKET
+export API_CPU API_MEMORY API_CONCURRENCY API_TIMEOUT API_MIN_INSTANCES API_MAX_INSTANCES
+export WEB_CPU WEB_MEMORY WEB_CONCURRENCY WEB_TIMEOUT WEB_MIN_INSTANCES WEB_MAX_INSTANCES
+export API_SECRETS ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
+export QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
 
-echo "[INFO] Deploying API service ${API_SERVICE}..."
-gcloud run deploy "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --image="$API_IMAGE" \
-  --service-account="$SERVICE_ACCOUNT" \
-  --no-allow-unauthenticated \
-  --port=8080 \
-  --cpu="$API_CPU" \
-  --memory="$API_MEMORY" \
-  --concurrency="$API_CONCURRENCY" \
-  --timeout="$API_TIMEOUT" \
-  --min-instances="$API_MIN_INSTANCES" \
-  --max-instances="$API_MAX_INSTANCES" \
-  --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
-
-gcloud run services add-iam-policy-binding "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
-  --role="roles/run.invoker" >/dev/null
-
-gcloud run services remove-iam-policy-binding "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --member="allUsers" \
-  --role="roles/run.invoker" >/dev/null 2>&1 || true
-
-API_URL="$(gcloud run services describe "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --format='value(status.url)')"
-
-echo "[INFO] Building web image ${WEB_IMAGE}..."
-gcloud builds submit apps/web \
-  --project="$PROJECT_ID" \
-  --tag="$WEB_IMAGE"
-
-echo "[INFO] Deploying web service ${WEB_SERVICE}..."
-gcloud run deploy "$WEB_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --image="$WEB_IMAGE" \
-  --service-account="$WEB_SERVICE_ACCOUNT" \
-  --allow-unauthenticated \
-  --port=8080 \
-  --cpu="$WEB_CPU" \
-  --memory="$WEB_MEMORY" \
-  --concurrency="$WEB_CONCURRENCY" \
-  --timeout="$WEB_TIMEOUT" \
-  --min-instances="$WEB_MIN_INSTANCES" \
-  --max-instances="$WEB_MAX_INSTANCES" \
-  --set-env-vars="BACKEND_URL=${API_URL}"
-
-WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --format='value(status.url)')"
-
-echo "[INFO] API URL: ${API_URL}"
-echo "[INFO] Web URL: ${WEB_URL}"
-echo "[INFO] Smoke checks:"
-echo "curl -i ${API_URL}/health/live    # expected: 403 direct unauthenticated"
-echo "curl -i ${WEB_URL}/api/workspace/config    # expected: 200 through web proxy"
+# shellcheck source=lib/cloud-run-release.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cloud-run-release.sh"
+crr_release
