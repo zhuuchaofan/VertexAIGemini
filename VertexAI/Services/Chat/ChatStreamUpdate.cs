@@ -3,4 +3,5 @@ namespace VertexAI.Services.Chat;
 public sealed record ChatStreamUpdate(
     string Content,
     string? ThinkingContent,
-    List<SearchCitation>? Citations = null);
+    List<SearchCitation>? Citations = null,
+    Guid? ConversationId = null);

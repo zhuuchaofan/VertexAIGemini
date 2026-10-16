@@ -10,6 +10,7 @@ public sealed class FirebaseUserContext : IUserContext
 
     private readonly FirebaseAuth _auth;
     private readonly ILogger<FirebaseUserContext> _logger;
+    private (string Token, AuthenticatedUser? User)? _cached;
 
     public FirebaseUserContext(
         FirebaseAuth auth,
@@ -27,16 +28,32 @@ public sealed class FirebaseUserContext : IUserContext
             return null;
         }
 
+        // The access-policy middleware and the endpoint share one request scope; verify the token once.
+        if (_cached is { } cached && string.Equals(cached.Token, idToken, StringComparison.Ordinal))
+        {
+            return cached.User;
+        }
+
+        AuthenticatedUser? user = null;
         try
         {
             var decoded = await _auth.VerifyIdTokenAsync(idToken);
-            return ToAuthenticatedUser(decoded);
+            user = ToAuthenticatedUser(decoded);
         }
-        catch (Exception ex) when (ex is FirebaseAuthException or InvalidOperationException)
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Firebase token verification failed");
-            return null;
+            throw;
         }
+        catch (Exception ex)
+        {
+            // Any verification failure means "not authenticated". The SDK throws FirebaseAuthException
+            // for invalid tokens but raw parser exceptions (e.g. Newtonsoft JsonReaderException) for
+            // malformed ones, which used to escape as an HTTP 500 for any anonymous caller.
+            _logger.LogWarning(ex, "Firebase token verification failed ({Reason})", ex.GetType().Name);
+        }
+
+        _cached = (idToken, user);
+        return user;
     }
 
     private AuthenticatedUser? ToAuthenticatedUser(FirebaseToken token)
@@ -50,7 +67,8 @@ public sealed class FirebaseUserContext : IUserContext
             CreateStableLocalUserId(token.Uid),
             token.Uid,
             ReadEmail(token),
-            ReadAdminClaim(token));
+            ReadAdminClaim(token),
+            ReadEmailVerified(token));
     }
 
     private static string? ReadBearerToken(HttpContext context)
@@ -69,6 +87,11 @@ public sealed class FirebaseUserContext : IUserContext
         token.Claims.TryGetValue("email", out var value)
             ? value as string
             : null;
+
+    private static bool ReadEmailVerified(FirebaseToken token) =>
+        token.Claims.TryGetValue("email_verified", out var value)
+        && value is bool verified
+        && verified;
 
     private static bool ReadAdminClaim(FirebaseToken token) =>
         token.Claims.TryGetValue("admin", out var value)

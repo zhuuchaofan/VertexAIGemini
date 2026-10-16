@@ -61,12 +61,9 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         return Task.CompletedTask;
     }
 
-    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request) =>
-        StreamChatAsync(request, CancellationToken.None);
-
-    private async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
         ChatModelRequest request,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
@@ -90,6 +87,11 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
+        // A well-formed stream ends with a finish_reason and/or "[DONE]". Anything else means the
+        // connection broke mid-reply and must surface as an error, not as a finished answer.
+        var sawTerminator = false;
+        var truncated = false;
+
         while (true)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
@@ -106,10 +108,17 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             var data = line[5..].Trim();
             if (data == "[DONE]")
             {
+                sawTerminator = true;
                 break;
             }
 
-            var chunk = ExtractDelta(data);
+            var chunk = ExtractDelta(data, out var finishReason);
+            if (!string.IsNullOrEmpty(finishReason))
+            {
+                sawTerminator = true;
+                truncated |= string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase);
+            }
+
             if (string.IsNullOrEmpty(chunk.Text))
             {
                 continue;
@@ -117,6 +126,16 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
             CurrentTokenCount += EstimateTokens(chunk.Text);
             yield return chunk;
+        }
+
+        if (!sawTerminator)
+        {
+            throw new IOException("Upstream stream ended before completion (no finish reason).");
+        }
+
+        if (truncated)
+        {
+            yield return new ChatChunk { Text = "", IsTruncated = true };
         }
     }
 
@@ -347,8 +366,9 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         || mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)
         || mimeType.Equals("text/yaml", StringComparison.OrdinalIgnoreCase);
 
-    private static ChatChunk ExtractDelta(string data)
+    private static ChatChunk ExtractDelta(string data, out string? finishReason)
     {
+        finishReason = null;
         using var document = JsonDocument.Parse(data);
         if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
         {
@@ -356,6 +376,11 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         }
 
         var choice = choices[0];
+        if (choice.TryGetProperty("finish_reason", out var finish) && finish.ValueKind == JsonValueKind.String)
+        {
+            finishReason = finish.GetString();
+        }
+
         if (!choice.TryGetProperty("delta", out var delta))
         {
             return new ChatChunk { Text = "" };

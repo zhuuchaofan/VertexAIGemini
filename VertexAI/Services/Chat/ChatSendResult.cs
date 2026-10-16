@@ -6,4 +6,5 @@ public sealed record ChatSendResult(
     string? ThinkingContent,
     bool Succeeded,
     string? ErrorMessage,
-    List<SearchCitation>? Citations = null);
+    List<SearchCitation>? Citations = null,
+    string Status = ChatStatuses.Completed);

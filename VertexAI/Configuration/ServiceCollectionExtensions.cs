@@ -28,6 +28,8 @@ public static class ServiceCollectionExtensions
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.Configure<QuotaSettings>(configuration.GetSection("Quota"));
+        services.Configure<AccessSettings>(configuration.GetSection("Access"));
+        services.Configure<ChatStreamSettings>(configuration.GetSection("Chat"));
         services.AddApplicationServices(configuration);
         services.AddVertexRateLimiting();
 
@@ -79,7 +81,10 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
-        services.AddHttpClient(nameof(OpenAICompatibleChatModelClient));
+        // The default HttpClient timeout (100s) would cut slow first tokens of reasoning models; the
+        // per-request generation cap (Chat:MaxGenerationSeconds) is the real time limit.
+        services.AddHttpClient(nameof(OpenAICompatibleChatModelClient), client =>
+            client.Timeout = Timeout.InfiniteTimeSpan);
 
         services.AddSingleton<GeminiSafetyPolicy>();
         services.AddScoped<GeminiService>();
@@ -95,6 +100,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
         services.AddSingleton(CreateFirebaseAuth(configuration));
         services.AddScoped<IUserContext, FirebaseUserContext>();
+        services.AddSingleton<AccessPolicy>();
+        services.AddSingleton<ChatConcurrencyLimiter>();
         services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
         services.AddSingleton(StorageClient.Create());
         services.AddSingleton<IChatAttachmentStore>(sp =>

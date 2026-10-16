@@ -1040,3 +1040,36 @@ button:disabled {
 .settings-fold > summary::-webkit-details-marker { display: none; }
 .sidebar { gap: 16px; }
 .conversation-panel { min-height: 0; }
+
+/* ----- generation status & stop button ----- */
+.stop-button {
+  align-self: end;
+  min-height: 48px;
+  min-width: 72px;
+  border: 1px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 700;
+  padding: 11px 14px;
+}
+
+.stop-button:hover:not(:disabled) {
+  background: var(--warn-line);
+}
+
+.message-status {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.message-status[data-tone="warn"],
+.message-status[data-tone="error"] {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn);
+}

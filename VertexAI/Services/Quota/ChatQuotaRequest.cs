@@ -7,4 +7,5 @@ public sealed record ChatQuotaRequest(
     int RequestCount,
     int EstimatedTokens,
     int SearchCount,
-    long AttachmentBytes);
+    long AttachmentBytes,
+    string? DateKey = null);

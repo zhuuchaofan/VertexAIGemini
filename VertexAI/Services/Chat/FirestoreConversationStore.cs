@@ -136,10 +136,12 @@ public sealed class FirestoreConversationStore : IConversationStore
             .Limit(take)
             .GetSnapshotAsync();
 
+        // Partial replies from failed generations are shown to the user but never fed back to the model.
         var messages = snapshot.Documents
             .Select(FirestoreConversationMapper.ToMessage)
             .Where(message => message != null)
             .Cast<Message>()
+            .Where(message => message.Status != ChatStatuses.Failed)
             .OrderBy(message => message.CreatedAt)
             .ToList();
 
@@ -163,7 +165,8 @@ public sealed class FirestoreConversationStore : IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatAttachment>? attachments = null)
+        IReadOnlyCollection<ChatAttachment>? attachments = null,
+        string? status = null)
     {
         var conversationRef = GetConversationDocument(conversationId);
         var conversationSnapshot = await conversationRef.GetSnapshotAsync();
@@ -178,7 +181,8 @@ public sealed class FirestoreConversationStore : IConversationStore
             ConversationId = conversationId,
             Role = role,
             Content = content,
-            ThinkingContent = thinkingContent
+            ThinkingContent = thinkingContent,
+            Status = status
         };
         var storedAttachments = await SaveAttachmentsAsync(
             attachments,

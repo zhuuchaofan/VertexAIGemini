@@ -1,0 +1,95 @@
+name: Staging Acceptance
+
+# MANUAL ONLY and STAGING ONLY (there is no environment input: this workflow can only talk to the STAGING project).
+# Runs the full business acceptance suite (scripts/acceptance/staging-acceptance.mjs) against the live staging web
+# service after `deploy-cloud-run` promoted a commit to staging. A passed run of THIS workflow is the
+# "acceptance reference" a production promotion requires. It makes real model calls (small cost) and creates and
+# deletes test conversations in the staging Firestore only.
+on:
+  workflow_dispatch:
+    inputs:
+      long_generation:
+        description: Also run the >60s generation scenario (costs more tokens)
+        required: true
+        default: false
+        type: boolean
+      legacy_conversation_id:
+        description: Optional id of a conversation written by the previous app version (staging data)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ vars.STAGING_GCP_PROJECT_ID }}
+      REGION: ${{ vars.STAGING_GCP_REGION || 'asia-east1' }}
+      API_SERVICE: ${{ vars.STAGING_API_SERVICE || 'vertex-ai-api-staging' }}
+      WEB_SERVICE: ${{ vars.STAGING_WEB_SERVICE || 'vertex-ai-web-staging' }}
+      WIF_PROVIDER: ${{ vars.STAGING_WIF_PROVIDER }}
+      DEPLOY_SERVICE_ACCOUNT: ${{ vars.STAGING_GCP_DEPLOY_SERVICE_ACCOUNT }}
+      ACCEPT_EMAIL: ${{ secrets.STAGING_ACCEPT_EMAIL }}
+      ACCEPT_PASSWORD: ${{ secrets.STAGING_ACCEPT_PASSWORD }}
+      ACCEPT_OUTSIDER_EMAIL: ${{ secrets.STAGING_ACCEPT_OUTSIDER_EMAIL }}
+      ACCEPT_OUTSIDER_PASSWORD: ${{ secrets.STAGING_ACCEPT_OUTSIDER_PASSWORD }}
+      ACCEPT_LEGACY_CONVERSATION_ID: ${{ inputs.legacy_conversation_id }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate staging settings
+        run: |
+          for name in PROJECT_ID WIF_PROVIDER DEPLOY_SERVICE_ACCOUNT ACCEPT_EMAIL ACCEPT_PASSWORD; do
+            [[ -n "${!name}" ]] || { echo "::error::Missing staging setting: ${name} (see docs/staging-and-release-guide.md)"; exit 1; }
+          done
+          for name in API_SERVICE WEB_SERVICE; do
+            [[ "${!name}" == *-staging ]] || { echo "::error::${name}=${!name} does not end with -staging"; exit 1; }
+          done
+
+      - name: Authenticate to the STAGING project
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check staging serves THIS commit (read-only)
+        run: |
+          source scripts/lib/cloud-run-release.sh
+          for service in "$API_SERVICE" "$WEB_SERVICE"; do
+            serving="$(crr_serving_revision "$service")"
+            [[ -n "$serving" ]] || { echo "::error::${service} has no serving revision. Promote the commit to staging first."; exit 1; }
+            image="$(crr_revision_image "$serving")"
+            if [[ "$image" != *":${IMAGE_TAG}"* ]]; then
+              echo "::error::${service} serves ${image}, not commit ${IMAGE_TAG}. Run this workflow from the commit that staging serves, or promote this commit to staging first."
+              exit 1
+            fi
+            echo "${service} serves ${serving} (${image##*:})"
+          done
+          url="$(gcloud run services describe "$WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')"
+          [[ "$url" == *staging* ]] || { echo "::error::web url does not look like staging: ${url}"; exit 1; }
+          echo "ACCEPT_BASE_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Business acceptance (real model, attachments, thinking, search, cancel, data saved)
+        shell: bash
+        run: |
+          args=()
+          [[ "${{ inputs.long_generation }}" == "true" ]] && args+=(--long)
+          node scripts/acceptance/staging-acceptance.mjs "${args[@]}" | tee acceptance.log
+          {
+            echo "## Staging acceptance for \`${IMAGE_TAG}\`"
+            echo '```'; tail -n 40 acceptance.log; echo '```'
+            echo "Use this run's URL as \`acceptance_ref\` when promoting to production."
+          } >> "$GITHUB_STEP_SUMMARY"

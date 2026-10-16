@@ -8,6 +8,15 @@ public sealed class ChatModelOption
     public bool SupportsThinking { get; set; }
     public ChatThinkingConfig? Thinking { get; set; }
     public int MaxTokens { get; set; } = 1048576;
+
+    /// <summary>Lifecycle stage shown to users: "ga" (default), "preview" or "deprecated".</summary>
+    public string Stage { get; set; } = "ga";
+
+    /// <summary>
+    /// Optional retirement date (yyyy-MM-dd, from the provider's lifecycle page). Models whose date has
+    /// passed are no longer offered, so a retired model never silently fails or falls back at runtime.
+    /// </summary>
+    public string? RetireDate { get; set; }
 }
 
 public sealed class ChatThinkingConfig

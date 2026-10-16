@@ -38,6 +38,7 @@ internal static class FirestoreConversationMapper
             [FirestoreConversationSchema.Content] = message.Content,
             [FirestoreConversationSchema.ThinkingContent] = message.ThinkingContent,
             [FirestoreConversationSchema.AttachmentsJson] = message.AttachmentsJson,
+            [FirestoreConversationSchema.Status] = message.Status,
             [FirestoreConversationSchema.CreatedAt] = Timestamp.FromDateTime(message.CreatedAt)
         };
     }
@@ -86,6 +87,7 @@ internal static class FirestoreConversationMapper
             Content = ReadString(snapshot, FirestoreConversationSchema.Content) ?? "",
             ThinkingContent = ReadString(snapshot, FirestoreConversationSchema.ThinkingContent),
             AttachmentsJson = ReadString(snapshot, FirestoreConversationSchema.AttachmentsJson),
+            Status = ReadString(snapshot, FirestoreConversationSchema.Status),
             CreatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.CreatedAt)
         };
     }

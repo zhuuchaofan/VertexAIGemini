@@ -1,5 +1,6 @@
 import { parseMarkdown } from "./markdown.js";
 import { readEventStream } from "./sse.js";
+import { createStreamTracker, describeStatus, kindFromServerStatus } from "./stream-state.js";
 import { createThinkingSettings } from "./thinking.js";
 import {
   MAX_ATTACHMENTS, MAX_SOURCE_IMAGE_BYTES, MAX_FILE_BYTES,
@@ -14,6 +15,7 @@ const WORKSPACE_PREFERENCES_KEY = "vertex-workspace-preferences";
 const workspacePreferences = loadWorkspacePreferences();
 
 const state = {
+  activeStream: null,
   mode: "login",
   user: null,
   conversationId: null,
@@ -71,6 +73,7 @@ const elements = {
   imageInput: document.querySelector("#image-input"),
   attachmentPreview: document.querySelector("#attachment-preview"),
   sendButton: document.querySelector("#send-button"),
+  stopButton: document.querySelector("#stop-button"),
   messages: document.querySelector("#messages"),
   template: document.querySelector("#message-template")
 };
@@ -141,6 +144,7 @@ elements.searchMode.addEventListener("change", () => {
   saveWorkspacePreference("searchMode", elements.searchMode.value);
 });
 elements.chatForm.addEventListener("submit", sendMessage);
+elements.stopButton.addEventListener("click", stopGeneration);
 elements.messages.addEventListener("click", handleMessagesClick);
 elements.imageInput.addEventListener("change", handleAttachmentSelection);
 elements.attachmentPreview.addEventListener("click", removePendingAttachment);
@@ -440,6 +444,12 @@ function renderWorkspaceConfig() {
   renderProviderCatalog();
 }
 
+function formatModelLabel(model) {
+  const isPreview = model.stage === "preview" || model.stage === "deprecated";
+  if (!isPreview || /preview|预览/i.test(model.name)) return model.name;
+  return `${model.name} · ${model.stage === "deprecated" ? "即将下线" : "预览"}`;
+}
+
 function renderProviderCatalog() {
   elements.modelSelect.replaceChildren();
   elements.presetSelect.replaceChildren();
@@ -449,7 +459,7 @@ function renderProviderCatalog() {
   for (const model of providerConfig?.models ?? []) {
     const option = document.createElement("option");
     option.value = model.modelName;
-    option.textContent = model.name;
+    option.textContent = formatModelLabel(model);
     option.title = model.description;
     elements.modelSelect.append(option);
   }
@@ -778,7 +788,8 @@ function renderLoadedConversationMessages(options = {}) {
       message.content,
       {
         attachments: message.attachments ?? [],
-        thinkingContent: message.thinkingContent
+        thinkingContent: message.thinkingContent,
+        status: message.role === "user" ? "completed" : kindFromServerStatus(message.status, true)
       }));
   }
 
@@ -893,6 +904,7 @@ async function sendMessage(event) {
 
   state.streaming = true;
   elements.sendButton.disabled = true;
+  elements.stopButton.classList.remove("hidden");
   elements.messageInput.value = "";
   state.pendingAttachments = [];
   renderAttachmentPreview();
@@ -901,12 +913,17 @@ async function sendMessage(event) {
   appendMessage("user", message, { attachments });
   const assistant = appendMessage("assistant", "");
   const assistantRenderer = createAssistantRenderer(assistant);
+  const tracker = createStreamTracker();
+  const controller = new AbortController();
+  state.activeStream = { tracker, controller };
   setConnection("ready", "正在生成");
 
+  let streamError = null;
   try {
     const response = await apiFetch("/api/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         conversationId: state.conversationId,
         message,
@@ -922,31 +939,80 @@ async function sendMessage(event) {
 
     if (!response.ok || !response.body) {
       const error = await readJson(response);
-      throw new Error(error?.error ?? `请求失败：${response.status}`);
+      throw Object.assign(new Error(error?.error ?? `请求失败：${response.status}`), { preStream: true });
     }
 
     await readEventStream(response.body, {
-      update: payload => assistantRenderer.update(payload),
+      update: payload => {
+        tracker.onUpdate(payload);
+        if (!tracker.hasFinal) assistantRenderer.update(payload);
+      },
       final: payload => {
-        state.conversationId = payload.conversationId ?? state.conversationId;
-        assistantRenderer.flush({
-          content: payload.succeeded ? payload.content : payload.errorMessage ?? payload.content,
-          thinkingContent: payload.thinkingContent,
-          citations: payload.citations
-        });
+        tracker.onFinal(payload); // a duplicate final event is ignored by the tracker
       }
     });
-
-    await refreshConversations();
-    setConnection("ready", "API 已连接");
   } catch (error) {
-    assistantRenderer.flush({ content: error.message });
-    setConnection("error", "请求失败");
-  } finally {
-    state.streaming = false;
-    elements.sendButton.disabled = false;
-    elements.messageInput.focus();
+    streamError = error;
   }
+
+  const outcome = tracker.resolve({ error: streamError });
+  state.activeStream = null;
+  if (outcome.conversationId) state.conversationId = outcome.conversationId;
+
+  assistantRenderer.flush({
+    content: outcome.content,
+    thinkingContent: outcome.thinkingContent,
+    citations: outcome.citations
+  });
+  applyMessageStatus(assistant, outcome.kind, outcome.errorMessage);
+
+  try {
+    if (outcome.conversationId) await refreshConversations();
+  } catch {
+    // The list refresh is best effort; the reply itself is already on screen.
+  }
+
+  reportStreamOutcome(outcome.kind);
+  state.streaming = false;
+  elements.sendButton.disabled = false;
+  elements.stopButton.classList.add("hidden");
+  elements.messageInput.focus();
+}
+
+function stopGeneration() {
+  const active = state.activeStream;
+  if (!state.streaming || !active || !active.tracker.requestStop()) return;
+  elements.stopButton.disabled = true;
+  active.controller.abort();
+  setConnection("ready", "正在停止");
+  window.setTimeout(() => { elements.stopButton.disabled = false; }, 500);
+}
+
+function reportStreamOutcome(kind) {
+  if (kind === "completed") setConnection("ready", "API 已连接");
+  else if (kind === "truncated") setConnection("ready", "回答被截断");
+  else if (kind === "cancelled") setConnection("ready", "已停止生成");
+  else if (kind === "interrupted") setConnection("error", "连接中断");
+  else setConnection("error", "生成失败");
+}
+
+function applyMessageStatus(node, kind, errorMessage) {
+  const notice = describeStatus(kind, errorMessage);
+  let element = node.querySelector(".message-status");
+  if (!notice) {
+    element?.remove();
+    delete node.dataset.status;
+    return;
+  }
+
+  if (!element) {
+    element = document.createElement("div");
+    element.className = "message-status";
+    node.append(element);
+  }
+  element.dataset.tone = notice.tone;
+  element.textContent = notice.text;
+  node.dataset.status = kind;
 }
 
 function createAssistantRenderer(node) {
@@ -995,6 +1061,10 @@ function createMessageNode(role, content, options = {}) {
     const thinking = node.querySelector(".thinking");
     thinking.classList.remove("hidden");
     thinking.querySelector("pre").textContent = options.thinkingContent;
+  }
+
+  if (options.status && options.status !== "completed") {
+    applyMessageStatus(node, options.status, null);
   }
 
   return node;

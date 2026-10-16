@@ -7,6 +7,10 @@ on:
       - master
   pull_request:
 
+# CI never needs more than read access and has no cloud credentials.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -50,3 +54,54 @@ jobs:
       - name: Run web unit tests
         working-directory: apps/web
         run: npm test
+
+  scripts-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Syntax check deploy scripts
+        run: |
+          bash -n scripts/deploy-cloud-run.sh
+          bash -n scripts/lib/cloud-run-release.sh
+          bash -n scripts/test/cloud-run-release.test.sh
+          bash -n scripts/test/repo-hygiene.sh
+          bash -n scripts/test/deploy-workflow.test.sh
+      - name: Release script tests (stateful fake gcloud, no cloud access)
+        run: bash scripts/test/cloud-run-release.test.sh
+      - name: Deploy workflow tests (environment selection, isolation guards, promote confirmation)
+        run: |
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet pyyaml
+          bash scripts/test/deploy-workflow.test.sh
+      - name: Staging acceptance suite tests (fake server, no cloud access)
+        run: node --test scripts/acceptance/staging-acceptance.test.mjs
+      - name: Repository hygiene (no generated files, oversized files, credentials or auto-deploy triggers)
+        run: bash scripts/test/repo-hygiene.sh
+
+  firestore-emulator-test:
+    # Quota atomicity under concurrency, conversation ownership and message status against the Firestore
+    # emulator. Uses the demo-* project id, so it can never reach a real project.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build tests
+        run: dotnet build VertexAI.Tests/VertexAI.Tests.csproj --disable-build-servers
+      - name: Run service tests against the Firestore emulator
+        run: >
+          npx --yes firebase-tools@15.34.0 emulators:exec --only firestore
+          --project demo-release-readiness --config VertexAI.Tests/firebase.json
+          "dotnet VertexAI.Tests/bin/Debug/net10.0/VertexAI.Tests.dll"

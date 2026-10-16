@@ -16,13 +16,13 @@ API_MEMORY="${API_MEMORY:-1Gi}"
 API_CONCURRENCY="${API_CONCURRENCY:-20}"
 API_TIMEOUT="${API_TIMEOUT:-300s}"
 API_MIN_INSTANCES="${API_MIN_INSTANCES:-0}"
-API_MAX_INSTANCES="${API_MAX_INSTANCES:-10}"
+API_MAX_INSTANCES="${API_MAX_INSTANCES:-3}"
 WEB_CPU="${WEB_CPU:-1}"
 WEB_MEMORY="${WEB_MEMORY:-512Mi}"
 WEB_CONCURRENCY="${WEB_CONCURRENCY:-80}"
-WEB_TIMEOUT="${WEB_TIMEOUT:-60s}"
+WEB_TIMEOUT="${WEB_TIMEOUT:-330s}"
 WEB_MIN_INSTANCES="${WEB_MIN_INSTANCES:-0}"
-WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-5}"
+WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-2}"
 
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$PROJECT_ID}"
 FIRESTORE_PROJECT_ID="${FIRESTORE_PROJECT_ID:-$FIREBASE_PROJECT_ID}"
@@ -30,6 +30,13 @@ FIREBASE_API_KEY="${FIREBASE_API_KEY:-}"
 FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-$FIREBASE_PROJECT_ID.firebaseapp.com}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 DEFAULT_PROVIDER_ID="${DEFAULT_PROVIDER_ID:-gemini}"
+DEPLOY_TARGET="${DEPLOY_TARGET:-all}"
+# Release mode (see scripts/lib/cloud-run-release.sh): CRR_ENV defaults to staging and CRR_MODE to prepare, so running
+# this script without extra settings only deploys a no-traffic STAGING candidate. Promotion needs CRR_MODE=promote and
+# CRR_CONFIRM_PROMOTE=promote:<env>:<IMAGE_TAG>; production also needs CRR_ACCEPTANCE_REF.
+export CRR_ENV="${CRR_ENV:-staging}" CRR_MODE="${CRR_MODE:-prepare}" CRR_CONFIRM_PROMOTE="${CRR_CONFIRM_PROMOTE:-}" CRR_ACCEPTANCE_REF="${CRR_ACCEPTANCE_REF:-}"
+BOOTSTRAP_INFRASTRUCTURE="${BOOTSTRAP_INFRASTRUCTURE:-false}"
+API_SECRETS="${API_SECRETS:-}"
 ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-attachments}"
 
 if [[ -z "$PROJECT_ID" ]]; then
@@ -55,102 +62,48 @@ if [[ -z "$FIREBASE_API_KEY" || -z "$FIREBASE_APP_ID" ]]; then
   exit 1
 fi
 
-API_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${IMAGE_TAG}"
-WEB_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${IMAGE_TAG}"
+# Release settings shared with scripts/lib/cloud-run-release.sh (merge-only configuration, candidate
+# deploys, verified traffic switch, automatic rollback).
+export PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT
+export RUNTIME_SERVICE_ACCOUNT="$SERVICE_ACCOUNT" IMAGE_TAG DEPLOY_TARGET
+export FIREBASE_PROJECT_ID FIRESTORE_PROJECT_ID FIREBASE_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_APP_ID
+export DEFAULT_PROVIDER_ID ATTACHMENT_STORAGE_BUCKET
+export API_CPU API_MEMORY API_CONCURRENCY API_TIMEOUT API_MIN_INSTANCES API_MAX_INSTANCES
+export WEB_CPU WEB_MEMORY WEB_CONCURRENCY WEB_TIMEOUT WEB_MIN_INSTANCES WEB_MAX_INSTANCES
+export CHAT_MAX_GENERATION_SECONDS="${CHAT_MAX_GENERATION_SECONDS:-240}"
+export API_SECRETS ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
+export QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
 
-echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
-if ! gcloud artifacts repositories describe "$REPOSITORY" \
-  --project="$PROJECT_ID" \
-  --location="$REGION" >/dev/null 2>&1; then
-  gcloud artifacts repositories create "$REPOSITORY" \
+# shellcheck source=lib/cloud-run-release.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cloud-run-release.sh"
+
+if [[ "$CRR_MODE" == "prepare" && "$BOOTSTRAP_INFRASTRUCTURE" == "true" ]]; then
+  echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
+  if ! gcloud artifacts repositories describe "$REPOSITORY" \
     --project="$PROJECT_ID" \
-    --location="$REGION" \
-    --repository-format=docker \
-    --description="Vertex AI workspace containers"
+    --location="$REGION" >/dev/null 2>&1; then
+    gcloud artifacts repositories create "$REPOSITORY" \
+      --project="$PROJECT_ID" \
+      --location="$REGION" \
+      --repository-format=docker \
+      --description="Vertex AI workspace containers"
+  fi
+
+  echo "[INFO] Ensuring attachment storage bucket gs://${ATTACHMENT_STORAGE_BUCKET}..."
+  if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
+    gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+      --project="$PROJECT_ID" \
+      --location="$REGION" \
+      --uniform-bucket-level-access
+  fi
+
+  crr_ensure_bucket_access
+
+  echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
+  FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
+else
+  echo "[INFO] Skipping infrastructure bootstrap (set BOOTSTRAP_INFRASTRUCTURE=true with CRR_MODE=prepare for first-time setup)."
 fi
 
-echo "[INFO] Ensuring attachment storage bucket gs://${ATTACHMENT_STORAGE_BUCKET}..."
-if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
-  gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
-    --project="$PROJECT_ID" \
-    --location="$REGION" \
-    --uniform-bucket-level-access
-fi
-
-echo "[INFO] Granting Cloud Run service account object access to gs://${ATTACHMENT_STORAGE_BUCKET}..."
-gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
-  --member="serviceAccount:${SERVICE_ACCOUNT}" \
-  --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
-
-echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
-FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
-
-echo "[INFO] Building API image ${API_IMAGE}..."
-gcloud builds submit VertexAI \
-  --project="$PROJECT_ID" \
-  --tag="$API_IMAGE"
-
-echo "[INFO] Deploying API service ${API_SERVICE}..."
-gcloud run deploy "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --image="$API_IMAGE" \
-  --service-account="$SERVICE_ACCOUNT" \
-  --no-allow-unauthenticated \
-  --port=8080 \
-  --cpu="$API_CPU" \
-  --memory="$API_MEMORY" \
-  --concurrency="$API_CONCURRENCY" \
-  --timeout="$API_TIMEOUT" \
-  --min-instances="$API_MIN_INSTANCES" \
-  --max-instances="$API_MAX_INSTANCES" \
-  --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
-
-gcloud run services add-iam-policy-binding "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
-  --role="roles/run.invoker" >/dev/null
-
-gcloud run services remove-iam-policy-binding "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --member="allUsers" \
-  --role="roles/run.invoker" >/dev/null 2>&1 || true
-
-API_URL="$(gcloud run services describe "$API_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --format='value(status.url)')"
-
-echo "[INFO] Building web image ${WEB_IMAGE}..."
-gcloud builds submit apps/web \
-  --project="$PROJECT_ID" \
-  --tag="$WEB_IMAGE"
-
-echo "[INFO] Deploying web service ${WEB_SERVICE}..."
-gcloud run deploy "$WEB_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --image="$WEB_IMAGE" \
-  --service-account="$WEB_SERVICE_ACCOUNT" \
-  --allow-unauthenticated \
-  --port=8080 \
-  --cpu="$WEB_CPU" \
-  --memory="$WEB_MEMORY" \
-  --concurrency="$WEB_CONCURRENCY" \
-  --timeout="$WEB_TIMEOUT" \
-  --min-instances="$WEB_MIN_INSTANCES" \
-  --max-instances="$WEB_MAX_INSTANCES" \
-  --set-env-vars="BACKEND_URL=${API_URL}"
-
-WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
-  --project="$PROJECT_ID" \
-  --region="$REGION" \
-  --format='value(status.url)')"
-
-echo "[INFO] API URL: ${API_URL}"
-echo "[INFO] Web URL: ${WEB_URL}"
-echo "[INFO] Smoke checks:"
-echo "curl -i ${API_URL}/health/live    # expected: 403 direct unauthenticated"
-echo "curl -i ${WEB_URL}/api/workspace/config    # expected: 200 through web proxy"
+# prepare: build + deploy no-traffic candidates + smoke check. promote: switch traffic, verify, roll back on failure.
+crr_release

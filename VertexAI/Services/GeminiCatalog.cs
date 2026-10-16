@@ -52,10 +52,10 @@ internal static class GeminiCatalog
     {
         if (config.Models is { Count: > 0 })
         {
-            return NormalizeThinking(config.Models);
+            return ModelLifecycle.FilterAvailable(NormalizeThinking(config.Models));
         }
 
-        return NormalizeThinking(
+        return ModelLifecycle.FilterAvailable(NormalizeThinking(
         [
             new()
             {
@@ -79,7 +79,8 @@ internal static class GeminiCatalog
                 ModelName = "gemini-3-flash-preview",
                 Description = "第三代快速原型预览，均衡的多模态多任务模型",
                 Thinking = CreateGeminiThinking(["minimal", "low", "medium", "high"], "high"),
-                MaxTokens = 1048576
+                MaxTokens = 1048576,
+                Stage = "preview"
             },
             new()
             {
@@ -87,9 +88,10 @@ internal static class GeminiCatalog
                 ModelName = "gemini-3.1-pro-preview",
                 Description = "深度推理版预览，适合复杂的代码逻辑和长文本深度思考",
                 Thinking = CreateGeminiThinking(["low", "medium", "high"], "high", canDisable: false),
-                MaxTokens = 2097152
+                MaxTokens = 2097152,
+                Stage = "preview"
             }
-        ]);
+        ]));
     }
 
     public static string ResolveModelName(string? modelName, IReadOnlyList<ChatModelOption> models) =>

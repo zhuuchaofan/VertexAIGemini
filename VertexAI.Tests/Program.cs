@@ -11,10 +11,53 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using VertexAI.Services.Quota;
 
-var tests = new (string Name, Action Test)[]
+var tests = new List<(string Name, Action Test)>
 {
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
+    ("ModelLifecycle hides retired models and keeps list when all retired", ModelLifecycleTests.HidesRetiredModels),
+    ("GeminiCatalog marks preview models and honours RetireDate", ModelLifecycleTests.CatalogHonoursRetireDate),
+    ("ChatOrchestrator rejects unknown models explicitly", ChatOrchestratorTests.RejectsUnknownModelExplicitly),
+    ("Quota settlement does not double count tokens", CostControlTests.SettlementDoesNotDoubleCountTokens),
+    ("Quota accounting enforces user and global limits", CostControlTests.EnforcesUserAndGlobalLimits),
+    ("Quota estimates ignore client sizes and Base64 inflation", CostControlTests.EstimatesIgnoreClientSizeAndAvoidBase64Inflation),
+    ("ChatConcurrencyLimiter bounds users and releases once", CostControlTests.ConcurrencyLimiterBoundsUsersAndReleasesOnce),
+    ("ChatOrchestrator rejects when too many concurrent chats", CostControlTests.OrchestratorRejectsWhenTooManyConcurrentChats),
+    ("ChatOrchestrator settles reservation on every path", CostControlTests.OrchestratorSettlesReservationOnEveryPath),
+    ("FirebaseUserContext: malformed bearer tokens are anonymous, not 500", FirebaseUserContextTests.MalformedBearerTokensAreAnonymousNotServerErrors),
+    ("FirebaseUserContext: missing or non-bearer header is anonymous", FirebaseUserContextTests.MissingOrNonBearerHeaderIsAnonymous),
+    ("Release: quota reservation and settlement use the same day key", ReleaseReadinessTests.ReservationAndSettlementShareTheDayKey),
+    ("Release: cancelled generation is charged at least estimate plus output", ReleaseReadinessTests.CancelledGenerationIsNotFree),
+    ("Release: request that never reached the model is not charged tokens", ReleaseReadinessTests.EarlyFailureIsNotChargedTokens),
+    ("Release: disabled thinking maps to the lowest level on Gemini 3 models", ReleaseReadinessTests.DisabledThinkingUsesLowestLevelNotBudget),
+    ("Release: environment variables bind to Access/Quota/Chat settings", ReleaseReadinessTests.EnvironmentVariablesBindToSettings),
+    ("Release: access policy path matching ignores case", ReleaseReadinessTests.AccessPolicyPathMatchingIgnoresCase),
+    ("Release: access policy applies to every API route group", ReleaseReadinessTests.AccessPolicyCoversAllApiRoutes),
+    ("AccessSettings expands comma-separated lists", AccessSettingsTests.ExpandsCsvLists),
+    ("AccessPolicy is open by default", CostControlTests.AccessPolicyDefaultsToOpen),
+    ("AccessPolicy requires verified email when configured", CostControlTests.AccessPolicyRequiresVerifiedEmailWhenConfigured),
+    ("AccessPolicy allow-list needs verified email", CostControlTests.AccessPolicyAllowListNeedsVerifiedEmail),
+    ("AccessPolicyMiddleware blocks denied users only on API paths", CostControlTests.AccessMiddlewareBlocksDeniedUsersOnlyOnApiPaths),
+    ("Stream: completed reply is saved once without status", StreamingTests.CompletedStreamIsSavedOnceWithoutStatus),
+    ("Stream: long-running generation completes in order", StreamingTests.LongRunningStreamCompletesAndKeepsOrder),
+    ("Stream: output limit is truncated, not success", StreamingTests.OutputLimitIsReportedAsTruncatedNotSuccess),
+    ("Stream: user cancel keeps partial reply and settles once", StreamingTests.UserCancelKeepsPartialReplyAndSettlesOnce),
+    ("Stream: cancel before output saves no model message", StreamingTests.CancelBeforeAnyOutputSavesNoModelMessage),
+    ("Stream: client disconnect during write is cancelled", StreamingTests.ClientDisconnectDuringWriteIsCancelledNotFailed),
+    ("Stream: upstream error mid-stream is failed with partial", StreamingTests.UpstreamErrorMidStreamIsFailedWithPartialContent),
+    ("Stream: generation cap ends stream as failed", StreamingTests.GenerationCapEndsStreamAsFailedAndKeepsPartial),
+    ("Stream: history with orphan user turns is normalised", StreamingTests.HistoryWithOrphanUserTurnsIsNormalised),
+    ("Stream: prompt cancellation returns while source is blocked", StreamingTests.PromptCancellationReturnsWhileSourceIsBlocked),
+    ("Stream: prompt cancellation passes items and disposes on break", StreamingTests.PromptCancellationPassesItemsAndDisposesOnBreak),
+    ("Endpoint: updates plus exactly one final event", StreamingTests.EndpointWritesUpdatesAndExactlyOneFinalEvent),
+    ("Endpoint: client abort reports cancelled", StreamingTests.EndpointReportsCancelledWhenClientAborts),
+    ("Endpoint: broken connection stops generation without throwing", StreamingTests.EndpointSurvivesBrokenConnectionAndStopsGenerating),
+    ("Endpoint: heartbeat while model is silent", StreamingTests.EndpointSendsHeartbeatWhileModelIsSilent),
+    ("Endpoint: unauthenticated rejected before streaming", StreamingTests.EndpointRejectsUnauthenticatedBeforeStreaming),
+    ("OpenAI client: finish_reason length yields truncated marker", StreamingTests.OpenAiFinishReasonLengthYieldsTruncatedMarker),
+    ("OpenAI client: stream ending without finish is an error", StreamingTests.OpenAiStreamEndingWithoutFinishIsAnError),
+    ("OpenAI client: stop finish without DONE is accepted", StreamingTests.OpenAiStopFinishWithoutDoneIsAccepted),
+    ("OpenAI client: cancellation stops reading and closes upstream", StreamingTests.OpenAiCancellationStopsReadingAndClosesUpstream),
     ("GeminiSafetyPolicy splits admin and default thresholds", GeminiSafetyPolicyTests.SplitsAdminAndDefaultThresholds),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
@@ -47,6 +90,16 @@ var tests = new (string Name, Action Test)[]
     ("OpenAICompatibleChatModelClient streams reasoning chunks", OpenAICompatibleChatModelClientTests.StreamsReasoningChunks)
 };
 
+if (EmulatorTests.Available)
+{
+    EmulatorTests.Reset();
+    tests.AddRange(EmulatorTests.All);
+}
+else
+{
+    Console.WriteLine("SKIP Firestore emulator tests (set FIRESTORE_EMULATOR_HOST to run them)");
+}
+
 var failures = new List<string>();
 
 foreach (var (name, test) in tests)
@@ -77,7 +130,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine();
-Console.WriteLine($"{tests.Length} tests passed.");
+Console.WriteLine($"{tests.Count} tests passed.");
 return 0;
 
 internal static class GeminiPartFactoryTests
@@ -118,6 +171,48 @@ internal static class GeminiCatalogTests
         Assert.True(pro.SupportsThinking);
         Assert.False(pro.Thinking?.CanDisable ?? true);
         Assert.False(pro.Thinking?.Options.Any(option => option.Value == "off") ?? true);
+    }
+}
+
+internal static class ModelLifecycleTests
+{
+    public static void HidesRetiredModels()
+    {
+        var models = new List<ChatModelOption>
+        {
+            new() { Name = "old", ModelName = "gemini-2.5-flash", RetireDate = "2026-10-20" },
+            new() { Name = "new", ModelName = "gemini-3.5-flash" }
+        };
+
+        Assert.Equal(2, ModelLifecycle.FilterAvailable(models, new DateOnly(2026, 10, 19)).Count);
+        var after = ModelLifecycle.FilterAvailable(models, new DateOnly(2026, 10, 20));
+        Assert.Equal(1, after.Count);
+        Assert.Equal("gemini-3.5-flash", after[0].ModelName);
+
+        var allRetired = new List<ChatModelOption>
+        {
+            new() { Name = "a", ModelName = "a", RetireDate = "2020-01-01" }
+        };
+        Assert.Equal(1, ModelLifecycle.FilterAvailable(allRetired, new DateOnly(2026, 1, 1)).Count);
+        Assert.False(ModelLifecycle.IsRetired(new ChatModelOption { RetireDate = "not-a-date" }, new DateOnly(2030, 1, 1)));
+    }
+
+    public static void CatalogHonoursRetireDate()
+    {
+        var defaults = GeminiCatalog.CreateModelOptions(new GeminiSettings());
+        Assert.True(defaults.Any(m => m.ModelName == "gemini-3.5-flash" && m.Stage == "ga"));
+        Assert.True(defaults.Where(m => m.ModelName.EndsWith("-preview")).All(m => m.Stage == "preview"));
+
+        var configured = GeminiCatalog.CreateModelOptions(new GeminiSettings
+        {
+            Models =
+            [
+                new() { Name = "Gone", ModelName = "gemini-2.5-pro", RetireDate = "2026-10-01" },
+                new() { Name = "Kept", ModelName = "gemini-3.5-flash" }
+            ]
+        });
+        Assert.Equal(1, configured.Count);
+        Assert.Equal("gemini-3.5-flash", configured[0].ModelName);
     }
 }
 
@@ -266,6 +361,31 @@ internal static class ChatOrchestratorTests
         Assert.Equal("hi", lastRequest!.Message);
         Assert.Equal(0, lastRequest.Attachments.Count);
         Assert.Equal(SearchModes.Auto, lastRequest.SearchMode);
+    }
+
+    public static void RejectsUnknownModelExplicitly()
+    {
+        var user = TestUser(Guid.NewGuid());
+        var model = new FakeChatModelClient
+        {
+            ModelOptions = [new ChatModelOption { Name = "ok", ModelName = "gemini-3.5-flash" }],
+            Chunks = [new ChatChunk { Text = "should not run" }]
+        };
+        var store = new FakeConversationStore();
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "hi", [], Options: new ChatSessionOptions("fake", "gemini-2.5-flash", null, null, null, null, null)),
+            _ => Task.CompletedTask));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("gemini-2.5-flash", result.ErrorMessage ?? "");
+        Assert.Contains("已不可用", result.ErrorMessage ?? "");
+        Assert.Equal(0, store.Messages.Count);
+        Assert.True(model.LastRequest is null);
     }
 
     public static void MapsModelFailures()
@@ -771,12 +891,10 @@ internal sealed class FakeProviderCatalog : IChatProviderCatalog
     public FakeProviderCatalog(FakeChatModelClient client)
     {
         _client = client;
+        Providers = [new FakeProvider("fake", client)];
     }
 
-    public IReadOnlyList<IChatModelProvider> Providers { get; } =
-    [
-        new FakeProvider("fake", new FakeChatModelClient())
-    ];
+    public IReadOnlyList<IChatModelProvider> Providers { get; }
 
     public string ResolveProviderId(string? providerId) => providerId ?? "fake";
 
@@ -1248,7 +1366,17 @@ internal sealed class FakeChatModelClient : IChatModelClient, IAuthenticatedUser
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    /// <summary>Optional hook run before each chunk is yielded (index, token); used to script slow/cancelled streams.</summary>
+    public Func<int, CancellationToken, Task>? BeforeChunk { get; set; }
+
+    /// <summary>When set, the stream throws this after yielding all chunks (upstream broke mid-stream).</summary>
+    public Exception? FailureAfterChunks { get; set; }
+
+    public bool StreamWasDisposedEarly { get; private set; }
+
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
         LastRequest = request;
@@ -1258,9 +1386,30 @@ internal sealed class FakeChatModelClient : IChatModelClient, IAuthenticatedUser
             throw Failure;
         }
 
-        foreach (var chunk in Chunks)
+        var finished = false;
+        try
         {
-            yield return chunk;
+            for (var i = 0; i < Chunks.Count; i++)
+            {
+                if (BeforeChunk != null)
+                {
+                    await BeforeChunk(i, cancellationToken);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return Chunks[i];
+            }
+
+            if (FailureAfterChunks != null)
+            {
+                throw FailureAfterChunks;
+            }
+
+            finished = true;
+        }
+        finally
+        {
+            StreamWasDisposedEarly = !finished;
         }
     }
 }
@@ -1333,13 +1482,15 @@ internal sealed class FakeConversationStore : IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatAttachment>? attachments = null)
+        IReadOnlyCollection<ChatAttachment>? attachments = null,
+        string? status = null)
     {
         Messages.Add(new FakeStoredMessage(
             role,
             content,
             thinkingContent,
-            attachments?.ToList() ?? []));
+            attachments?.ToList() ?? [],
+            status));
         return Task.FromResult<Message?>(new Message
         {
             ConversationId = conversationId,
@@ -1370,10 +1521,13 @@ internal sealed class FakeQuotaService : IChatQuotaService
     public Exception? Failure { get; set; }
     public int CheckCount { get; private set; }
     public int RecordCount { get; private set; }
+    public List<ChatQuotaRequest> Reserved { get; } = [];
+    public List<(ChatQuotaRequest Request, int ActualTokens)> Settled { get; } = [];
 
     public Task CheckAndReserveAsync(ChatQuotaRequest request, CancellationToken cancellationToken = default)
     {
         CheckCount++;
+        Reserved.Add(request);
         if (Failure != null)
         {
             throw Failure;
@@ -1385,6 +1539,7 @@ internal sealed class FakeQuotaService : IChatQuotaService
     public Task RecordTokenUsageAsync(ChatQuotaRequest request, int actualTokens, CancellationToken cancellationToken = default)
     {
         RecordCount++;
+        Settled.Add((request, actualTokens));
         return Task.CompletedTask;
     }
 }
@@ -1419,7 +1574,8 @@ internal sealed record FakeStoredMessage(
     string Role,
     string Content,
     string? ThinkingContent,
-    IReadOnlyList<ChatAttachment> Attachments);
+    IReadOnlyList<ChatAttachment> Attachments,
+    string? Status = null);
 
 internal static class Assert
 {
