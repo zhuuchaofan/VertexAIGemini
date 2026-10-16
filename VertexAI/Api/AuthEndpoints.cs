@@ -24,7 +24,7 @@ public static class AuthEndpoints
         return Results.Ok(new AuthResponse(
             true,
             null,
-            new UserInfo(user.LocalUserId, user.Email ?? "Firebase user", EmailVerified: true)));
+            new UserInfo(user.LocalUserId, user.Email ?? "Firebase user", EmailVerified: user.EmailVerified)));
     }
 
     private sealed record AuthResponse(bool Success, string? Error, UserInfo? User = null);

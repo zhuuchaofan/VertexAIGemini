@@ -19,6 +19,10 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
     public const string AttachmentBytes = "attachmentBytes";
     public const string UpdatedAt = "updatedAt";
 
+    /// <summary>Site-wide totals live in their own collection so per-user reports are unaffected.</summary>
+    public const string GlobalCollectionName = "usageQuotaGlobal";
+    public const string GlobalUserId = "_global";
+
     private readonly FirestoreDb _db;
     private readonly QuotaSettings _settings;
 
@@ -35,34 +39,66 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
             return;
         }
 
-        var doc = GetDailyDocument(request.User);
+        var userDoc = GetDailyDocument(request.User);
+        var globalDoc = GetGlobalDocument();
         await _db.RunTransactionAsync(async transaction =>
         {
-            var snapshot = await transaction.GetSnapshotAsync(doc, cancellationToken);
-            var usage = DailyUsage.From(snapshot);
-            var next = usage.Add(request);
-            Validate(next);
-            transaction.Set(doc, next.ToDocument(request), SetOptions.MergeAll);
+            // Firestore transactions require every read before any write.
+            var userSnapshot = await transaction.GetSnapshotAsync(userDoc, cancellationToken);
+            var globalSnapshot = _settings.GlobalLimitsEnabled
+                ? await transaction.GetSnapshotAsync(globalDoc, cancellationToken)
+                : null;
+
+            var nextUser = ReadTotals(userSnapshot).Reserve(request);
+            var violation = QuotaAccounting.FindUserViolation(nextUser, _settings);
+            if (violation is not null)
+            {
+                throw new InvalidOperationException(violation);
+            }
+
+            transaction.Set(userDoc, ToDocument(nextUser, ResolveUserId(request.User)), SetOptions.MergeAll);
+
+            if (globalSnapshot is not null)
+            {
+                var nextGlobal = ReadTotals(globalSnapshot).Reserve(request);
+                var globalViolation = QuotaAccounting.FindGlobalViolation(nextGlobal, _settings);
+                if (globalViolation is not null)
+                {
+                    throw new InvalidOperationException(globalViolation);
+                }
+
+                transaction.Set(globalDoc, ToDocument(nextGlobal, GlobalUserId), SetOptions.MergeAll);
+            }
         }, cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Settles one reservation: releases the estimated tokens and records the actual usage, atomically
+    /// for the user bucket and the site bucket. Must be called exactly once per successful reservation.
+    /// </summary>
     public async Task RecordTokenUsageAsync(ChatQuotaRequest request, int actualTokens, CancellationToken cancellationToken = default)
     {
-        if (ShouldBypass(request.User) || actualTokens <= 0)
+        if (ShouldBypass(request.User))
         {
             return;
         }
 
-        await GetDailyDocument(request.User).SetAsync(
-            new Dictionary<string, object>
-            {
-                [UserIdField] = ResolveUserId(request.User),
-                [DateField] = TodayDateKey(),
-                [ActualTokens] = FieldValue.Increment(actualTokens),
-                [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
-            },
-            SetOptions.MergeAll,
-            cancellationToken);
+        var (estimatedDelta, actualDelta) = QuotaAccounting.SettleDeltas(request.EstimatedTokens, actualTokens);
+        var batch = _db.StartBatch();
+        batch.Set(
+            GetDailyDocument(request.User),
+            SettlementDocument(ResolveUserId(request.User), estimatedDelta, actualDelta),
+            SetOptions.MergeAll);
+
+        if (_settings.GlobalLimitsEnabled)
+        {
+            batch.Set(
+                GetGlobalDocument(),
+                SettlementDocument(GlobalUserId, estimatedDelta, actualDelta),
+                SetOptions.MergeAll);
+        }
+
+        await batch.CommitAsync(cancellationToken);
     }
 
     private bool ShouldBypass(AuthenticatedUser user) =>
@@ -70,6 +106,40 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
 
     private DocumentReference GetDailyDocument(AuthenticatedUser user) =>
         _db.Collection(CollectionName).Document(DailyDocumentId(ResolveUserId(user), TodayDateKey()));
+
+    private DocumentReference GetGlobalDocument() =>
+        _db.Collection(GlobalCollectionName).Document(TodayDateKey());
+
+    private static Dictionary<string, object> SettlementDocument(string userId, long estimatedDelta, long actualDelta) => new()
+    {
+        [UserIdField] = userId,
+        [DateField] = TodayDateKey(),
+        [EstimatedTokens] = FieldValue.Increment(estimatedDelta),
+        [ActualTokens] = FieldValue.Increment(actualDelta),
+        [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
+    };
+
+    private static UsageTotals ReadTotals(DocumentSnapshot snapshot) =>
+        snapshot.Exists
+            ? new UsageTotals(
+                ReadInt(snapshot, Requests),
+                ReadInt(snapshot, EstimatedTokens),
+                ReadInt(snapshot, ActualTokens),
+                ReadInt(snapshot, Searches),
+                ReadLong(snapshot, AttachmentBytes))
+            : default;
+
+    private static Dictionary<string, object> ToDocument(UsageTotals usage, string userId) => new()
+    {
+        [UserIdField] = userId,
+        [DateField] = TodayDateKey(),
+        [Requests] = usage.Requests,
+        [EstimatedTokens] = usage.EstimatedTokens,
+        [ActualTokens] = usage.ActualTokens,
+        [Searches] = usage.Searches,
+        [AttachmentBytes] = usage.AttachmentBytes,
+        [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
+    };
 
     public static string ResolveUserId(AuthenticatedUser user) =>
         FirestoreDocumentIds.UserDocumentId(user.LocalUserId, user.FirebaseUid);
@@ -124,69 +194,6 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
         return separator >= 0 && separator < documentId.Length - 1
             ? documentId[(separator + 1)..]
             : "";
-    }
-
-    private void Validate(DailyUsage usage)
-    {
-        if (usage.Requests > _settings.DailyRequestLimit)
-        {
-            throw new InvalidOperationException("Daily request quota exceeded.");
-        }
-
-        if (usage.EstimatedTokens + usage.ActualTokens > _settings.DailyTokenLimit)
-        {
-            throw new InvalidOperationException("Daily token quota exceeded.");
-        }
-
-        if (usage.Searches > _settings.DailySearchLimit)
-        {
-            throw new InvalidOperationException("Daily search quota exceeded.");
-        }
-
-        if (usage.AttachmentBytes > _settings.DailyAttachmentBytesLimit)
-        {
-            throw new InvalidOperationException("Daily attachment quota exceeded.");
-        }
-    }
-
-    private sealed record DailyUsage(
-        int Requests,
-        int EstimatedTokens,
-        int ActualTokens,
-        int Searches,
-        long AttachmentBytes)
-    {
-        public static DailyUsage From(DocumentSnapshot snapshot) =>
-            snapshot.Exists
-                ? new DailyUsage(
-                    ReadInt(snapshot, FirestoreChatQuotaService.Requests),
-                    ReadInt(snapshot, FirestoreChatQuotaService.EstimatedTokens),
-                    ReadInt(snapshot, FirestoreChatQuotaService.ActualTokens),
-                    ReadInt(snapshot, FirestoreChatQuotaService.Searches),
-                    ReadLong(snapshot, FirestoreChatQuotaService.AttachmentBytes))
-                : new DailyUsage(0, 0, 0, 0, 0);
-
-        public DailyUsage Add(ChatQuotaRequest request) =>
-            this with
-            {
-                Requests = Requests + request.RequestCount,
-                EstimatedTokens = EstimatedTokens + request.EstimatedTokens,
-                Searches = Searches + request.SearchCount,
-                AttachmentBytes = AttachmentBytes + request.AttachmentBytes
-            };
-
-        public Dictionary<string, object> ToDocument(ChatQuotaRequest request) => new()
-        {
-            [FirestoreChatQuotaService.UserIdField] = ResolveUserId(request.User),
-            [FirestoreChatQuotaService.DateField] = TodayDateKey(),
-            [FirestoreChatQuotaService.Requests] = Requests,
-            [FirestoreChatQuotaService.EstimatedTokens] = EstimatedTokens,
-            [FirestoreChatQuotaService.ActualTokens] = ActualTokens,
-            [FirestoreChatQuotaService.Searches] = Searches,
-            [FirestoreChatQuotaService.AttachmentBytes] = AttachmentBytes,
-            [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
-        };
-
     }
 
     private static string? ReadString(DocumentSnapshot snapshot, string field) =>

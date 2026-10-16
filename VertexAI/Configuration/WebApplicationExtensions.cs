@@ -37,6 +37,8 @@ public static class WebApplicationExtensions
             Predicate = check => check.Tags.Contains("ready")
         });
 
+        app.UseMiddleware<AccessPolicyMiddleware>();
+
         app.MapAuthEndpoints();
         app.MapChatEndpoints();
         app.MapConversationEndpoints();

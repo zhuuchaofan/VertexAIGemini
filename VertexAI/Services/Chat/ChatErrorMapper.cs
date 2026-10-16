@@ -35,6 +35,7 @@ internal static class ChatErrorMapper
             var value when Contains(value, "application default credentials") => "AI 服务账号凭据不可用，请检查 Cloud Run 运行时服务账号",
             var value when Contains(value, "credential file") => "AI 服务账号凭据不可用，请检查 Cloud Run 运行时服务账号",
             var value when Contains(value, "Access to the path") => "服务无法读取必要资源，请检查 Cloud Run 运行时权限",
+            var value when Contains(value, "Global budget exceeded") => "站点今日使用量已达上限，请明天再试",
             var value when Contains(value, "Daily request quota exceeded") => "今日请求次数已用尽，请明天再试",
             var value when Contains(value, "Daily token quota exceeded") => "今日 Token 配额已用尽，请明天再试",
             var value when Contains(value, "Daily search quota exceeded") => "今日联网搜索次数已用尽，请明天再试",

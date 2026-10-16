@@ -14,6 +14,7 @@ public class ChatOrchestrator
     private readonly ILogger<ChatOrchestrator> _logger;
     private readonly IReadOnlyList<IChatRequestAugmenter> _augmenters;
     private readonly IChatQuotaService _quota;
+    private readonly ChatConcurrencyLimiter? _concurrency;
     private readonly int _maxHistoryMessages;
 
     public ChatOrchestrator(
@@ -22,8 +23,10 @@ public class ChatOrchestrator
         ILogger<ChatOrchestrator> logger,
         IOptions<GeminiSettings>? geminiSettings = null,
         IEnumerable<IChatRequestAugmenter>? augmenters = null,
-        IChatQuotaService? quota = null)
+        IChatQuotaService? quota = null,
+        ChatConcurrencyLimiter? concurrency = null)
     {
+        _concurrency = concurrency;
         _providers = providers;
         _conversations = conversations;
         _logger = logger;
@@ -42,10 +45,24 @@ public class ChatOrchestrator
         var thinkingBuilder = new StringBuilder();
         var allCitations = new List<SearchCitation>();
         var quotaRequest = CreateQuotaRequest(request);
+        var quotaReserved = false;
+
+        using var concurrencyLease = _concurrency?.TryEnter(
+            request.User.FirebaseUid ?? request.User.LocalUserId.ToString("D"));
+        if (_concurrency is not null && concurrencyLease is null)
+        {
+            return new ChatSendResult(
+                request.ConversationId,
+                "",
+                null,
+                false,
+                "当前有多个对话正在生成，请等待完成后再试。");
+        }
 
         try
         {
             await _quota.CheckAndReserveAsync(quotaRequest);
+            quotaReserved = true;
 
             var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
             ValidateModelSelection(providerId, request.Options?.ModelName);
@@ -149,13 +166,23 @@ public class ChatOrchestrator
         {
             if (conversationId.HasValue && model != null)
             {
-                await _conversations.UpdateTokenCountAsync(
-                    conversationId.Value,
-                    request.User,
-                    model.CurrentTokenCount);
-                await _quota.RecordTokenUsageAsync(
-                    quotaRequest,
-                    Math.Max(0, model.CurrentTokenCount));
+                await TryAsync(
+                    () => _conversations.UpdateTokenCountAsync(
+                        conversationId.Value,
+                        request.User,
+                        model.CurrentTokenCount),
+                    "token count update");
+            }
+
+            if (quotaReserved)
+            {
+                // Always settle a reservation, even when the model was never reached: the estimate is
+                // released and only real usage (0 when nothing ran) stays on the books.
+                await TryAsync(
+                    () => _quota.RecordTokenUsageAsync(
+                        quotaRequest,
+                        Math.Max(0, model?.CurrentTokenCount ?? 0)),
+                    "quota settlement");
             }
         }
     }
@@ -189,29 +216,20 @@ public class ChatOrchestrator
         new(
             request.User,
             RequestCount: 1,
-            EstimatedTokens: EstimateTokens(request.Message, request.Attachments),
+            EstimatedTokens: QuotaEstimator.EstimateTokens(request.Message, request.Attachments),
             SearchCount: SearchModes.EnablesWebSearch(request.SearchMode) ? 1 : 0,
-            AttachmentBytes: request.Attachments.Sum(EstimateAttachmentBytes));
+            AttachmentBytes: request.Attachments.Sum(QuotaEstimator.EstimateAttachmentBytes));
 
-    private static int EstimateTokens(string message, IReadOnlyCollection<ChatAttachment> attachments)
+    private async Task TryAsync(Func<Task> action, string description)
     {
-        var textChars = message.Length + attachments.Sum(attachment => attachment.Base64Data?.Length ?? 0);
-        return Math.Max(1, textChars / 4);
-    }
-
-    private static long EstimateAttachmentBytes(ChatAttachment attachment)
-    {
-        if (attachment.SizeBytes is > 0)
+        try
         {
-            return attachment.SizeBytes.Value;
+            await action();
         }
-
-        if (string.IsNullOrWhiteSpace(attachment.Base64Data))
+        catch (Exception ex)
         {
-            return 0;
+            _logger.LogError(ex, "Chat post-processing failed: {Step}", description);
         }
-
-        return attachment.Base64Data.Length * 3L / 4L;
     }
 
     private async Task<Guid?> EnsureConversationAsync(
