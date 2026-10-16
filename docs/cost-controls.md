@@ -17,6 +17,7 @@
 | `DailyRequestLimit` / `DailyTokenLimit` / `DailySearchLimit` / `DailyAttachmentBytesLimit` | 100 / 200000 / 30 / 25MB | 单用户每日（UTC）上限 |
 | `GlobalDailyRequestLimit` / `GlobalDailyTokenLimit` / `GlobalDailySearchLimit` | 500 / 2,000,000 / 150 | **全站**每日上限，0 表示不限。所有用户、所有实例共享，在同一个 Firestore 事务里与用户配额一起检查 |
 | `MaxConcurrentChatsPerUser` / `MaxConcurrentChatsPerInstance` | 2 / 12 | 同时进行的流式对话数（**仅单实例内**有效，跨实例由日限额与 max-instances 约束） |
+| `TransactionMaxAttempts` | 25 | 配额事务在并发冲突时的重试次数（Firestore 客户端默认 5）。耗尽后**拒绝该请求**并提示"当前请求较多，请稍后重试"，不会放行 |
 | `Access__RequireVerifiedEmail` | false | 仅接受已验证邮箱 |
 | `Access__AllowedEmailsCsv` / `AllowedEmailDomainsCsv` / `AllowedUidsCsv` | 空 | 访问白名单，逗号分隔。**非空即启用**，未命中返回 403 |
 
