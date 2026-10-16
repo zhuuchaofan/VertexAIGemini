@@ -31,6 +31,11 @@ FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-$FIREBASE_PROJECT_ID.firebaseapp.c
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 DEFAULT_PROVIDER_ID="${DEFAULT_PROVIDER_ID:-gemini}"
 DEPLOY_TARGET="${DEPLOY_TARGET:-all}"
+# Release mode (see scripts/lib/cloud-run-release.sh): CRR_ENV defaults to staging and CRR_MODE to prepare, so running
+# this script without extra settings only deploys a no-traffic STAGING candidate. Promotion needs CRR_MODE=promote and
+# CRR_CONFIRM_PROMOTE=promote:<env>:<IMAGE_TAG>; production also needs CRR_ACCEPTANCE_REF.
+export CRR_ENV="${CRR_ENV:-staging}" CRR_MODE="${CRR_MODE:-prepare}" CRR_CONFIRM_PROMOTE="${CRR_CONFIRM_PROMOTE:-}" CRR_ACCEPTANCE_REF="${CRR_ACCEPTANCE_REF:-}"
+BOOTSTRAP_INFRASTRUCTURE="${BOOTSTRAP_INFRASTRUCTURE:-false}"
 API_SECRETS="${API_SECRETS:-}"
 ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-attachments}"
 
@@ -72,29 +77,33 @@ export QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLO
 # shellcheck source=lib/cloud-run-release.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/cloud-run-release.sh"
 
-echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
-if ! gcloud artifacts repositories describe "$REPOSITORY" \
-  --project="$PROJECT_ID" \
-  --location="$REGION" >/dev/null 2>&1; then
-  gcloud artifacts repositories create "$REPOSITORY" \
+if [[ "$CRR_MODE" == "prepare" && "$BOOTSTRAP_INFRASTRUCTURE" == "true" ]]; then
+  echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
+  if ! gcloud artifacts repositories describe "$REPOSITORY" \
     --project="$PROJECT_ID" \
-    --location="$REGION" \
-    --repository-format=docker \
-    --description="Vertex AI workspace containers"
+    --location="$REGION" >/dev/null 2>&1; then
+    gcloud artifacts repositories create "$REPOSITORY" \
+      --project="$PROJECT_ID" \
+      --location="$REGION" \
+      --repository-format=docker \
+      --description="Vertex AI workspace containers"
+  fi
+
+  echo "[INFO] Ensuring attachment storage bucket gs://${ATTACHMENT_STORAGE_BUCKET}..."
+  if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
+    gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+      --project="$PROJECT_ID" \
+      --location="$REGION" \
+      --uniform-bucket-level-access
+  fi
+
+  crr_ensure_bucket_access
+
+  echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
+  FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
+else
+  echo "[INFO] Skipping infrastructure bootstrap (set BOOTSTRAP_INFRASTRUCTURE=true with CRR_MODE=prepare for first-time setup)."
 fi
 
-echo "[INFO] Ensuring attachment storage bucket gs://${ATTACHMENT_STORAGE_BUCKET}..."
-if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
-  gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
-    --project="$PROJECT_ID" \
-    --location="$REGION" \
-    --uniform-bucket-level-access
-fi
-
-crr_ensure_bucket_access
-
-echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
-FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
-
-# Build, deploy as candidates, verify, switch traffic, smoke test, and roll back automatically on failure.
+# prepare: build + deploy no-traffic candidates + smoke check. promote: switch traffic, verify, roll back on failure.
 crr_release

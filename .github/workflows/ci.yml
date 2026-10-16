@@ -66,8 +66,15 @@ jobs:
           bash -n scripts/lib/cloud-run-release.sh
           bash -n scripts/test/cloud-run-release.test.sh
           bash -n scripts/test/repo-hygiene.sh
+          bash -n scripts/test/deploy-workflow.test.sh
       - name: Release script tests (stateful fake gcloud, no cloud access)
         run: bash scripts/test/cloud-run-release.test.sh
+      - name: Deploy workflow tests (environment selection, isolation guards, promote confirmation)
+        run: |
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet pyyaml
+          bash scripts/test/deploy-workflow.test.sh
+      - name: Staging acceptance suite tests (fake server, no cloud access)
+        run: node --test scripts/acceptance/staging-acceptance.test.mjs
       - name: Repository hygiene (no generated files, oversized files, credentials or auto-deploy triggers)
         run: bash scripts/test/repo-hygiene.sh
 

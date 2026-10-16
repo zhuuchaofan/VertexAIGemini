@@ -41,6 +41,17 @@ else
   pass "deploy-cloud-run.yml has no automatic trigger"
 fi
 grep -qE '^  workflow_dispatch:' .github/workflows/deploy-cloud-run.yml && pass "deploy-cloud-run.yml is manually dispatchable" || fail "deploy-cloud-run.yml lost workflow_dispatch"
+python3 - <<'PY' && pass "deploy workflow defaults to staging + prepare and has no environment-less shortcut" || fail "deploy workflow defaults are unsafe"
+import yaml
+w = yaml.safe_load(open(".github/workflows/deploy-cloud-run.yml"))
+i = w[True]["workflow_dispatch"]["inputs"]
+assert i["target_env"]["default"] == "staging", "target_env must default to staging"
+assert i["mode"]["default"] == "prepare", "mode must default to prepare"
+assert i["bootstrap_infrastructure"]["default"] is False, "bootstrap must default to false"
+PY
+if grep -qE '^  (push|pull_request|pull_request_target|schedule|workflow_run):' .github/workflows/staging-acceptance.yml; then fail "staging-acceptance.yml has an automatic trigger"; else pass "staging-acceptance.yml is manual only"; fi
+grep -qE 'target_env|CRR_ENV|vars.GCP_PROJECT_ID|vars.WIF_PROVIDER' .github/workflows/staging-acceptance.yml && fail "staging-acceptance.yml must not reference production" || pass "staging-acceptance.yml cannot target production"
+grep -q 'inputs.mode == .prepare. && inputs.bootstrap_infrastructure' .github/workflows/deploy-cloud-run.yml && pass "bootstrap steps run only in prepare mode" || fail "bootstrap steps can run outside prepare mode"
 writers="$(grep -nE 'git (push|commit|add)|stefanzweifel/git-auto-commit|EndBug/add-and-commit|peter-evans/create-pull-request' .github/workflows/*.yml || true)"
 [[ -z "$writers" ]] && pass "no workflow commits or pushes to the repository" || { fail "workflow writes to the repo:"; echo "$writers" | sed 's/^/    /'; }
 grep -qE '^  contents: read$' .github/workflows/ci.yml && pass "ci.yml is read-only" || fail "ci.yml must declare 'contents: read'"

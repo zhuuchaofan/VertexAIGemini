@@ -1,13 +1,35 @@
 name: Deploy Cloud Run
 
-# Manual only while the first production release is being validated. Merging to main no longer deploys.
-# To deploy automatically again, add back:
-#   push:
-#     branches: [main, master]
-# (Pull requests never deploy: this workflow has never had a pull_request trigger.)
+# MANUAL ONLY. Merging to main or opening a pull request never deploys (there is no push/pull_request trigger).
+#
+# Two completely separate stages, selected by the inputs below (defaults are the SAFE ones):
+#   target_env=staging  mode=prepare   build + deploy a candidate to the STAGING project. No traffic moves.
+#   target_env=staging  mode=promote   move STAGING traffic to the prepared candidate (needs the confirmation phrase).
+#   target_env=production mode=prepare  build + deploy a no-traffic candidate to PRODUCTION (existing services only).
+#   target_env=production mode=promote  move PRODUCTION traffic (needs the phrase AND the staging acceptance reference).
+# Staging and production use different GCP projects, different Firebase/Firestore, different buckets, different
+# variables (STAGING_* vs the unprefixed production ones) and different service names. The step "Select environment"
+# is the only place that decides which set is used; a missing value is NEVER taken from the other environment.
+# See docs/staging-and-release-guide.md.
 on:
   workflow_dispatch:
     inputs:
+      target_env:
+        description: Environment (staging is the default; production needs a passed staging acceptance first)
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      mode:
+        description: prepare = build and deploy a candidate only (no traffic). promote = switch traffic to a prepared candidate.
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - promote
       deploy_target:
         description: Service to deploy
         required: true
@@ -17,68 +39,229 @@ on:
           - all
           - api
           - web
+      bootstrap_infrastructure:
+        description: "First-time setup only (prepare mode): create Artifact Registry repo / bucket, grant bucket access, deploy Firestore indexes"
+        required: true
+        default: false
+        type: boolean
+      confirm_promote:
+        description: "promote only: type exactly promote:<env>:<full commit SHA> (the prepare run prints it)"
+        required: false
+        default: ""
+        type: string
+      acceptance_ref:
+        description: "production promote only: link or ID of the PASSED staging acceptance run for this commit"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_target || 'all' }}
-  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-  REGION: ${{ vars.GCP_REGION || 'asia-east1' }}
-  REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'vertex-ai' }}
-  API_SERVICE: ${{ vars.API_SERVICE || 'vertex-ai-api' }}
-  WEB_SERVICE: ${{ vars.WEB_SERVICE || 'vertex-ai-web' }}
-  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
-  DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-  RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
-  WEB_SERVICE_ACCOUNT: ${{ vars.WEB_SERVICE_ACCOUNT || vars.WEB_INVOKER_SERVICE_ACCOUNT || vars.CLOUD_RUN_SERVICE_ACCOUNT }}
-  WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.WEB_INVOKER_SERVICE_ACCOUNT || vars.WEB_SERVICE_ACCOUNT || vars.CLOUD_RUN_SERVICE_ACCOUNT }}
-  FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
-  FIRESTORE_PROJECT_ID: ${{ vars.FIRESTORE_PROJECT_ID || vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
-  FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
-  FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-  FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-  DEFAULT_PROVIDER_ID: ${{ vars.DEFAULT_PROVIDER_ID || 'gemini' }}
-  ATTACHMENT_STORAGE_BUCKET: ${{ vars.ATTACHMENT_STORAGE_BUCKET || format('{0}-vertex-ai-attachments', vars.GCP_PROJECT_ID) }}
-  ATTACHMENT_STORAGE_ROLE: ${{ vars.ATTACHMENT_STORAGE_ROLE || format('projects/{0}/roles/vertexAiAttachmentObjectUser', vars.GCP_PROJECT_ID) }}
-  API_CPU: ${{ vars.API_CPU || '1' }}
-  API_MEMORY: ${{ vars.API_MEMORY || '1Gi' }}
-  API_CONCURRENCY: ${{ vars.API_CONCURRENCY || '20' }}
-  API_TIMEOUT: ${{ vars.API_TIMEOUT || '300s' }}
-  API_MIN_INSTANCES: ${{ vars.API_MIN_INSTANCES || '0' }}
-  API_MAX_INSTANCES: ${{ vars.API_MAX_INSTANCES || '3' }}
-  WEB_CPU: ${{ vars.WEB_CPU || '1' }}
-  WEB_MEMORY: ${{ vars.WEB_MEMORY || '512Mi' }}
-  WEB_CONCURRENCY: ${{ vars.WEB_CONCURRENCY || '80' }}
-  WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT || '330s' }}
-  WEB_MIN_INSTANCES: ${{ vars.WEB_MIN_INSTANCES || '0' }}
-  WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES || '2' }}
+# Never run two releases at once, and never cancel one halfway through a traffic switch.
+concurrency:
+  group: cloud-run-release-${{ inputs.target_env }}
+  cancel-in-progress: false
 
-  # Optional. Provider API keys live in Secret Manager and are mounted by reference, e.g.
-  #   DEEPSEEK_API_KEY=deepseek-api-key:latest,MOONSHOT_API_KEY=moonshot-api-key:latest
-  # (see docs/secrets.md). Empty leaves the service's existing secrets untouched.
-  API_SECRETS: ${{ vars.API_SECRETS }}
-  # Needed to exercise the private API candidate before traffic moves (see docs/cloud-run.md). Without it the
-  # release STOPS; CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true accepts promoting an untested API candidate.
-  CRR_IDENTITY_TOKEN_SA: ${{ vars.CRR_IDENTITY_TOKEN_SA }}
-  CRR_ALLOW_UNVERIFIED_API_CANDIDATE: ${{ vars.CRR_ALLOW_UNVERIFIED_API_CANDIDATE }}
-  CHAT_MAX_GENERATION_SECONDS: ${{ vars.CHAT_MAX_GENERATION_SECONDS || '240' }}
-  # Optional access policy and site-wide caps (see docs/cost-controls.md). Empty = leave unchanged.
-  ACCESS_ALLOWED_EMAILS: ${{ vars.ACCESS_ALLOWED_EMAILS }}
-  ACCESS_ALLOWED_EMAIL_DOMAINS: ${{ vars.ACCESS_ALLOWED_EMAIL_DOMAINS }}
-  ACCESS_ALLOWED_UIDS: ${{ vars.ACCESS_ALLOWED_UIDS }}
-  ACCESS_REQUIRE_VERIFIED_EMAIL: ${{ vars.ACCESS_REQUIRE_VERIFIED_EMAIL }}
-  QUOTA_GLOBAL_DAILY_REQUEST_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_REQUEST_LIMIT }}
-  QUOTA_GLOBAL_DAILY_TOKEN_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_TOKEN_LIMIT }}
-  QUOTA_GLOBAL_DAILY_SEARCH_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_SEARCH_LIMIT }}
+env:
+  CRR_ENV: ${{ inputs.target_env }}
+  CRR_MODE: ${{ inputs.mode }}
+  DEPLOY_TARGET: ${{ inputs.deploy_target }}
+  CRR_CONFIRM_PROMOTE: ${{ inputs.confirm_promote }}
+  CRR_ACCEPTANCE_REF: ${{ inputs.acceptance_ref }}
+  BOOTSTRAP: ${{ inputs.bootstrap_infrastructure }}
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
-  deploy:
+  release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select environment (staging and production never share values)
+        env:
+          P_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          S_PROJECT_ID: ${{ vars.STAGING_GCP_PROJECT_ID }}
+          P_REGION: ${{ vars.GCP_REGION }}
+          S_REGION: ${{ vars.STAGING_GCP_REGION }}
+          P_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY }}
+          S_REPOSITORY: ${{ vars.STAGING_ARTIFACT_REPOSITORY }}
+          P_API_SERVICE: ${{ vars.API_SERVICE }}
+          S_API_SERVICE: ${{ vars.STAGING_API_SERVICE }}
+          P_WEB_SERVICE: ${{ vars.WEB_SERVICE }}
+          S_WEB_SERVICE: ${{ vars.STAGING_WEB_SERVICE }}
+          P_WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          S_WIF_PROVIDER: ${{ vars.STAGING_WIF_PROVIDER }}
+          P_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          S_DEPLOY_SERVICE_ACCOUNT: ${{ vars.STAGING_GCP_DEPLOY_SERVICE_ACCOUNT }}
+          P_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+          S_RUNTIME_SERVICE_ACCOUNT: ${{ vars.STAGING_CLOUD_RUN_SERVICE_ACCOUNT }}
+          P_WEB_SERVICE_ACCOUNT: ${{ vars.WEB_SERVICE_ACCOUNT }}
+          S_WEB_SERVICE_ACCOUNT: ${{ vars.STAGING_WEB_SERVICE_ACCOUNT }}
+          P_WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.WEB_INVOKER_SERVICE_ACCOUNT }}
+          S_WEB_INVOKER_SERVICE_ACCOUNT: ${{ vars.STAGING_WEB_INVOKER_SERVICE_ACCOUNT }}
+          P_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          S_FIREBASE_PROJECT_ID: ${{ vars.STAGING_FIREBASE_PROJECT_ID }}
+          P_FIRESTORE_PROJECT_ID: ${{ vars.FIRESTORE_PROJECT_ID }}
+          S_FIRESTORE_PROJECT_ID: ${{ vars.STAGING_FIRESTORE_PROJECT_ID }}
+          P_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          S_FIREBASE_AUTH_DOMAIN: ${{ vars.STAGING_FIREBASE_AUTH_DOMAIN }}
+          P_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          S_FIREBASE_API_KEY: ${{ secrets.STAGING_FIREBASE_API_KEY }}
+          P_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          S_FIREBASE_APP_ID: ${{ secrets.STAGING_FIREBASE_APP_ID }}
+          P_ATTACHMENT_STORAGE_BUCKET: ${{ vars.ATTACHMENT_STORAGE_BUCKET }}
+          S_ATTACHMENT_STORAGE_BUCKET: ${{ vars.STAGING_ATTACHMENT_STORAGE_BUCKET }}
+          P_ATTACHMENT_STORAGE_ROLE: ${{ vars.ATTACHMENT_STORAGE_ROLE }}
+          S_ATTACHMENT_STORAGE_ROLE: ${{ vars.STAGING_ATTACHMENT_STORAGE_ROLE }}
+          P_API_SECRETS: ${{ vars.API_SECRETS }}
+          S_API_SECRETS: ${{ vars.STAGING_API_SECRETS }}
+          P_CRR_IDENTITY_TOKEN_SA: ${{ vars.CRR_IDENTITY_TOKEN_SA }}
+          S_CRR_IDENTITY_TOKEN_SA: ${{ vars.STAGING_CRR_IDENTITY_TOKEN_SA }}
+          P_CRR_ALLOW_UNVERIFIED_API_CANDIDATE: ${{ vars.CRR_ALLOW_UNVERIFIED_API_CANDIDATE }}
+          S_CRR_ALLOW_UNVERIFIED_API_CANDIDATE: ${{ vars.STAGING_CRR_ALLOW_UNVERIFIED_API_CANDIDATE }}
+          P_ACCESS_ALLOWED_EMAILS: ${{ vars.ACCESS_ALLOWED_EMAILS }}
+          S_ACCESS_ALLOWED_EMAILS: ${{ vars.STAGING_ACCESS_ALLOWED_EMAILS }}
+          P_ACCESS_ALLOWED_EMAIL_DOMAINS: ${{ vars.ACCESS_ALLOWED_EMAIL_DOMAINS }}
+          S_ACCESS_ALLOWED_EMAIL_DOMAINS: ${{ vars.STAGING_ACCESS_ALLOWED_EMAIL_DOMAINS }}
+          P_ACCESS_ALLOWED_UIDS: ${{ vars.ACCESS_ALLOWED_UIDS }}
+          S_ACCESS_ALLOWED_UIDS: ${{ vars.STAGING_ACCESS_ALLOWED_UIDS }}
+          P_ACCESS_REQUIRE_VERIFIED_EMAIL: ${{ vars.ACCESS_REQUIRE_VERIFIED_EMAIL }}
+          S_ACCESS_REQUIRE_VERIFIED_EMAIL: ${{ vars.STAGING_ACCESS_REQUIRE_VERIFIED_EMAIL }}
+          P_QUOTA_GLOBAL_DAILY_REQUEST_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_REQUEST_LIMIT }}
+          S_QUOTA_GLOBAL_DAILY_REQUEST_LIMIT: ${{ vars.STAGING_QUOTA_GLOBAL_DAILY_REQUEST_LIMIT }}
+          P_QUOTA_GLOBAL_DAILY_TOKEN_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_TOKEN_LIMIT }}
+          S_QUOTA_GLOBAL_DAILY_TOKEN_LIMIT: ${{ vars.STAGING_QUOTA_GLOBAL_DAILY_TOKEN_LIMIT }}
+          P_QUOTA_GLOBAL_DAILY_SEARCH_LIMIT: ${{ vars.QUOTA_GLOBAL_DAILY_SEARCH_LIMIT }}
+          S_QUOTA_GLOBAL_DAILY_SEARCH_LIMIT: ${{ vars.STAGING_QUOTA_GLOBAL_DAILY_SEARCH_LIMIT }}
+          X_DEFAULT_PROVIDER_ID: ${{ vars.DEFAULT_PROVIDER_ID }}
+          X_API_CPU: ${{ vars.API_CPU }}
+          X_API_MEMORY: ${{ vars.API_MEMORY }}
+          X_API_CONCURRENCY: ${{ vars.API_CONCURRENCY }}
+          X_API_TIMEOUT: ${{ vars.API_TIMEOUT }}
+          X_API_MIN_INSTANCES: ${{ vars.API_MIN_INSTANCES }}
+          X_API_MAX_INSTANCES: ${{ vars.API_MAX_INSTANCES }}
+          X_WEB_CPU: ${{ vars.WEB_CPU }}
+          X_WEB_MEMORY: ${{ vars.WEB_MEMORY }}
+          X_WEB_CONCURRENCY: ${{ vars.WEB_CONCURRENCY }}
+          X_WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT }}
+          X_WEB_MIN_INSTANCES: ${{ vars.WEB_MIN_INSTANCES }}
+          X_WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES }}
+          X_CHAT_MAX_GENERATION_SECONDS: ${{ vars.CHAT_MAX_GENERATION_SECONDS }}
+        run: |
+          set -euo pipefail
+          case "${CRR_ENV}" in
+            staging|production) ;;
+            *) echo "::error::target_env must be staging or production (got '${CRR_ENV}')"; exit 1 ;;
+          esac
+          emit() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
+          # pick NAME PROD_DEFAULT STAGING_DEFAULT: take the value of the selected environment ONLY.
+          pick() {
+            local name="$1" pd="$2" sd="$3" p="P_$1" s="S_$1" value
+            if [[ "${CRR_ENV}" == production ]]; then value="${!p}"; value="${value:-$pd}"; else value="${!s}"; value="${value:-$sd}"; fi
+            emit "$name" "$value"
+          }
+          # Sizing and timeout settings are shared by both environments (staging should mirror production).
+          pick_shared() { local x="X_$1" value; value="${!x}"; emit "$1" "${value:-$2}"; }
+          pick PROJECT_ID "" ""
+          pick REGION "asia-east1" "asia-east1"
+          pick REPOSITORY "vertex-ai" "vertex-ai"
+          pick API_SERVICE "vertex-ai-api" "vertex-ai-api-staging"
+          pick WEB_SERVICE "vertex-ai-web" "vertex-ai-web-staging"
+          pick WIF_PROVIDER "" ""
+          pick DEPLOY_SERVICE_ACCOUNT "" ""
+          pick RUNTIME_SERVICE_ACCOUNT "" ""
+          pick WEB_SERVICE_ACCOUNT "" ""
+          pick WEB_INVOKER_SERVICE_ACCOUNT "" ""
+          pick FIREBASE_PROJECT_ID "" ""
+          pick FIRESTORE_PROJECT_ID "" ""
+          pick FIREBASE_AUTH_DOMAIN "" ""
+          pick FIREBASE_API_KEY "" ""
+          pick FIREBASE_APP_ID "" ""
+          pick ATTACHMENT_STORAGE_BUCKET "" ""
+          pick ATTACHMENT_STORAGE_ROLE "" ""
+          pick API_SECRETS "" ""
+          pick CRR_IDENTITY_TOKEN_SA "" ""
+          pick CRR_ALLOW_UNVERIFIED_API_CANDIDATE "" ""
+          pick ACCESS_ALLOWED_EMAILS "" ""
+          pick ACCESS_ALLOWED_EMAIL_DOMAINS "" ""
+          pick ACCESS_ALLOWED_UIDS "" ""
+          pick ACCESS_REQUIRE_VERIFIED_EMAIL "" ""
+          pick QUOTA_GLOBAL_DAILY_REQUEST_LIMIT "" ""
+          pick QUOTA_GLOBAL_DAILY_TOKEN_LIMIT "" ""
+          pick QUOTA_GLOBAL_DAILY_SEARCH_LIMIT "" ""
+          pick_shared DEFAULT_PROVIDER_ID "gemini"
+          pick_shared API_CPU "1"
+          pick_shared API_MEMORY "1Gi"
+          pick_shared API_CONCURRENCY "20"
+          pick_shared API_TIMEOUT "300s"
+          pick_shared API_MIN_INSTANCES "0"
+          pick_shared API_MAX_INSTANCES "3"
+          pick_shared WEB_CPU "1"
+          pick_shared WEB_MEMORY "512Mi"
+          pick_shared WEB_CONCURRENCY "80"
+          pick_shared WEB_TIMEOUT "330s"
+          pick_shared WEB_MIN_INSTANCES "0"
+          pick_shared WEB_MAX_INSTANCES "2"
+          pick_shared CHAT_MAX_GENERATION_SECONDS "240"
+          # Guards that stop STAGING from touching PRODUCTION data. These always come from the production values.
+          emit PRODUCTION_FIREBASE_PROJECT_ID "${P_FIREBASE_PROJECT_ID:-$P_PROJECT_ID}"
+          emit PRODUCTION_FIRESTORE_PROJECT_ID "${P_FIRESTORE_PROJECT_ID:-${P_FIREBASE_PROJECT_ID:-$P_PROJECT_ID}}"
+          emit PRODUCTION_ATTACHMENT_STORAGE_BUCKET "${P_ATTACHMENT_STORAGE_BUCKET:-${P_PROJECT_ID}-vertex-ai-attachments}"
+          echo "Selected environment: ${CRR_ENV}, mode: ${CRR_MODE}, commit: ${IMAGE_TAG}"
+
+      - name: Derive defaults that depend on the selected project
+        run: |
+          set -euo pipefail
+          : "${PROJECT_ID:?The ${CRR_ENV} project id variable is not set}"
+          emit() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
+          # Same fallbacks as before: the web service identity and its invoker identity default to each other,
+          # then to the API runtime identity (all within the SELECTED environment).
+          web_sa="${WEB_SERVICE_ACCOUNT:-${WEB_INVOKER_SERVICE_ACCOUNT:-$RUNTIME_SERVICE_ACCOUNT}}"
+          emit WEB_SERVICE_ACCOUNT "$web_sa"
+          emit WEB_INVOKER_SERVICE_ACCOUNT "${WEB_INVOKER_SERVICE_ACCOUNT:-$web_sa}"
+          [[ -n "${FIREBASE_PROJECT_ID}" ]] || emit FIREBASE_PROJECT_ID "$PROJECT_ID"
+          if [[ -z "${FIRESTORE_PROJECT_ID}" ]]; then emit FIRESTORE_PROJECT_ID "${FIREBASE_PROJECT_ID:-$PROJECT_ID}"; fi
+          [[ -n "${ATTACHMENT_STORAGE_BUCKET}" ]] || emit ATTACHMENT_STORAGE_BUCKET "${PROJECT_ID}-vertex-ai-attachments"
+          [[ -n "${ATTACHMENT_STORAGE_ROLE}" ]] || emit ATTACHMENT_STORAGE_ROLE "projects/${PROJECT_ID}/roles/vertexAiAttachmentObjectUser"
+
+      - name: Validate deployment configuration and guards (no cloud access yet)
+        run: |
+          set -euo pipefail
+          required=(
+            PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE WIF_PROVIDER DEPLOY_SERVICE_ACCOUNT
+            RUNTIME_SERVICE_ACCOUNT WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT FIREBASE_PROJECT_ID
+            FIRESTORE_PROJECT_ID FIREBASE_AUTH_DOMAIN FIREBASE_API_KEY FIREBASE_APP_ID
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required ${CRR_ENV} setting: ${name} (for staging the variable is named STAGING_...; see docs/staging-and-release-guide.md)"
+              exit 1
+            fi
+          done
+          if [[ "${CRR_ENV}" == staging ]]; then
+            for name in PRODUCTION_FIREBASE_PROJECT_ID PRODUCTION_FIRESTORE_PROJECT_ID PRODUCTION_ATTACHMENT_STORAGE_BUCKET; do
+              [[ -n "${!name}" ]] || { echo "::error::${name} must be known so staging can be proven not to use production data"; exit 1; }
+            done
+          fi
+          if [[ "${CRR_ENV}" == staging && -z "${ACCESS_ALLOWED_EMAILS}${ACCESS_ALLOWED_EMAIL_DOMAINS}${ACCESS_ALLOWED_UIDS}" ]]; then
+            echo "::error::Staging must have an access allow-list (STAGING_ACCESS_ALLOWED_EMAILS / _EMAIL_DOMAINS / _UIDS): the staging web is reachable from the internet and calls a real model."
+            exit 1
+          fi
+          if [[ "${CRR_MODE}" == promote && "${BOOTSTRAP}" == true ]]; then
+            echo "::error::bootstrap_infrastructure is only for prepare mode"; exit 1
+          fi
+          # Environment isolation + promote confirmation are checked HERE, before any authentication.
+          source scripts/lib/cloud-run-release.sh
+          crr_validate_mode_and_env
+          crr_validate_environment_isolation
+          if [[ "${CRR_MODE}" == promote ]]; then crr_validate_promote_authorization; fi
+          if [[ "${CRR_ENV}" == production && "${CRR_MODE}" == prepare && "${BOOTSTRAP}" == true ]]; then
+            echo "::warning::bootstrap on PRODUCTION creates infrastructure and changes bucket IAM. Only do this once, deliberately."
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -100,33 +283,7 @@ jobs:
       - name: Run service tests
         run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build
 
-      - name: Validate deployment configuration
-        run: |
-          required=(
-            PROJECT_ID
-            REGION
-            REPOSITORY
-            API_SERVICE
-            WEB_SERVICE
-            WIF_PROVIDER
-            DEPLOY_SERVICE_ACCOUNT
-            RUNTIME_SERVICE_ACCOUNT
-            WEB_SERVICE_ACCOUNT
-            WEB_INVOKER_SERVICE_ACCOUNT
-            FIREBASE_PROJECT_ID
-            FIRESTORE_PROJECT_ID
-            FIREBASE_AUTH_DOMAIN
-            FIREBASE_API_KEY
-            FIREBASE_APP_ID
-          )
-          for name in "${required[@]}"; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::Missing required deployment setting: ${name}"
-              exit 1
-            fi
-          done
-
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud (${{ inputs.target_env }})
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
@@ -135,7 +292,9 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      # Infrastructure bootstrap: only on request, only in prepare mode. It never runs on promote.
       - name: Ensure Artifact Registry repository
+        if: ${{ inputs.mode == 'prepare' && inputs.bootstrap_infrastructure }}
         run: |
           if ! gcloud artifacts repositories describe "${REPOSITORY}" \
             --project="${PROJECT_ID}" \
@@ -147,7 +306,8 @@ jobs:
               --description="Vertex AI workspace containers"
           fi
 
-      - name: Ensure attachment storage bucket
+      - name: Ensure attachment storage bucket and access
+        if: ${{ inputs.mode == 'prepare' && inputs.bootstrap_infrastructure }}
         run: |
           if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/null 2>&1; then
             gcloud storage buckets create "gs://${ATTACHMENT_STORAGE_BUCKET}" \
@@ -161,11 +321,10 @@ jobs:
           crr_ensure_bucket_access
 
       - name: Ensure Firestore indexes
+        if: ${{ inputs.mode == 'prepare' && inputs.bootstrap_infrastructure }}
         run: node scripts/deploy-firestore-indexes.mjs
 
-      - name: Release (candidate, promote, smoke test, roll back on failure)
-        env:
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Release (${{ inputs.mode }} to ${{ inputs.target_env }})
         run: |
           source scripts/lib/cloud-run-release.sh
           crr_release
