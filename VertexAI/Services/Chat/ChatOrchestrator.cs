@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VertexAI.Configuration;
 using VertexAI.Services.Quota;
 
 namespace VertexAI.Services.Chat;
@@ -16,6 +17,7 @@ public class ChatOrchestrator
     private readonly IChatQuotaService _quota;
     private readonly ChatConcurrencyLimiter? _concurrency;
     private readonly int _maxHistoryMessages;
+    private readonly TimeSpan _maxGeneration;
 
     public ChatOrchestrator(
         IChatProviderCatalog providers,
@@ -24,9 +26,12 @@ public class ChatOrchestrator
         IOptions<GeminiSettings>? geminiSettings = null,
         IEnumerable<IChatRequestAugmenter>? augmenters = null,
         IChatQuotaService? quota = null,
-        ChatConcurrencyLimiter? concurrency = null)
+        ChatConcurrencyLimiter? concurrency = null,
+        IOptions<ChatStreamSettings>? streamSettings = null)
     {
         _concurrency = concurrency;
+        _maxGeneration = TimeSpan.FromSeconds(
+            streamSettings?.Value.MaxGenerationSeconds is > 0 ? streamSettings.Value.MaxGenerationSeconds : 240);
         _providers = providers;
         _conversations = conversations;
         _logger = logger;
@@ -37,7 +42,8 @@ public class ChatOrchestrator
 
     public async Task<ChatSendResult> SendAsync(
         ChatSendRequest request,
-        Func<ChatStreamUpdate, Task> onUpdate)
+        Func<ChatStreamUpdate, Task> onUpdate,
+        CancellationToken cancellationToken = default)
     {
         IChatModelClient? model = null;
         Guid? conversationId = request.ConversationId;
@@ -46,6 +52,10 @@ public class ChatOrchestrator
         var allCitations = new List<SearchCitation>();
         var quotaRequest = CreateQuotaRequest(request);
         var quotaReserved = false;
+        var streamStarted = false;
+        var truncated = false;
+        var status = ChatStatuses.Completed;
+        string? errorMessage = null;
 
         using var concurrencyLease = _concurrency?.TryEnter(
             request.User.FirebaseUid ?? request.User.LocalUserId.ToString("D"));
@@ -56,12 +66,23 @@ public class ChatOrchestrator
                 "",
                 null,
                 false,
-                "当前有多个对话正在生成，请等待完成后再试。");
+                "当前有多个对话正在生成，请等待完成后再试。",
+                Status: ChatStatuses.Failed);
         }
+
+        // One token for everything below: the caller's (client gone / user pressed stop) plus a hard
+        // generation cap that stays below the platform request timeout.
+        using var generation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (_maxGeneration > TimeSpan.Zero)
+        {
+            generation.CancelAfter(_maxGeneration);
+        }
+
+        var token = generation.Token;
 
         try
         {
-            await _quota.CheckAndReserveAsync(quotaRequest);
+            await _quota.CheckAndReserveAsync(quotaRequest, token);
             quotaReserved = true;
 
             var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
@@ -80,10 +101,10 @@ public class ChatOrchestrator
 
             if (conversationId.HasValue && request.ConversationId.HasValue)
             {
-                history = await _conversations.GetHistoryAsync(
+                history = NormalizeHistory(await _conversations.GetHistoryAsync(
                     conversationId.Value,
                     request.User,
-                    _maxHistoryMessages);
+                    _maxHistoryMessages));
                 await model.LoadHistoryAsync(history);
             }
 
@@ -113,8 +134,16 @@ public class ChatOrchestrator
                 request.Attachments,
                 request.SearchMode);
 
-            await foreach (var chunk in model.StreamChatAsync(modelRequest))
+            streamStarted = true;
+            await foreach (var chunk in model.StreamChatAsync(modelRequest, token).WithCancellation(token))
             {
+                token.ThrowIfCancellationRequested();
+
+                if (chunk.IsTruncated)
+                {
+                    truncated = true;
+                }
+
                 if (chunk.IsThinking)
                 {
                     thinkingBuilder.Append(chunk.Text);
@@ -129,41 +158,70 @@ public class ChatOrchestrator
                     AddCitations(allCitations, chunk.Citations);
                 }
 
+                if (chunk.IsTruncated && string.IsNullOrEmpty(chunk.Text))
+                {
+                    continue;
+                }
+
                 await onUpdate(new ChatStreamUpdate(
                     responseBuilder.ToString(),
                     thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null,
-                    allCitations.Count > 0 ? allCitations : null));
+                    allCitations.Count > 0 ? allCitations : null,
+                    conversationId));
             }
 
-            var response = responseBuilder.ToString();
-            var thinking = thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null;
-
-            if (conversationId.HasValue)
+            if (truncated)
             {
-                await _conversations.AddMessageAsync(
-                    conversationId.Value,
-                    request.User,
-                    "model",
-                    response,
-                    thinking);
+                status = ChatStatuses.Truncated;
             }
-
-            return new ChatSendResult(conversationId, response, thinking, true, null, allCitations.Count > 0 ? allCitations : null);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                status = ChatStatuses.Cancelled;
+            }
+            else
+            {
+                _logger.LogWarning("Chat generation exceeded the {Seconds}s cap", _maxGeneration.TotalSeconds);
+                status = ChatStatuses.Failed;
+                errorMessage = "生成时间过长已被终止，已保留已生成的内容。";
+            }
+        }
+        catch (Exception ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // Typically a write to a client that already left; nothing to report to anyone.
+            _logger.LogInformation(ex, "Chat request ended after the caller cancelled");
+            status = ChatStatuses.Cancelled;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Chat request failed");
-
-            return new ChatSendResult(
-                conversationId,
-                responseBuilder.ToString(),
-                thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null,
-                false,
-                ChatErrorMapper.ToUserMessage(ex),
-                allCitations.Count > 0 ? allCitations : null);
+            status = ChatStatuses.Failed;
+            errorMessage = ChatErrorMapper.ToUserMessage(ex);
         }
         finally
         {
+            // Runs exactly once per request on every path (completed, truncated, cancelled, failed), so a
+            // reply is saved at most once and a quota reservation is settled exactly once. Persistence
+            // deliberately ignores the cancellation token: the client may already be gone.
+            if (conversationId.HasValue && (status == ChatStatuses.Completed || responseBuilder.Length > 0))
+            {
+                var finalConversationId = conversationId.Value;
+                var content = responseBuilder.ToString();
+                var thinking = thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null;
+                var persistedStatus = status == ChatStatuses.Completed ? null : status;
+                await TryAsync(
+                    () => _conversations.AddMessageAsync(
+                        finalConversationId,
+                        request.User,
+                        "model",
+                        content,
+                        thinking,
+                        status: persistedStatus),
+                    "model message save");
+            }
+
             if (conversationId.HasValue && model != null)
             {
                 await TryAsync(
@@ -178,13 +236,78 @@ public class ChatOrchestrator
             {
                 // Always settle a reservation, even when the model was never reached: the estimate is
                 // released and only real usage (0 when nothing ran) stays on the books.
+                var actualTokens = EstimateActualTokens(
+                    model,
+                    quotaRequest,
+                    streamStarted,
+                    responseBuilder.Length + thinkingBuilder.Length);
                 await TryAsync(
-                    () => _quota.RecordTokenUsageAsync(
-                        quotaRequest,
-                        Math.Max(0, model?.CurrentTokenCount ?? 0)),
+                    () => _quota.RecordTokenUsageAsync(quotaRequest, actualTokens),
                     "quota settlement");
             }
         }
+
+        return new ChatSendResult(
+            conversationId,
+            responseBuilder.ToString(),
+            thinkingBuilder.Length > 0 ? thinkingBuilder.ToString() : null,
+            ChatStatuses.IsSuccessful(status),
+            errorMessage,
+            allCitations.Count > 0 ? allCitations : null,
+            status);
+    }
+
+    /// <summary>
+    /// Tokens to charge once the request ended. A request that never reached the model costs nothing;
+    /// otherwise the model's own count is used, with a floor of the pre-flight estimate plus what was
+    /// actually produced, so cancelled and failed generations are not free.
+    /// </summary>
+    private static int EstimateActualTokens(
+        IChatModelClient? model,
+        ChatQuotaRequest quotaRequest,
+        bool streamStarted,
+        int producedChars)
+    {
+        if (!streamStarted)
+        {
+            return 0;
+        }
+
+        var floor = quotaRequest.EstimatedTokens + producedChars / 4;
+        return Math.Max(Math.Max(0, model?.CurrentTokenCount ?? 0), floor);
+    }
+
+    /// <summary>
+    /// Providers expect alternating turns. After a failed or cancelled request the stored history can hold
+    /// two user turns in a row (or start with a model turn after truncation); merge/drop those so the next
+    /// request is still valid.
+    /// </summary>
+    internal static IReadOnlyList<ChatHistoryEntry> NormalizeHistory(IReadOnlyList<ChatHistoryEntry> history)
+    {
+        var result = new List<ChatHistoryEntry>(history.Count);
+        foreach (var entry in history)
+        {
+            if (result.Count == 0 && entry.Role != "user")
+            {
+                continue;
+            }
+
+            if (result.Count > 0 && result[^1].Role == entry.Role)
+            {
+                var previous = result[^1];
+                result[^1] = previous with
+                {
+                    Content = string.Join("\n\n", new[] { previous.Content, entry.Content }.Where(text => !string.IsNullOrWhiteSpace(text))),
+                    ThinkingContent = previous.ThinkingContent ?? entry.ThinkingContent,
+                    Attachments = (previous.Attachments ?? []).Concat(entry.Attachments ?? []).ToList()
+                };
+                continue;
+            }
+
+            result.Add(entry);
+        }
+
+        return result;
     }
 
     /// <summary>

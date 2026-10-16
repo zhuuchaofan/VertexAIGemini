@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.Extensions.Options;
+using VertexAI.Configuration;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -15,11 +17,12 @@ public static class ChatEndpoints
         group.MapPost("/stream", StreamChatAsync);
     }
 
-    private static async Task StreamChatAsync(
+    internal static async Task StreamChatAsync(
         ApiChatSendRequest request,
         HttpContext context,
         IUserContext users,
-        ChatOrchestrator chat)
+        ChatOrchestrator chat,
+        IOptions<ChatStreamSettings>? streamSettings = null)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null)
@@ -30,7 +33,6 @@ public static class ChatEndpoints
         }
 
         var attachments = request.Attachments.Count > 0 ? request.Attachments : request.Images;
-
         if (string.IsNullOrWhiteSpace(request.Message) && attachments.Count == 0)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -47,11 +49,20 @@ public static class ChatEndpoints
         }
 
         context.Response.Headers.CacheControl = "no-cache";
-        context.Response.Headers.Connection = "keep-alive";
+        context.Response.Headers["X-Accel-Buffering"] = "no";
         context.Response.ContentType = "text/event-stream; charset=utf-8";
 
-        var searchMode = SearchModes.Normalize(request.SearchMode, request.EnableSearch);
+        var settings = streamSettings?.Value ?? new ChatStreamSettings();
 
+        // Disconnects (RequestAborted) and failed writes both cancel the generation through this source.
+        using var generationAbort = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        await using var sse = new SseResponseWriter(context.Response, generationAbort);
+
+        // Open the stream immediately and keep it alive while the model is silent (long thinking).
+        await sse.WriteCommentAsync("stream-open");
+        sse.StartHeartbeat(TimeSpan.FromSeconds(settings.HeartbeatSeconds));
+
+        var searchMode = SearchModes.Normalize(request.SearchMode, request.EnableSearch);
         var result = await chat.SendAsync(
             new ChatSendRequest(
                 request.ConversationId,
@@ -67,26 +78,20 @@ public static class ChatEndpoints
                     request.ThinkingEnabled,
                     request.ThinkingLevel,
                     request.ThinkingBudget)),
-            update => WriteEventAsync(context, "update", update));
+            update => sse.WriteEventAsync("update", update),
+            generationAbort.Token);
 
-        await WriteEventAsync(context, "final", new ApiChatFinalResponse(
+        await sse.TryWriteFinalAsync(new ApiChatFinalResponse(
             result.ConversationId,
             result.Content,
             result.ThinkingContent,
             result.Succeeded,
             result.ErrorMessage,
-            result.Citations));
+            result.Citations,
+            result.Status));
     }
 
-    private static async Task WriteEventAsync<T>(HttpContext context, string eventName, T payload)
-    {
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        await context.Response.WriteAsync($"event: {eventName}\n");
-        await context.Response.WriteAsync($"data: {json}\n\n");
-        await context.Response.Body.FlushAsync();
-    }
-
-    private sealed record ApiChatSendRequest(
+    internal sealed record ApiChatSendRequest(
         Guid? ConversationId,
         string Message,
         IReadOnlyCollection<ChatAttachment> Attachments,
@@ -111,5 +116,6 @@ public static class ChatEndpoints
         string? ThinkingContent,
         bool Succeeded,
         string? ErrorMessage,
-        List<SearchCitation>? Citations);
+        List<SearchCitation>? Citations,
+        string Status);
 }

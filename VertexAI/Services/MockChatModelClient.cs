@@ -81,7 +81,9 @@ public sealed class MockChatModelClient : IChatModelClient
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var trimmed = request.Message.Trim();
         var attachmentCount = request.Attachments.Count;
@@ -95,6 +97,7 @@ public sealed class MockChatModelClient : IChatModelClient
         CurrentTokenCount = EstimateTokens(trimmed) + attachmentCount * 256 + historyCount * 16;
 
         await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
 
         yield return new ChatChunk
         {

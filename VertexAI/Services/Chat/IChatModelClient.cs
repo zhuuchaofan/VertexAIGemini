@@ -11,5 +11,10 @@ public interface IChatModelClient
 
     Task ConfigureAsync(ChatSessionOptions? options);
     Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages);
-    IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request);
+    /// <summary>
+    /// Streams the reply. Implementations must stop and release the upstream request when
+    /// <paramref name="cancellationToken"/> is cancelled, and must throw (never end silently) when the
+    /// upstream stream breaks before a normal finish.
+    /// </summary>
+    IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, CancellationToken cancellationToken = default);
 }

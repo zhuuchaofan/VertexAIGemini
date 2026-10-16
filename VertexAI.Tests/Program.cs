@@ -29,6 +29,26 @@ var tests = new (string Name, Action Test)[]
     ("AccessPolicy requires verified email when configured", CostControlTests.AccessPolicyRequiresVerifiedEmailWhenConfigured),
     ("AccessPolicy allow-list needs verified email", CostControlTests.AccessPolicyAllowListNeedsVerifiedEmail),
     ("AccessPolicyMiddleware blocks denied users only on API paths", CostControlTests.AccessMiddlewareBlocksDeniedUsersOnlyOnApiPaths),
+    ("Stream: completed reply is saved once without status", StreamingTests.CompletedStreamIsSavedOnceWithoutStatus),
+    ("Stream: long-running generation completes in order", StreamingTests.LongRunningStreamCompletesAndKeepsOrder),
+    ("Stream: output limit is truncated, not success", StreamingTests.OutputLimitIsReportedAsTruncatedNotSuccess),
+    ("Stream: user cancel keeps partial reply and settles once", StreamingTests.UserCancelKeepsPartialReplyAndSettlesOnce),
+    ("Stream: cancel before output saves no model message", StreamingTests.CancelBeforeAnyOutputSavesNoModelMessage),
+    ("Stream: client disconnect during write is cancelled", StreamingTests.ClientDisconnectDuringWriteIsCancelledNotFailed),
+    ("Stream: upstream error mid-stream is failed with partial", StreamingTests.UpstreamErrorMidStreamIsFailedWithPartialContent),
+    ("Stream: generation cap ends stream as failed", StreamingTests.GenerationCapEndsStreamAsFailedAndKeepsPartial),
+    ("Stream: history with orphan user turns is normalised", StreamingTests.HistoryWithOrphanUserTurnsIsNormalised),
+    ("Stream: prompt cancellation returns while source is blocked", StreamingTests.PromptCancellationReturnsWhileSourceIsBlocked),
+    ("Stream: prompt cancellation passes items and disposes on break", StreamingTests.PromptCancellationPassesItemsAndDisposesOnBreak),
+    ("Endpoint: updates plus exactly one final event", StreamingTests.EndpointWritesUpdatesAndExactlyOneFinalEvent),
+    ("Endpoint: client abort reports cancelled", StreamingTests.EndpointReportsCancelledWhenClientAborts),
+    ("Endpoint: broken connection stops generation without throwing", StreamingTests.EndpointSurvivesBrokenConnectionAndStopsGenerating),
+    ("Endpoint: heartbeat while model is silent", StreamingTests.EndpointSendsHeartbeatWhileModelIsSilent),
+    ("Endpoint: unauthenticated rejected before streaming", StreamingTests.EndpointRejectsUnauthenticatedBeforeStreaming),
+    ("OpenAI client: finish_reason length yields truncated marker", StreamingTests.OpenAiFinishReasonLengthYieldsTruncatedMarker),
+    ("OpenAI client: stream ending without finish is an error", StreamingTests.OpenAiStreamEndingWithoutFinishIsAnError),
+    ("OpenAI client: stop finish without DONE is accepted", StreamingTests.OpenAiStopFinishWithoutDoneIsAccepted),
+    ("OpenAI client: cancellation stops reading and closes upstream", StreamingTests.OpenAiCancellationStopsReadingAndClosesUpstream),
     ("GeminiSafetyPolicy splits admin and default thresholds", GeminiSafetyPolicyTests.SplitsAdminAndDefaultThresholds),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
@@ -1327,7 +1347,17 @@ internal sealed class FakeChatModelClient : IChatModelClient, IAuthenticatedUser
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    /// <summary>Optional hook run before each chunk is yielded (index, token); used to script slow/cancelled streams.</summary>
+    public Func<int, CancellationToken, Task>? BeforeChunk { get; set; }
+
+    /// <summary>When set, the stream throws this after yielding all chunks (upstream broke mid-stream).</summary>
+    public Exception? FailureAfterChunks { get; set; }
+
+    public bool StreamWasDisposedEarly { get; private set; }
+
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.Yield();
         LastRequest = request;
@@ -1337,9 +1367,30 @@ internal sealed class FakeChatModelClient : IChatModelClient, IAuthenticatedUser
             throw Failure;
         }
 
-        foreach (var chunk in Chunks)
+        var finished = false;
+        try
         {
-            yield return chunk;
+            for (var i = 0; i < Chunks.Count; i++)
+            {
+                if (BeforeChunk != null)
+                {
+                    await BeforeChunk(i, cancellationToken);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return Chunks[i];
+            }
+
+            if (FailureAfterChunks != null)
+            {
+                throw FailureAfterChunks;
+            }
+
+            finished = true;
+        }
+        finally
+        {
+            StreamWasDisposedEarly = !finished;
         }
     }
 }
@@ -1412,13 +1463,15 @@ internal sealed class FakeConversationStore : IConversationStore
         string role,
         string content,
         string? thinkingContent = null,
-        IReadOnlyCollection<ChatAttachment>? attachments = null)
+        IReadOnlyCollection<ChatAttachment>? attachments = null,
+        string? status = null)
     {
         Messages.Add(new FakeStoredMessage(
             role,
             content,
             thinkingContent,
-            attachments?.ToList() ?? []));
+            attachments?.ToList() ?? [],
+            status));
         return Task.FromResult<Message?>(new Message
         {
             ConversationId = conversationId,
@@ -1498,7 +1551,8 @@ internal sealed record FakeStoredMessage(
     string Role,
     string Content,
     string? ThinkingContent,
-    IReadOnlyList<ChatAttachment> Attachments);
+    IReadOnlyList<ChatAttachment> Attachments,
+    string? Status = null);
 
 internal static class Assert
 {

@@ -128,7 +128,8 @@ public static class ConversationEndpoints
             message.Content,
             message.ThinkingContent,
             ChatAttachmentSerializer.Deserialize(message.AttachmentsJson),
-            message.CreatedAt);
+            message.CreatedAt,
+            message.Status ?? ChatStatuses.Completed);
 
     private sealed record ConversationTitleRequest(string Title);
 
@@ -167,5 +168,6 @@ public static class ConversationEndpoints
         string Content,
         string? ThinkingContent,
         IReadOnlyList<ChatAttachment> Attachments,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        string Status);
 }

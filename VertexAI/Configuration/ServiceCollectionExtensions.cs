@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.Configure<QuotaSettings>(configuration.GetSection("Quota"));
         services.Configure<AccessSettings>(configuration.GetSection("Access"));
+        services.Configure<ChatStreamSettings>(configuration.GetSection("Chat"));
         services.AddApplicationServices(configuration);
         services.AddVertexRateLimiting();
 

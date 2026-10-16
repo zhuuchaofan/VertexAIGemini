@@ -181,9 +181,11 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         return StreamChatAsync(userParts, false);
     }
 
-    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        CancellationToken cancellationToken = default)
     {
-        return StreamChatAsync(request, SearchModes.EnablesWebSearch(request.SearchMode));
+        return StreamChatAsync(request, SearchModes.EnablesWebSearch(request.SearchMode), cancellationToken);
     }
 
     public Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages)
@@ -192,10 +194,13 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         return Task.CompletedTask;
     }
 
-    private IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, bool enableSearch)
+    private IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        bool enableSearch,
+        CancellationToken cancellationToken)
     {
         var userParts = GeminiPartFactory.CreateParts(request.Message, request.Attachments);
-        return StreamChatAsync(userParts, enableSearch);
+        return StreamChatAsync(userParts, enableSearch, cancellationToken);
     }
 
     private static string ResolveSystemPrompt(
@@ -214,7 +219,10 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     /// <summary>
     /// 流式发送消息并返回响应（多模态：文本+图片，包含 Google 联网搜索支持）
     /// </summary>
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts, bool enableSearch)
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        List<Part> userParts,
+        bool enableSearch,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         EnsureConfigured();
 
@@ -234,7 +242,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         _historyManager.AddUserMessage(userParts);
 
         // 检查并修剪历史
-        await _historyManager.TrimIfNeededAsync();
+        await _historyManager.TrimIfNeededAsync().WaitAsync(cancellationToken);
 
         // 获取发送内容
         var contentsToSend = _historyManager.GetContentsForSending();
@@ -243,6 +251,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         var responseBuilder = new System.Text.StringBuilder();
         var thinkingBuilder = new System.Text.StringBuilder();
         FinishReason? blockedFinishReason = null;
+        var truncated = false;
 
         // 动态克隆或构建本次请求的 Config，不污染全局的 _config 实例，保障线程安全性
         var requestConfig = new GenerateContentConfig
@@ -263,14 +272,22 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             };
         }
 
+        // Google.GenAI 0.14.0 has no cancellation parameter and ignores WithCancellation, so promptness
+        // comes from racing each read against the token; leaving the loop disposes the stream, which
+        // closes the upstream connection (verified with a local fake streaming server).
         await foreach (var response in _client.Models.GenerateContentStreamAsync(
             model: _modelName,
             contents: contentsToSend,
-            config: requestConfig))
+            config: requestConfig).WithPromptCancellation(cancellationToken))
         {
             if (response.Candidates is not { Count: > 0 }) continue;
 
             var candidate = response.Candidates[0];
+            if (candidate.FinishReason == FinishReason.MAX_TOKENS)
+            {
+                truncated = true;
+            }
+
             if (IsBlockedFinishReason(candidate.FinishReason))
             {
                 blockedFinishReason = candidate.FinishReason;
@@ -365,7 +382,13 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         }
 
         // 更新 Token 计数
-        await _historyManager.UpdateTokenCountAsync();
+        await _historyManager.UpdateTokenCountAsync().WaitAsync(cancellationToken);
+
+        if (truncated)
+        {
+            // The output limit (which includes thinking tokens) cut the answer off: say so explicitly.
+            yield return new ChatChunk { Text = "", IsTruncated = true };
+        }
 
         stopwatch.Stop();
         _logger.LogInformation(

@@ -219,7 +219,7 @@ gcloud run deploy vertex-ai-web \
   --cpu=1 \
   --memory=512Mi \
   --concurrency=80 \
-  --timeout=60s \
+  --timeout=300s \
   --min-instances=0 \
   --max-instances=5 \
   --set-env-vars=BACKEND_URL=https://vertex-ai-api-xxxxx-REGION.a.run.app
@@ -504,3 +504,40 @@ Provider catalog: defaultProviderId=gemini, providerCount=1, modelCount=4
 Authenticated chat through web proxy: 200 OK, finalSucceeded=true
 Firestore indexes in my-agent-app-a5e42: 3 READY
 ```
+
+## 流式生成：超时、取消与中断（Phase 0）
+
+### 超时契约（必须保持的不等式）
+```text
+Chat__MaxGenerationSeconds (240，应用层硬上限)
+  < UPSTREAM_TIMEOUT_MS (295000，web 代理对后端的整体上限)
+  <= web 服务 --timeout (300s)  与  api 服务 --timeout (300s)
+```
+- 应用先以 `failed`（"生成时间过长…"）并保留已生成内容的方式结束，而不是被平台在流中间掐断。
+- 旧默认值 web=60s 会在 60 秒时切断任何更长的生成，已改为 300s。若通过仓库变量覆盖 `WEB_TIMEOUT`/`API_TIMEOUT`，请保持上面的不等式。
+- API 每 15 秒（`Chat__HeartbeatSeconds`）发送一次 SSE 注释 `: ping`，避免模型长时间思考时中间链路认为连接空闲。
+
+### 终止状态
+SSE `final` 事件的 `status` 取值：`completed`、`truncated`（输出上限，内容可用但不完整）、`cancelled`（用户停止/断线）、`failed`（上游错误、超时）。`succeeded` 仅在 `completed`/`truncated` 时为 true。没有收到 `final` 事件的流，前端一律显示为"连接中断"，不会当作成功。
+
+### 部分回复的保存规则
+| 状态 | 是否保存 model 消息 | 之后是否作为模型上下文 |
+|---|---|---|
+| completed | 是 | 是 |
+| truncated | 是（status=truncated） | 是 |
+| cancelled | 仅当已有内容（status=cancelled） | 是 |
+| failed | 仅当已有内容（status=failed） | **否**（只展示给用户，不喂回模型） |
+用户消息在生成开始前已保存。连续两个 user 回合（上一次没有回复）在下一次请求时合并，避免违反角色交替。每次请求只会执行一次保存与一次配额结算。
+
+### 取消是否真的终止上游 —— 已验证与未验证
+| 链路 | 结论 | 依据 |
+|---|---|---|
+| 浏览器 → web 代理 | 点击"停止"后，代理立即中止到 API 的请求 | `apps/web/test/proxy.test.mjs`、`test-e2e/stream.e2e.mjs`（真实浏览器 + 真实代理 + 假后端，已通过） |
+| web 代理 → API | 上游连接关闭后，ASP.NET 的 `RequestAborted` 触发，取消传入编排器 | `StreamingTests`（端点级，已通过）。**未在真实 Cloud Run 上验证** |
+| API → OpenAI 兼容供应商 | 令牌传入 `HttpClient`，取消会关闭响应流 | `OpenAiCancellationStopsReadingAndClosesUpstream`。供应商是否停止计费取决于对方 |
+| API → Vertex AI（Google.GenAI 0.14.0） | **只能在"下一个数据块边界"终止**。SDK 的流式方法没有取消参数，`WithCancellation` 被忽略（本地假服务器实验：流照常跑完 40 块）；跳出循环会关闭连接（实验确认服务器侧看到断开）。代码把"等待下一块"与取消令牌竞速，使调用方立即返回并保存部分内容，随后在途读取结束时释放枚举器 | 本地实验 + `PromptCancellation*` 测试。**未用真实 Vertex 验证** |
+限制：模型在长时间"静默思考"期间被取消时，Vertex 侧请求可能继续到下一个数据块到达或流结束，这段已生成的 token 仍会计费。根本解决需要升级到支持取消的 SDK（1.x 枚举已全部改名，需要单独迁移）。预热阶段的 `CountTokens`/摘要调用在取消时会被放弃等待，但调用本身不会被中止。
+
+### Cloud Run 上线前请核对
+- `gcloud run services describe <web|api> --format='value(spec.template.spec.timeoutSeconds)'` 均为 300。
+- 经 Cloud Run 前端（GFE）时，容器中途断开连接是否会让浏览器看到错误尚未在真实环境验证；因此保留了应用层兜底（缺少 `final` 即显示"连接中断"）。

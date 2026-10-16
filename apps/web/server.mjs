@@ -3,12 +3,25 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { extname, join, normalize } from "node:path";
+import { createApiProxy } from "./proxy.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const backendUrl = resolveBackendUrl();
 const publicDir = new URL("./public/", import.meta.url);
 let serverlessTokenCache = null;
+
+// Keep this below the Cloud Run request timeout of this service (see docs/cloud-run.md): the proxy then
+// reports a clean gateway timeout instead of the platform cutting the connection mid-stream.
+const upstreamTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS ?? "295000", 10);
+const serverlessAuthDisabled = process.env.DISABLE_SERVERLESS_AUTH === "true";
+
+const proxyApi = createApiProxy({
+  backendUrl,
+  getIdentityToken: getServerlessIdentityToken,
+  requireIdentityToken: !serverlessAuthDisabled,
+  upstreamTimeoutMs
+});
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -27,9 +40,12 @@ createServer(async (req, res) => {
     await serveStatic(req, res);
   } catch (error) {
     console.error(error);
-    if (!res.headersSent) {
-      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    if (res.headersSent) {
+      // Never append text to a response that already started (it could be an SSE stream).
+      res.destroy(error instanceof Error ? error : undefined);
+      return;
     }
+    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
     res.end("Internal server error");
   }
 }).listen(port, host, () => {
@@ -43,63 +59,6 @@ function resolveBackendUrl() {
   }
 
   throw new Error("BACKEND_URL is required.");
-}
-
-async function proxyApi(req, res) {
-  const target = new URL(req.url, backendUrl);
-  const headers = new Headers();
-
-  for (const [name, value] of Object.entries(req.headers)) {
-    if (value === undefined || name === "host" || name === "connection") {
-      continue;
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) headers.append(name, item);
-    } else {
-      headers.set(name, value);
-    }
-  }
-  await addServerlessAuthorization(headers);
-
-  const response = await fetch(target, {
-    method: req.method,
-    headers,
-    body: ["GET", "HEAD"].includes(req.method ?? "GET") ? undefined : req,
-    duplex: "half",
-    redirect: "manual"
-  });
-
-  res.statusCode = response.status;
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  response.headers.forEach((value, name) => {
-    if (name === "transfer-encoding" || name === "content-encoding" || name === "set-cookie") {
-      return;
-    }
-
-    res.setHeader(name, value);
-  });
-  if (setCookies.length > 0) {
-    res.setHeader("set-cookie", setCookies);
-  }
-
-  if (!response.body) {
-    res.end();
-    return;
-  }
-
-  for await (const chunk of response.body) {
-    res.write(chunk);
-  }
-
-  res.end();
-}
-
-async function addServerlessAuthorization(headers) {
-  const token = await getServerlessIdentityToken();
-  if (token) {
-    headers.set("x-serverless-authorization", `Bearer ${token}`);
-  }
 }
 
 async function getServerlessIdentityToken() {
