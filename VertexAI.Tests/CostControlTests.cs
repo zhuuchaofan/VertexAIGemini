@@ -281,7 +281,9 @@ internal static class FirebaseUserContextTests
         });
         var app = FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions
         {
-            Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(json),
+            Credential = Google.Apis.Auth.OAuth2.CredentialFactory
+                .FromJson<Google.Apis.Auth.OAuth2.ServiceAccountCredential>(json)
+                .ToGoogleCredential(),
             ProjectId = "unit-test"
         }, $"unit-{Guid.NewGuid():N}");
         return FirebaseAdmin.Auth.FirebaseAuth.GetAuth(app);

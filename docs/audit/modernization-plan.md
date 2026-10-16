@@ -12,6 +12,8 @@
 | IaC | 先 `scripts/bootstrap`（幂等 gcloud） | 全量 Terraform：单项目单环境收益低；若出现第二环境再引入 |
 
 ## Phase 0 — 紧急风险（约 3–4 天，上线前必做）
+
+> **状态（2026-10-16）**：代码层面已在分支 `phase0-hardening` 实施，逐项状态、限制与待你手动完成的云端操作见 [`phase0-report.md`](phase0-report.md)。以下为原计划，保留作对照；其中"预算与熔断"现已修正为"应用层全站上限 + Spend cap（需手动配置）"，"取消传播"在 Vertex 路径上受 SDK 0.14.0 限制。
 | 项 | 范围 | 验收 | 回滚 |
 |---|---|---|---|
 | 预算与熔断 F-01 | Billing Budget+告警；全站日预算计数；关闭自助注册或白名单；要求邮箱已验证 F-19 | 超预算返回明确错误；告警邮件到达 | 配置开关 `Quota:GlobalDailyBudget=0` 即关闭 |
