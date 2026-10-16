@@ -30,6 +30,14 @@ use the Google publisher's Vertex AI model IDs `gemini-3.8-flash` and
 3.8 Flash. Old saved model selections fall back to the new default. Conversation
 history is retained.
 
+The official display name is **Gemini 4 Argon**, not "Gemini 4 Pro (Argon)".
+The application pins Google.GenAI **1.26.1**; Google's Argon guide requires
+at least **1.26.0** for .NET. The 1.x SDK's typed string values replace the
+older uppercase enum members. Filtering configuration continues to use the
+wire names (for example `BLOCK_MEDIUM_AND_ABOVE`) through explicit mapping.
+Required model thinking cannot be disabled through a request override.
+The retired civic-integrity filter is no longer sent.
+
 Google's official guides confirm both model IDs and LOW, MEDIUM (default),
 and HIGH thinking levels. Both entries expose only those three levels.
 3.8 Flash has a 1,048,576-token context window; 4 Argon has a unified

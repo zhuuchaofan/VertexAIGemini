@@ -68,7 +68,7 @@ internal static class GeminiCatalog
             },
             new()
             {
-                Name = "Gemini 4 Pro (Argon)",
+                Name = "Gemini 4 Argon",
                 ModelName = "gemini-4-argon",
                 Description = "Gemini 4 Argon，支持低、中、高思考级别及统一上下文",
                 Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),

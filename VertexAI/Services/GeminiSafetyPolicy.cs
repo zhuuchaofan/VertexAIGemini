@@ -8,16 +8,15 @@ public sealed class GeminiSafetyPolicy
 {
     private static readonly HarmCategory[] Categories =
     [
-        HarmCategory.HARM_CATEGORY_HARASSMENT,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        HarmCategory.HARM_CATEGORY_IMAGE_HARASSMENT,
-        HarmCategory.HARM_CATEGORY_IMAGE_HATE,
-        HarmCategory.HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT,
-        HarmCategory.HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT,
-        HarmCategory.HARM_CATEGORY_JAILBREAK,
-        HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY
+        HarmCategory.HarmCategoryHarassment,
+        HarmCategory.HarmCategoryHateSpeech,
+        HarmCategory.HarmCategoryDangerousContent,
+        HarmCategory.HarmCategorySexuallyExplicit,
+        HarmCategory.HarmCategoryImageHarassment,
+        HarmCategory.HarmCategoryImageHate,
+        HarmCategory.HarmCategoryImageDangerousContent,
+        HarmCategory.HarmCategoryImageSexuallyExplicit,
+        HarmCategory.HarmCategoryJailbreak
     ];
 
     private readonly GeminiSafetySettings _settings;
@@ -34,7 +33,7 @@ public sealed class GeminiSafetyPolicy
         {
             if (!GetAllowedThresholds(user).Contains(requested, StringComparer.OrdinalIgnoreCase))
                 throw new ArgumentException("The requested safety threshold is not permitted.");
-            threshold = Enum.Parse<HarmBlockThreshold>(requested, ignoreCase: true);
+            threshold = ParseThreshold(requested, threshold);
         }
         return Categories
             .Select(category => new SafetySetting
@@ -62,7 +61,7 @@ public sealed class GeminiSafetyPolicy
             ? _settings.AdminThreshold
             : _settings.DefaultThreshold;
 
-        return ParseThreshold(configured, HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE);
+        return ParseThreshold(configured, HarmBlockThreshold.BlockMediumAndAbove);
     }
 
     private static HarmBlockThreshold ParseThreshold(string? value, HarmBlockThreshold fallback)
@@ -72,8 +71,14 @@ public sealed class GeminiSafetyPolicy
             return fallback;
         }
 
-        return Enum.TryParse<HarmBlockThreshold>(value, ignoreCase: true, out var threshold)
-            ? threshold
-            : fallback;
+        return value.Trim().ToUpperInvariant() switch
+        {
+            "OFF" => HarmBlockThreshold.Off,
+            "BLOCK_NONE" => HarmBlockThreshold.BlockNone,
+            "BLOCK_ONLY_HIGH" => HarmBlockThreshold.BlockOnlyHigh,
+            "BLOCK_MEDIUM_AND_ABOVE" => HarmBlockThreshold.BlockMediumAndAbove,
+            "BLOCK_LOW_AND_ABOVE" => HarmBlockThreshold.BlockLowAndAbove,
+            _ => fallback
+        };
     }
 }

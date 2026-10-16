@@ -19,6 +19,9 @@ var tests = new (string Name, Action Test)[]
     ("Gemini advanced options validate ranges", GeminiAdvancedTests.ValidatesRanges),
     ("Gemini safety overrides enforce permissions", GeminiAdvancedTests.EnforcesSafetyPermissions),
     ("Gemini model catalog includes requested models", GeminiAdvancedTests.IncludesRequestedModels),
+    ("Gemini SDK serializes current wire values", GeminiSdkCompatibilityTests.SerializesWireValues),
+    ("Gemini current models never send disabled thinking budgets", GeminiSdkCompatibilityTests.KeepsRequiredThinkingEnabled),
+    ("Gemini SDK finish reasons preserve blocked-response detection", GeminiSdkCompatibilityTests.ClassifiesFinishReasons),
     ("Chat API forwards advanced options and rejects forbidden filtering", GeminiAdvancedTests.ForwardsAndAuthorizesOptions),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
@@ -186,13 +189,13 @@ internal static class GeminiAdvancedTests
         var user = new AuthenticatedUser(Guid.NewGuid(), "user", "user@example.com");
         Assert.False(policy.GetAllowedThresholds(user).Contains("OFF"));
         Assert.True(policy.CreateSafetySettings(user, "BLOCK_LOW_AND_ABOVE")
-            .All(setting => setting.Threshold == HarmBlockThreshold.BLOCK_LOW_AND_ABOVE));
+            .All(setting => setting.Threshold == HarmBlockThreshold.BlockLowAndAbove));
         bool rejected = false;
         try { policy.CreateSafetySettings(user, "OFF"); }
         catch (ArgumentException) { rejected = true; }
         Assert.True(rejected);
         Assert.True(policy.CreateSafetySettings(user with { IsAdmin = true }, "OFF")
-            .All(setting => setting.Threshold == HarmBlockThreshold.OFF));
+            .All(setting => setting.Threshold == HarmBlockThreshold.Off));
         var locked = new GeminiSafetyPolicy(Options.Create(new GeminiSettings
         {
             Safety = new GeminiSafetySettings { AdminCanDisable = false }
@@ -243,8 +246,8 @@ internal static class GeminiSafetyPolicyTests
         var adminSettings = policy.CreateSafetySettings(adminUser);
 
         Assert.True(normalSettings.Count >= 5);
-        Assert.True(normalSettings.All(setting => setting.Threshold == HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE));
-        Assert.True(adminSettings.All(setting => setting.Threshold == HarmBlockThreshold.OFF));
+        Assert.True(normalSettings.All(setting => setting.Threshold == HarmBlockThreshold.BlockMediumAndAbove));
+        Assert.True(adminSettings.All(setting => setting.Threshold == HarmBlockThreshold.Off));
     }
 }
 

@@ -454,7 +454,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             return;
         }
 
-        _thinkingEnabled = thinking.FixedEnabled
+        _thinkingEnabled = thinking.FixedEnabled || !thinking.CanDisable
             ? true
             : options?.ThinkingEnabled ?? thinking.Default != "off";
         _thinkingLevel = NormalizeThinkingLevel(thinking, options?.ThinkingLevel);
@@ -506,7 +506,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         return thinking.DefaultBudget ?? thinking.Budgets.FirstOrDefault();
     }
 
-    private static GenerateContentConfig BuildConfig(
+    internal static GenerateContentConfig BuildConfig(
         string systemPrompt,
         ChatThinkingConfig? thinking,
         bool? thinkingEnabled,
@@ -541,7 +541,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             return null;
         }
 
-        if (isThinkingDisabled)
+        if (isThinkingDisabled && thinking.CanDisable && !thinking.FixedEnabled)
         {
             return new ThinkingConfig
             {
@@ -570,19 +570,19 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     private static ThinkingLevel ToGeminiThinkingLevel(string? value) =>
         value?.ToLowerInvariant() switch
         {
-            "minimal" => ThinkingLevel.MINIMAL,
-            "low" => ThinkingLevel.LOW,
-            "high" => ThinkingLevel.HIGH,
-            _ => ThinkingLevel.MEDIUM
+            "minimal" => ThinkingLevel.Minimal,
+            "low" => ThinkingLevel.Low,
+            "high" => ThinkingLevel.High,
+            _ => ThinkingLevel.Medium
         };
 
-    private static bool IsBlockedFinishReason(FinishReason? finishReason) =>
-        finishReason is FinishReason.SAFETY
-            or FinishReason.BLOCKLIST
-            or FinishReason.PROHIBITED_CONTENT
-            or FinishReason.SPII
-            or FinishReason.IMAGE_SAFETY
-            or FinishReason.IMAGE_PROHIBITED_CONTENT;
+    internal static bool IsBlockedFinishReason(FinishReason? finishReason) =>
+        finishReason == FinishReason.Safety
+            || finishReason == FinishReason.Blocklist
+            || finishReason == FinishReason.ProhibitedContent
+            || finishReason == FinishReason.Spii
+            || finishReason == FinishReason.ImageSafety
+            || finishReason == FinishReason.ImageProhibitedContent;
 
     private static string ToThinkingLevelValue(ThinkingLevel level) =>
         level.ToString() switch
