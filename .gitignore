@@ -9,3 +9,12 @@ logs/
 *.key
 appsettings.*.json
 GCPKey/
+
+# Logs and debug output (Firestore/Firebase emulators write these into the current directory)
+*.log
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+pubsub-debug.log
+.firebase/
+firebase-export-*/

@@ -64,8 +64,12 @@ jobs:
         run: |
           bash -n scripts/deploy-cloud-run.sh
           bash -n scripts/lib/cloud-run-release.sh
-      - name: Release script tests (fake gcloud, no cloud access)
+          bash -n scripts/test/cloud-run-release.test.sh
+          bash -n scripts/test/repo-hygiene.sh
+      - name: Release script tests (stateful fake gcloud, no cloud access)
         run: bash scripts/test/cloud-run-release.test.sh
+      - name: Repository hygiene (no generated files, oversized files, credentials or auto-deploy triggers)
+        run: bash scripts/test/repo-hygiene.sh
 
   firestore-emulator-test:
     # Quota atomicity under concurrency, conversation ownership and message status against the Firestore
