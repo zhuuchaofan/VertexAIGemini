@@ -1,10 +1,11 @@
 name: Deploy Cloud Run
 
+# Manual only while the first production release is being validated. Merging to main no longer deploys.
+# To deploy automatically again, add back:
+#   push:
+#     branches: [main, master]
+# (Pull requests never deploy: this workflow has never had a pull_request trigger.)
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
     inputs:
       deploy_target:
@@ -58,6 +59,10 @@ env:
   #   DEEPSEEK_API_KEY=deepseek-api-key:latest,MOONSHOT_API_KEY=moonshot-api-key:latest
   # (see docs/secrets.md). Empty leaves the service's existing secrets untouched.
   API_SECRETS: ${{ vars.API_SECRETS }}
+  # Needed to exercise the private API candidate before traffic moves (see docs/cloud-run.md). Without it the
+  # release STOPS; CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true accepts promoting an untested API candidate.
+  CRR_IDENTITY_TOKEN_SA: ${{ vars.CRR_IDENTITY_TOKEN_SA }}
+  CRR_ALLOW_UNVERIFIED_API_CANDIDATE: ${{ vars.CRR_ALLOW_UNVERIFIED_API_CANDIDATE }}
   CHAT_MAX_GENERATION_SECONDS: ${{ vars.CHAT_MAX_GENERATION_SECONDS || '240' }}
   # Optional access policy and site-wide caps (see docs/cost-controls.md). Empty = leave unchanged.
   ACCESS_ALLOWED_EMAILS: ${{ vars.ACCESS_ALLOWED_EMAILS }}
@@ -151,9 +156,9 @@ jobs:
               --uniform-bucket-level-access
           fi
 
-          gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
-            --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
-            --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
+          # Adds the binding only if it is missing; an existing grant is left alone.
+          source scripts/lib/cloud-run-release.sh
+          crr_ensure_bucket_access
 
       - name: Ensure Firestore indexes
         run: node scripts/deploy-firestore-indexes.mjs
