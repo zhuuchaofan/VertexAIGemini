@@ -48,7 +48,7 @@ public sealed class GeminiSafetyPolicy
     {
         string[] thresholds = ["OFF", "BLOCK_NONE", "BLOCK_ONLY_HIGH",
             "BLOCK_MEDIUM_AND_ABOVE", "BLOCK_LOW_AND_ABOVE"];
-        if (user?.IsAdmin == true && _settings.AdminCanDisable)
+        if (user != null && (_settings.AllowUserOverrides || (user.IsAdmin && _settings.AdminCanDisable)))
             return thresholds;
         var baseline = Array.IndexOf(thresholds, ResolveThreshold(user).ToString());
         // Unknown server configuration must never allow a weaker threshold.

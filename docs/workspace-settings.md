@@ -12,7 +12,12 @@ not rewrite prior messages.
 
 The authenticated `/api/auth/status` response provides the allowed safety
 thresholds. The API independently enforces those permissions before starting
-the SSE response. Ordinary users can select the configured server threshold
+the SSE response. For internal testing, appsettings.json explicitly sets
+`VertexAI:Safety:AllowUserOverrides=true`: all signed-in users can select OFF,
+BLOCK_NONE, BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE, or BLOCK_LOW_AND_ABOVE.
+This does not grant administrator privileges or change the default threshold.
+Set the Cloud Run environment variable `VertexAI__Safety__AllowUserOverrides=false`
+to restore restricted operation: ordinary users can select the server threshold
 or stricter settings. Administrators with a Firebase custom claim
 `admin: true` can relax it when `VertexAI:Safety:AdminCanDisable` is enabled.
 Owning the Google Cloud project or logging in with a particular email does not

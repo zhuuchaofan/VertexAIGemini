@@ -1,6 +1,6 @@
 export const safetyLabels = {
-  OFF: "关闭可配置过滤（管理员）",
-  BLOCK_NONE: "不拦截，保留评分（管理员）",
+  OFF: "关闭可配置过滤（OFF）",
+  BLOCK_NONE: "不拦截，保留评分（BLOCK_NONE）",
   BLOCK_ONLY_HIGH: "仅拦截高风险",
   BLOCK_MEDIUM_AND_ABOVE: "拦截中、高风险",
   BLOCK_LOW_AND_ABOVE: "严格：拦截低、中、高风险"

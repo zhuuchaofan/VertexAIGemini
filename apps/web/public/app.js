@@ -188,7 +188,7 @@ async function refreshAdvancedAccess() {
     }
     setSelectValue(select, workspacePreferences.advanced?.safetyThreshold ?? "");
     select.disabled = false;
-    status.textContent = "选项由服务器授权；管理员身份通过 Firebase admin 声明判断。";
+    status.textContent = "过滤级别按服务器配置提供，修改后在下一次发送时生效。";
   } catch {
     if (state.user?.id === userId) status.textContent = "过滤权限加载失败，当前使用服务器策略。";
   }

@@ -6,6 +6,31 @@ using VertexAI.Services.Auth;
 
 internal static class GeminiSdkCompatibilityTests
 {
+    public static void AllowsInternalTestingOverrides()
+    {
+        var user = new AuthenticatedUser(Guid.NewGuid(), "tester", "tester@example.test");
+        var policy = new GeminiSafetyPolicy(Options.Create(new GeminiSettings
+        {
+            Safety = new GeminiSafetySettings { AllowUserOverrides = true, AdminCanDisable = false }
+        }));
+        string[] expected = ["OFF", "BLOCK_NONE", "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE", "BLOCK_LOW_AND_ABOVE"];
+        Assert.SequenceEqual(expected, policy.GetAllowedThresholds(user));
+        foreach (var threshold in expected)
+            Assert.True(policy.CreateSafetySettings(user, threshold)
+                .All(setting => setting.Threshold.ToString() == threshold));
+        Assert.False(policy.GetAllowedThresholds(null).Contains("OFF"));
+        Assert.False(new GeminiSafetyPolicy(Options.Create(new GeminiSettings()))
+            .GetAllowedThresholds(user).Contains("OFF"));
+        var status = ResultTestHelpers.Execute(VertexAI.Api.AuthEndpoints.GetStatusAsync(
+            new Microsoft.AspNetCore.Http.DefaultHttpContext(), new FakeUserContext(user), policy));
+        Assert.Contains("\"OFF\"", status.Body);
+        Assert.Contains("\"BLOCK_NONE\"", status.Body);
+        // Exposing the controls does not silently change the server default.
+        Assert.True(policy.CreateSafetySettings(user).All(
+            setting => setting.Threshold == HarmBlockThreshold.BlockMediumAndAbove));
+    }
+
     public static void SerializesWireValues()
     {
         var admin = new AuthenticatedUser(Guid.NewGuid(), "admin", "admin@example.test", IsAdmin: true);

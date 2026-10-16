@@ -25,6 +25,7 @@ public class GeminiSettings
 
 public sealed class GeminiSafetySettings
 {
+    public bool AllowUserOverrides { get; set; }
     public string DefaultThreshold { get; set; } = "BLOCK_MEDIUM_AND_ABOVE";
     public string AdminThreshold { get; set; } = "OFF";
     public bool AdminCanDisable { get; set; } = true;

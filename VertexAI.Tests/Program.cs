@@ -20,6 +20,7 @@ var tests = new (string Name, Action Test)[]
     ("Gemini safety overrides enforce permissions", GeminiAdvancedTests.EnforcesSafetyPermissions),
     ("Gemini model catalog includes requested models", GeminiAdvancedTests.IncludesRequestedModels),
     ("Gemini SDK serializes current wire values", GeminiSdkCompatibilityTests.SerializesWireValues),
+    ("Gemini internal testing exposes every filter level to signed-in users", GeminiSdkCompatibilityTests.AllowsInternalTestingOverrides),
     ("Gemini current models never send disabled thinking budgets", GeminiSdkCompatibilityTests.KeepsRequiredThinkingEnabled),
     ("Gemini SDK finish reasons preserve blocked-response detection", GeminiSdkCompatibilityTests.ClassifiesFinishReasons),
     ("Chat API forwards advanced options and rejects forbidden filtering", GeminiAdvancedTests.ForwardsAndAuthorizesOptions),
