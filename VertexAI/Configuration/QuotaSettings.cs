@@ -23,6 +23,12 @@ public sealed class QuotaSettings
     /// <summary>Concurrent streaming chats allowed on one instance (0 = unlimited).</summary>
     public int MaxConcurrentChatsPerInstance { get; set; } = 12;
 
+    /// <summary>
+    /// How often the quota transaction is retried when concurrent requests contend for the same (hot) document.
+    /// The Firestore client default is 5, which lets almost every request in a burst fail.
+    /// </summary>
+    public int TransactionMaxAttempts { get; set; } = 25;
+
     public bool GlobalLimitsEnabled =>
         GlobalDailyRequestLimit > 0 || GlobalDailyTokenLimit > 0 || GlobalDailySearchLimit > 0;
 }

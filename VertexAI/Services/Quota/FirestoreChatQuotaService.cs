@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using System.Globalization;
 using VertexAI.Configuration;
 using VertexAI.Services.Auth;
+using VertexAI.Services.Chat;
 using VertexAI.Services.Firestore;
 
 namespace VertexAI.Services.Quota;
@@ -39,8 +40,30 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
             return;
         }
 
-        var userDoc = GetDailyDocument(request.User);
-        var globalDoc = GetGlobalDocument();
+        var dateKey = request.DateKey ?? TodayDateKey();
+        var userDoc = GetDailyDocument(request.User, dateKey);
+        var globalDoc = GetGlobalDocument(dateKey);
+        try
+        {
+            await ReserveAsync(request, dateKey, userDoc, globalDoc, cancellationToken);
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode is
+            Grpc.Core.StatusCode.Aborted or Grpc.Core.StatusCode.DeadlineExceeded or
+            Grpc.Core.StatusCode.ResourceExhausted or Grpc.Core.StatusCode.Unavailable)
+        {
+            // Contention on the shared daily counter outlasted every retry. Fail closed (the request is
+            // not admitted) but say what happened instead of a generic outage message.
+            throw new UserFacingChatException("当前请求较多，请稍后重试。");
+        }
+    }
+
+    private async Task ReserveAsync(
+        ChatQuotaRequest request,
+        string dateKey,
+        DocumentReference userDoc,
+        DocumentReference globalDoc,
+        CancellationToken cancellationToken)
+    {
         await _db.RunTransactionAsync(async transaction =>
         {
             // Firestore transactions require every read before any write.
@@ -56,7 +79,7 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
                 throw new InvalidOperationException(violation);
             }
 
-            transaction.Set(userDoc, ToDocument(nextUser, ResolveUserId(request.User)), SetOptions.MergeAll);
+            transaction.Set(userDoc, ToDocument(nextUser, ResolveUserId(request.User), dateKey), SetOptions.MergeAll);
 
             if (globalSnapshot is not null)
             {
@@ -67,9 +90,9 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
                     throw new InvalidOperationException(globalViolation);
                 }
 
-                transaction.Set(globalDoc, ToDocument(nextGlobal, GlobalUserId), SetOptions.MergeAll);
+                transaction.Set(globalDoc, ToDocument(nextGlobal, GlobalUserId, dateKey), SetOptions.MergeAll);
             }
-        }, cancellationToken: cancellationToken);
+        }, TransactionOptions.ForMaxAttempts(Math.Max(1, _settings.TransactionMaxAttempts)), cancellationToken);
     }
 
     /// <summary>
@@ -83,18 +106,20 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
             return;
         }
 
+        // Settle against the day the reservation was made, even if the request ran past UTC midnight.
+        var dateKey = request.DateKey ?? TodayDateKey();
         var (estimatedDelta, actualDelta) = QuotaAccounting.SettleDeltas(request.EstimatedTokens, actualTokens);
         var batch = _db.StartBatch();
         batch.Set(
-            GetDailyDocument(request.User),
-            SettlementDocument(ResolveUserId(request.User), estimatedDelta, actualDelta),
+            GetDailyDocument(request.User, dateKey),
+            SettlementDocument(ResolveUserId(request.User), dateKey, estimatedDelta, actualDelta),
             SetOptions.MergeAll);
 
         if (_settings.GlobalLimitsEnabled)
         {
             batch.Set(
-                GetGlobalDocument(),
-                SettlementDocument(GlobalUserId, estimatedDelta, actualDelta),
+                GetGlobalDocument(dateKey),
+                SettlementDocument(GlobalUserId, dateKey, estimatedDelta, actualDelta),
                 SetOptions.MergeAll);
         }
 
@@ -104,16 +129,16 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
     private bool ShouldBypass(AuthenticatedUser user) =>
         !_settings.Enabled || (_settings.AdminBypassEnabled && user.IsAdmin);
 
-    private DocumentReference GetDailyDocument(AuthenticatedUser user) =>
-        _db.Collection(CollectionName).Document(DailyDocumentId(ResolveUserId(user), TodayDateKey()));
+    private DocumentReference GetDailyDocument(AuthenticatedUser user, string dateKey) =>
+        _db.Collection(CollectionName).Document(DailyDocumentId(ResolveUserId(user), dateKey));
 
-    private DocumentReference GetGlobalDocument() =>
-        _db.Collection(GlobalCollectionName).Document(TodayDateKey());
+    private DocumentReference GetGlobalDocument(string dateKey) =>
+        _db.Collection(GlobalCollectionName).Document(NormalizeDateKey(dateKey));
 
-    private static Dictionary<string, object> SettlementDocument(string userId, long estimatedDelta, long actualDelta) => new()
+    private static Dictionary<string, object> SettlementDocument(string userId, string dateKey, long estimatedDelta, long actualDelta) => new()
     {
         [UserIdField] = userId,
-        [DateField] = TodayDateKey(),
+        [DateField] = dateKey,
         [EstimatedTokens] = FieldValue.Increment(estimatedDelta),
         [ActualTokens] = FieldValue.Increment(actualDelta),
         [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
@@ -129,10 +154,10 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
                 ReadLong(snapshot, AttachmentBytes))
             : default;
 
-    private static Dictionary<string, object> ToDocument(UsageTotals usage, string userId) => new()
+    private static Dictionary<string, object> ToDocument(UsageTotals usage, string userId, string dateKey) => new()
     {
         [UserIdField] = userId,
-        [DateField] = TodayDateKey(),
+        [DateField] = dateKey,
         [Requests] = usage.Requests,
         [EstimatedTokens] = usage.EstimatedTokens,
         [ActualTokens] = usage.ActualTokens,
@@ -147,8 +172,7 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
     public static string DailyDocumentId(string userId, string date) =>
         $"{userId}_{NormalizeDateKey(date)}";
 
-    public static string TodayDateKey() =>
-        DateTime.UtcNow.ToString("yyyyMMdd");
+    public static string TodayDateKey() => QuotaAccounting.TodayKey();
 
     public static string NormalizeDateKey(string date)
     {

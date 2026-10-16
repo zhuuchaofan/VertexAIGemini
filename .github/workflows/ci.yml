@@ -7,6 +7,10 @@ on:
       - master
   pull_request:
 
+# CI never needs more than read access and has no cloud credentials.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -62,3 +66,31 @@ jobs:
           bash -n scripts/lib/cloud-run-release.sh
       - name: Release script tests (fake gcloud, no cloud access)
         run: bash scripts/test/cloud-run-release.test.sh
+
+  firestore-emulator-test:
+    # Quota atomicity under concurrency, conversation ownership and message status against the Firestore
+    # emulator. Uses the demo-* project id, so it can never reach a real project.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build tests
+        run: dotnet build VertexAI.Tests/VertexAI.Tests.csproj --disable-build-servers
+      - name: Run service tests against the Firestore emulator
+        run: >
+          npx --yes firebase-tools@15.34.0 emulators:exec --only firestore
+          --project demo-release-readiness --config VertexAI.Tests/firebase.json
+          "dotnet VertexAI.Tests/bin/Debug/net10.0/VertexAI.Tests.dll"

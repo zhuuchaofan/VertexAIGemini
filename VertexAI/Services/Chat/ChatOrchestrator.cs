@@ -341,7 +341,8 @@ public class ChatOrchestrator
             RequestCount: 1,
             EstimatedTokens: QuotaEstimator.EstimateTokens(request.Message, request.Attachments),
             SearchCount: SearchModes.EnablesWebSearch(request.SearchMode) ? 1 : 0,
-            AttachmentBytes: request.Attachments.Sum(QuotaEstimator.EstimateAttachmentBytes));
+            AttachmentBytes: request.Attachments.Sum(QuotaEstimator.EstimateAttachmentBytes),
+            DateKey: QuotaAccounting.TodayKey());
 
     private async Task TryAsync(Func<Task> action, string description)
     {

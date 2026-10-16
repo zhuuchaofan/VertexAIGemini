@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { extname, join, normalize } from "node:path";
-import { createApiProxy } from "./proxy.mjs";
+import { assertAuthBypassAllowed, createApiProxy } from "./proxy.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -11,9 +11,11 @@ const backendUrl = resolveBackendUrl();
 const publicDir = new URL("./public/", import.meta.url);
 let serverlessTokenCache = null;
 
-// Keep this below the Cloud Run request timeout of this service (see docs/cloud-run.md): the proxy then
-// reports a clean gateway timeout instead of the platform cutting the connection mid-stream.
-const upstreamTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS ?? "295000", 10);
+// Backstop for a hung upstream, kept 15s below this service's Cloud Run timeout (see docs/cloud-run.md) so
+// the proxy can still answer with a clean 504 / connection error instead of the platform cutting it off.
+// The real terminator of a generation is the API's own cap, which is much shorter.
+const upstreamTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS ?? "315000", 10);
+assertAuthBypassAllowed(process.env);
 const serverlessAuthDisabled = process.env.DISABLE_SERVERLESS_AUTH === "true";
 
 const proxyApi = createApiProxy({

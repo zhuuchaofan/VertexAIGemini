@@ -544,7 +544,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         };
     }
 
-    private static ThinkingConfig? BuildThinkingConfig(
+    internal static ThinkingConfig? BuildThinkingConfig(
         ChatThinkingConfig? thinking,
         bool isThinkingDisabled,
         string? thinkingLevel,
@@ -557,6 +557,21 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         if (isThinkingDisabled)
         {
+            // Gemini 3.x is controlled by thinking_level; the numeric budget is not recommended there and
+            // some models (3.1 Pro) cannot disable thinking at all. "Off" therefore means the lowest level
+            // the model offers. Budget-based (2.x style) models keep the budget=0 behaviour.
+            if (thinking.Kind != "gemini-budget")
+            {
+                var lowest = thinking.Options.FirstOrDefault(option => option.Value == "minimal")?.Value
+                    ?? thinking.Options.FirstOrDefault()?.Value
+                    ?? "minimal";
+                return new ThinkingConfig
+                {
+                    ThinkingLevel = ToGeminiThinkingLevel(lowest),
+                    IncludeThoughts = false
+                };
+            }
+
             return new ThinkingConfig
             {
                 ThinkingBudget = 0,

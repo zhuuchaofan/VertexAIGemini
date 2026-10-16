@@ -6,9 +6,8 @@ public sealed class ChatStreamSettings
     public int HeartbeatSeconds { get; set; } = 15;
 
     /// <summary>
-    /// Hard cap for one generation. It must stay below the Cloud Run request timeout of both services
-    /// (300s by default) so the app can end the stream cleanly with a "failed" result before the
-    /// platform cuts the connection.
+    /// Hard cap for one generation. The API's Cloud Run timeout must exceed it by at least 30s (time to
+    /// save the partial reply, settle quota and send the final event); the deploy script enforces this.
     /// </summary>
     public int MaxGenerationSeconds { get; set; } = 240;
 }

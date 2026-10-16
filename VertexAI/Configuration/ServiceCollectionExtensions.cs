@@ -81,7 +81,10 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.AddHttpContextAccessor();
-        services.AddHttpClient(nameof(OpenAICompatibleChatModelClient));
+        // The default HttpClient timeout (100s) would cut slow first tokens of reasoning models; the
+        // per-request generation cap (Chat:MaxGenerationSeconds) is the real time limit.
+        services.AddHttpClient(nameof(OpenAICompatibleChatModelClient), client =>
+            client.Timeout = Timeout.InfiniteTimeSpan);
 
         services.AddSingleton<GeminiSafetyPolicy>();
         services.AddScoped<GeminiService>();

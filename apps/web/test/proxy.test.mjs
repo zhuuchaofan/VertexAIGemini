@@ -217,3 +217,23 @@ test("an unreachable backend is a 502 and unsupported methods are 405", async ()
     await close(env.front);
   }
 });
+
+test("the local auth bypass is refused on Cloud Run and allowed locally", async () => {
+  const { assertAuthBypassAllowed } = await import("../proxy.mjs");
+  assert.throws(() => assertAuthBypassAllowed({ DISABLE_SERVERLESS_AUTH: "true", K_SERVICE: "vertex-ai-web" }), /local development only/);
+  assert.throws(() => assertAuthBypassAllowed({ DISABLE_SERVERLESS_AUTH: "true", K_REVISION: "vertex-ai-web-00013" }), /Cloud Run/);
+  assert.doesNotThrow(() => assertAuthBypassAllowed({ DISABLE_SERVERLESS_AUTH: "true" }));
+  assert.doesNotThrow(() => assertAuthBypassAllowed({ K_SERVICE: "vertex-ai-web" }));
+  assert.doesNotThrow(() => assertAuthBypassAllowed({}));
+});
+
+test("server.mjs refuses to start on Cloud Run with the bypass flag", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync("node", ["server.mjs"], {
+    cwd: new URL("..", import.meta.url).pathname,
+    env: { ...process.env, BACKEND_URL: "http://127.0.0.1:9", PORT: "0", DISABLE_SERVERLESS_AUTH: "true", K_SERVICE: "vertex-ai-web" },
+    encoding: "utf8", timeout: 10_000
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /local development only/);
+});

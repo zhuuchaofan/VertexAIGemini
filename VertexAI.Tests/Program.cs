@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using VertexAI.Services.Quota;
 
-var tests = new (string Name, Action Test)[]
+var tests = new List<(string Name, Action Test)>
 {
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
@@ -26,6 +26,13 @@ var tests = new (string Name, Action Test)[]
     ("ChatOrchestrator settles reservation on every path", CostControlTests.OrchestratorSettlesReservationOnEveryPath),
     ("FirebaseUserContext: malformed bearer tokens are anonymous, not 500", FirebaseUserContextTests.MalformedBearerTokensAreAnonymousNotServerErrors),
     ("FirebaseUserContext: missing or non-bearer header is anonymous", FirebaseUserContextTests.MissingOrNonBearerHeaderIsAnonymous),
+    ("Release: quota reservation and settlement use the same day key", ReleaseReadinessTests.ReservationAndSettlementShareTheDayKey),
+    ("Release: cancelled generation is charged at least estimate plus output", ReleaseReadinessTests.CancelledGenerationIsNotFree),
+    ("Release: request that never reached the model is not charged tokens", ReleaseReadinessTests.EarlyFailureIsNotChargedTokens),
+    ("Release: disabled thinking maps to the lowest level on Gemini 3 models", ReleaseReadinessTests.DisabledThinkingUsesLowestLevelNotBudget),
+    ("Release: environment variables bind to Access/Quota/Chat settings", ReleaseReadinessTests.EnvironmentVariablesBindToSettings),
+    ("Release: access policy path matching ignores case", ReleaseReadinessTests.AccessPolicyPathMatchingIgnoresCase),
+    ("Release: access policy applies to every API route group", ReleaseReadinessTests.AccessPolicyCoversAllApiRoutes),
     ("AccessSettings expands comma-separated lists", AccessSettingsTests.ExpandsCsvLists),
     ("AccessPolicy is open by default", CostControlTests.AccessPolicyDefaultsToOpen),
     ("AccessPolicy requires verified email when configured", CostControlTests.AccessPolicyRequiresVerifiedEmailWhenConfigured),
@@ -83,6 +90,16 @@ var tests = new (string Name, Action Test)[]
     ("OpenAICompatibleChatModelClient streams reasoning chunks", OpenAICompatibleChatModelClientTests.StreamsReasoningChunks)
 };
 
+if (EmulatorTests.Available)
+{
+    EmulatorTests.Reset();
+    tests.AddRange(EmulatorTests.All);
+}
+else
+{
+    Console.WriteLine("SKIP Firestore emulator tests (set FIRESTORE_EMULATOR_HOST to run them)");
+}
+
 var failures = new List<string>();
 
 foreach (var (name, test) in tests)
@@ -113,7 +130,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine();
-Console.WriteLine($"{tests.Length} tests passed.");
+Console.WriteLine($"{tests.Count} tests passed.");
 return 0;
 
 internal static class GeminiPartFactoryTests
@@ -1504,10 +1521,13 @@ internal sealed class FakeQuotaService : IChatQuotaService
     public Exception? Failure { get; set; }
     public int CheckCount { get; private set; }
     public int RecordCount { get; private set; }
+    public List<ChatQuotaRequest> Reserved { get; } = [];
+    public List<(ChatQuotaRequest Request, int ActualTokens)> Settled { get; } = [];
 
     public Task CheckAndReserveAsync(ChatQuotaRequest request, CancellationToken cancellationToken = default)
     {
         CheckCount++;
+        Reserved.Add(request);
         if (Failure != null)
         {
             throw Failure;
@@ -1519,6 +1539,7 @@ internal sealed class FakeQuotaService : IChatQuotaService
     public Task RecordTokenUsageAsync(ChatQuotaRequest request, int actualTokens, CancellationToken cancellationToken = default)
     {
         RecordCount++;
+        Settled.Add((request, actualTokens));
         return Task.CompletedTask;
     }
 }

@@ -28,6 +28,9 @@ internal readonly record struct UsageTotals(
 
 internal static class QuotaAccounting
 {
+    /// <summary>Quota day (UTC, yyyyMMdd). Captured once per request so reservation and settlement hit the same day.</summary>
+    public static string TodayKey() => DateTime.UtcNow.ToString("yyyyMMdd");
+
     public static string? FindUserViolation(UsageTotals usage, QuotaSettings settings)
     {
         if (usage.Requests > settings.DailyRequestLimit)

@@ -9,6 +9,19 @@ const HOP_BY_HOP = new Set([
 ]);
 
 /**
+ * DISABLE_SERVERLESS_AUTH exists only so the web server can talk to a local API that has no Cloud Run IAM in
+ * front of it. Cloud Run sets K_SERVICE; refusing to start there means a stray copy of the flag can never
+ * produce a serving revision that forwards requests without the service identity token.
+ */
+export function assertAuthBypassAllowed(env = process.env) {
+  if (env.DISABLE_SERVERLESS_AUTH === "true" && (env.K_SERVICE || env.K_REVISION)) {
+    throw new Error(
+      "DISABLE_SERVERLESS_AUTH=true is for local development only and is refused on Cloud Run. " +
+      "Remove it: gcloud run services update <web-service> --remove-env-vars=DISABLE_SERVERLESS_AUTH");
+  }
+}
+
+/**
  * Builds the /api reverse-proxy handler.
  *
  * Reliability rules (see docs/cloud-run.md):
@@ -22,7 +35,7 @@ export function createApiProxy({
   backendUrl,
   getIdentityToken,
   requireIdentityToken = true,
-  upstreamTimeoutMs = 295_000,
+  upstreamTimeoutMs = 315_000,
   fetchImpl = fetch,
   logger = console
 }) {
