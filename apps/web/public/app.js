@@ -440,6 +440,12 @@ function renderWorkspaceConfig() {
   renderProviderCatalog();
 }
 
+function formatModelLabel(model) {
+  const isPreview = model.stage === "preview" || model.stage === "deprecated";
+  if (!isPreview || /preview|预览/i.test(model.name)) return model.name;
+  return `${model.name} · ${model.stage === "deprecated" ? "即将下线" : "预览"}`;
+}
+
 function renderProviderCatalog() {
   elements.modelSelect.replaceChildren();
   elements.presetSelect.replaceChildren();
@@ -449,7 +455,7 @@ function renderProviderCatalog() {
   for (const model of providerConfig?.models ?? []) {
     const option = document.createElement("option");
     option.value = model.modelName;
-    option.textContent = model.name;
+    option.textContent = formatModelLabel(model);
     option.title = model.description;
     elements.modelSelect.append(option);
   }

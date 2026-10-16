@@ -4,6 +4,11 @@ internal static class ChatErrorMapper
 {
     public static string ToUserMessage(Exception exception)
     {
+        if (exception is UserFacingChatException)
+        {
+            return exception.Message;
+        }
+
         var providerMessage = ToProviderMessage(exception.Message);
         if (providerMessage != null)
         {
@@ -40,6 +45,7 @@ internal static class ChatErrorMapper
             var value when Contains(value, "storage") && Contains(value, "permission") => "附件存储权限不足，请检查 Cloud Run 服务账号的 Cloud Storage 权限",
             var value when Contains(value, "blocked by safety") => "当前预设或输入触发了模型安全过滤，请切换为默认助手或调整内容后重试",
             var value when Contains(value, "response was empty") => "AI 服务没有返回有效内容，请切换预设或稍后重试",
+            var value when Contains(value, "not found") && (Contains(value, "model") || Contains(value, "publisher")) => "所选模型已下线或当前项目无权访问，请在设置中切换其他模型",
             var value when Contains(value, "permission") || Contains(value, "IAM_PERMISSION_DENIED") => "AI 服务权限不足，请检查 Cloud Run 服务账号的 Vertex AI 权限",
             _ => null
         };

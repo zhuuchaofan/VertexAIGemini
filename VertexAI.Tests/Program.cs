@@ -15,6 +15,9 @@ var tests = new (string Name, Action Test)[]
 {
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
+    ("ModelLifecycle hides retired models and keeps list when all retired", ModelLifecycleTests.HidesRetiredModels),
+    ("GeminiCatalog marks preview models and honours RetireDate", ModelLifecycleTests.CatalogHonoursRetireDate),
+    ("ChatOrchestrator rejects unknown models explicitly", ChatOrchestratorTests.RejectsUnknownModelExplicitly),
     ("GeminiSafetyPolicy splits admin and default thresholds", GeminiSafetyPolicyTests.SplitsAdminAndDefaultThresholds),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
@@ -118,6 +121,48 @@ internal static class GeminiCatalogTests
         Assert.True(pro.SupportsThinking);
         Assert.False(pro.Thinking?.CanDisable ?? true);
         Assert.False(pro.Thinking?.Options.Any(option => option.Value == "off") ?? true);
+    }
+}
+
+internal static class ModelLifecycleTests
+{
+    public static void HidesRetiredModels()
+    {
+        var models = new List<ChatModelOption>
+        {
+            new() { Name = "old", ModelName = "gemini-2.5-flash", RetireDate = "2026-10-20" },
+            new() { Name = "new", ModelName = "gemini-3.5-flash" }
+        };
+
+        Assert.Equal(2, ModelLifecycle.FilterAvailable(models, new DateOnly(2026, 10, 19)).Count);
+        var after = ModelLifecycle.FilterAvailable(models, new DateOnly(2026, 10, 20));
+        Assert.Equal(1, after.Count);
+        Assert.Equal("gemini-3.5-flash", after[0].ModelName);
+
+        var allRetired = new List<ChatModelOption>
+        {
+            new() { Name = "a", ModelName = "a", RetireDate = "2020-01-01" }
+        };
+        Assert.Equal(1, ModelLifecycle.FilterAvailable(allRetired, new DateOnly(2026, 1, 1)).Count);
+        Assert.False(ModelLifecycle.IsRetired(new ChatModelOption { RetireDate = "not-a-date" }, new DateOnly(2030, 1, 1)));
+    }
+
+    public static void CatalogHonoursRetireDate()
+    {
+        var defaults = GeminiCatalog.CreateModelOptions(new GeminiSettings());
+        Assert.True(defaults.Any(m => m.ModelName == "gemini-3.5-flash" && m.Stage == "ga"));
+        Assert.True(defaults.Where(m => m.ModelName.EndsWith("-preview")).All(m => m.Stage == "preview"));
+
+        var configured = GeminiCatalog.CreateModelOptions(new GeminiSettings
+        {
+            Models =
+            [
+                new() { Name = "Gone", ModelName = "gemini-2.5-pro", RetireDate = "2026-10-01" },
+                new() { Name = "Kept", ModelName = "gemini-3.5-flash" }
+            ]
+        });
+        Assert.Equal(1, configured.Count);
+        Assert.Equal("gemini-3.5-flash", configured[0].ModelName);
     }
 }
 
@@ -266,6 +311,31 @@ internal static class ChatOrchestratorTests
         Assert.Equal("hi", lastRequest!.Message);
         Assert.Equal(0, lastRequest.Attachments.Count);
         Assert.Equal(SearchModes.Auto, lastRequest.SearchMode);
+    }
+
+    public static void RejectsUnknownModelExplicitly()
+    {
+        var user = TestUser(Guid.NewGuid());
+        var model = new FakeChatModelClient
+        {
+            ModelOptions = [new ChatModelOption { Name = "ok", ModelName = "gemini-3.5-flash" }],
+            Chunks = [new ChatChunk { Text = "should not run" }]
+        };
+        var store = new FakeConversationStore();
+        var orchestrator = new ChatOrchestrator(
+            new FakeProviderCatalog(model),
+            store,
+            NullLogger<ChatOrchestrator>.Instance);
+
+        var result = Run(orchestrator.SendAsync(
+            new ChatSendRequest(null, user, "hi", [], Options: new ChatSessionOptions("fake", "gemini-2.5-flash", null, null, null, null, null)),
+            _ => Task.CompletedTask));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("gemini-2.5-flash", result.ErrorMessage ?? "");
+        Assert.Contains("已不可用", result.ErrorMessage ?? "");
+        Assert.Equal(0, store.Messages.Count);
+        Assert.True(model.LastRequest is null);
     }
 
     public static void MapsModelFailures()
@@ -771,12 +841,10 @@ internal sealed class FakeProviderCatalog : IChatProviderCatalog
     public FakeProviderCatalog(FakeChatModelClient client)
     {
         _client = client;
+        Providers = [new FakeProvider("fake", client)];
     }
 
-    public IReadOnlyList<IChatModelProvider> Providers { get; } =
-    [
-        new FakeProvider("fake", new FakeChatModelClient())
-    ];
+    public IReadOnlyList<IChatModelProvider> Providers { get; }
 
     public string ResolveProviderId(string? providerId) => providerId ?? "fake";
 

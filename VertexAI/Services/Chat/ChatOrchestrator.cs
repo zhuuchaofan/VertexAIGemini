@@ -48,6 +48,7 @@ public class ChatOrchestrator
             await _quota.CheckAndReserveAsync(quotaRequest);
 
             var providerId = _providers.ResolveProviderId(request.Options?.ProviderId);
+            ValidateModelSelection(providerId, request.Options?.ModelName);
             model = _providers.CreateClient(providerId);
             if (model is IAuthenticatedUserAwareChatModelClient userAwareModel)
             {
@@ -156,6 +157,31 @@ public class ChatOrchestrator
                     quotaRequest,
                     Math.Max(0, model.CurrentTokenCount));
             }
+        }
+    }
+
+    /// <summary>
+    /// Rejects unknown or retired models explicitly. Without this check a stale model id would be
+    /// silently replaced by the provider's first model (different capabilities and price).
+    /// </summary>
+    private void ValidateModelSelection(string providerId, string? modelName)
+    {
+        if (string.IsNullOrWhiteSpace(modelName))
+        {
+            return;
+        }
+
+        var provider = _providers.Providers.FirstOrDefault(p =>
+            string.Equals(p.Info.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        if (provider is null || provider.ModelOptions.Count == 0)
+        {
+            return;
+        }
+
+        if (!provider.ModelOptions.Any(option => option.ModelName == modelName))
+        {
+            throw new UserFacingChatException(
+                $"所选模型「{modelName}」已不可用或已下线，请重新选择模型。");
         }
     }
 

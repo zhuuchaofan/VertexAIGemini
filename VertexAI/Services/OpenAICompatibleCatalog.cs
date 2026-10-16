@@ -24,10 +24,10 @@ internal static class OpenAICompatibleCatalog
     {
         if (settings.Models.Count > 0)
         {
-            return NormalizeThinking(settings.ProviderId, settings.Models);
+            return ModelLifecycle.FilterAvailable(NormalizeThinking(settings.ProviderId, settings.Models));
         }
 
-        return NormalizeThinking(settings.ProviderId,
+        return ModelLifecycle.FilterAvailable(NormalizeThinking(settings.ProviderId,
         [
             new()
             {
@@ -37,7 +37,7 @@ internal static class OpenAICompatibleCatalog
                 SupportsThinking = false,
                 MaxTokens = 128000
             }
-        ]);
+        ]));
     }
 
     public static IReadOnlyList<PromptPresetConfig> CreatePresets(OpenAICompatibleProviderSettings settings)
