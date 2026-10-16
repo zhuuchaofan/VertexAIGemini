@@ -57,6 +57,21 @@ if [[ -z "$FIREBASE_API_KEY" || -z "$FIREBASE_APP_ID" ]]; then
   exit 1
 fi
 
+# Release settings shared with scripts/lib/cloud-run-release.sh (merge-only configuration, candidate
+# deploys, verified traffic switch, automatic rollback).
+export PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT
+export RUNTIME_SERVICE_ACCOUNT="$SERVICE_ACCOUNT" IMAGE_TAG DEPLOY_TARGET
+export FIREBASE_PROJECT_ID FIRESTORE_PROJECT_ID FIREBASE_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_APP_ID
+export DEFAULT_PROVIDER_ID ATTACHMENT_STORAGE_BUCKET
+export API_CPU API_MEMORY API_CONCURRENCY API_TIMEOUT API_MIN_INSTANCES API_MAX_INSTANCES
+export WEB_CPU WEB_MEMORY WEB_CONCURRENCY WEB_TIMEOUT WEB_MIN_INSTANCES WEB_MAX_INSTANCES
+export CHAT_MAX_GENERATION_SECONDS="${CHAT_MAX_GENERATION_SECONDS:-240}"
+export API_SECRETS ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
+export QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
+
+# shellcheck source=lib/cloud-run-release.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cloud-run-release.sh"
+
 echo "[INFO] Ensuring Artifact Registry repository ${REPOSITORY} in ${REGION}..."
 if ! gcloud artifacts repositories describe "$REPOSITORY" \
   --project="$PROJECT_ID" \
@@ -76,27 +91,10 @@ if ! gcloud storage buckets describe "gs://${ATTACHMENT_STORAGE_BUCKET}" >/dev/n
     --uniform-bucket-level-access
 fi
 
-echo "[INFO] Granting Cloud Run service account object access to gs://${ATTACHMENT_STORAGE_BUCKET}..."
-gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
-  --member="serviceAccount:${SERVICE_ACCOUNT}" \
-  --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
+crr_ensure_bucket_access
 
 echo "[INFO] Ensuring Firestore composite indexes in ${FIRESTORE_PROJECT_ID}..."
 FIRESTORE_PROJECT_ID="$FIRESTORE_PROJECT_ID" node scripts/deploy-firestore-indexes.mjs
 
-# Build, deploy as candidates, promote, smoke test, and roll back automatically if verification fails.
-# See scripts/lib/cloud-run-release.sh for the safety properties (merge-only configuration, no-traffic
-# deploys, automatic rollback).
-export PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT
-export RUNTIME_SERVICE_ACCOUNT="$SERVICE_ACCOUNT" IMAGE_TAG DEPLOY_TARGET
-export FIREBASE_PROJECT_ID FIRESTORE_PROJECT_ID FIREBASE_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_APP_ID
-export DEFAULT_PROVIDER_ID ATTACHMENT_STORAGE_BUCKET
-export API_CPU API_MEMORY API_CONCURRENCY API_TIMEOUT API_MIN_INSTANCES API_MAX_INSTANCES
-export WEB_CPU WEB_MEMORY WEB_CONCURRENCY WEB_TIMEOUT WEB_MIN_INSTANCES WEB_MAX_INSTANCES
-export CHAT_MAX_GENERATION_SECONDS="${CHAT_MAX_GENERATION_SECONDS:-240}"
-export API_SECRETS ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
-export QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
-
-# shellcheck source=lib/cloud-run-release.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/cloud-run-release.sh"
+# Build, deploy as candidates, verify, switch traffic, smoke test, and roll back automatically on failure.
 crr_release

@@ -145,12 +145,39 @@ gcloud firestore indexes composite list \
 
 ## 发布流程（推荐使用脚本/工作流）
 
-`scripts/deploy-cloud-run.sh` 与 GitHub 工作流共用 `scripts/lib/cloud-run-release.sh`：
-1. 记录两个服务当前承载流量的修订版；
-2. 现有服务以 `--no-traffic --tag=candidate` 部署新修订版（旧修订版继续服务；新服务首次部署无法保护）；
-3. API 与 web 都部署成功后才切流；
-4. 冒烟：直连 API 应为 403、web 首页与 `/api/workspace/config` 应为 200（带重试）；
-5. 任一步失败：已切流的服务自动回到第 1 步记录的修订版，命令以非零状态退出。
+`scripts/deploy-cloud-run.sh` 与 GitHub 工作流共用 `scripts/lib/cloud-run-release.sh`。**部署工作流目前只支持手动触发（`workflow_dispatch`）**：合并到 `main`、创建 PR、普通推送都不会部署。首次上线验证通过后，若要恢复自动部署，按工作流文件顶部注释把 `push` 触发加回去。
+
+### 步骤与保证
+| 阶段 | 做什么 | 对线上的影响 |
+|---|---|---|
+| 0 预检（只读） | 校验超时分层、`API_SECRETS` 格式、认证绕过开关；读取两个服务当前承载流量的修订版；读取 API 的 IAM。API 若对 `allUsers`/`allAuthenticatedUsers` 开放则**直接停止**并给出手工命令 | 无 |
+| 1 构建并部署候选 | 现有服务用 `--no-traffic --tag=candidate` 部署；**不带** `--allow/--no-allow-unauthenticated`（这两个参数会立即改写服务级 IAM，且不随流量回滚恢复）；仅新建服务时才带 | 只创建 0% 流量的新修订版 |
+| 2 候选验证 | 通过 `https://candidate---<服务主机>` 检查 web `/`、`/api/workspace/config`；用 ID 令牌检查私有 API 候选 `/health/ready` | 无流量、无权限变化。**任何失败 = 不切流** |
+| 3 授权（唯一的非流量变更） | 仅当 web 服务账号缺少 API 的 `roles/run.invoker` 时才**新增**（只增不删），紧挨着切流之前执行；本次发布新增的授权在回滚时会被移除，原有授权不会被动 | 可回滚的最小变更 |
+| 4 切流 | 先 API 后 web，`update-traffic --to-latest`；**每一步都校验服务确实在承载新修订版**（退出码为 0 不算数）；移除候选标签是尽力而为，失败不影响结果 | 切流 |
+| 5 冒烟 | 直连 API 必须 403、web `/` 与 config 为 200（带重试）。只在两个服务的切换都被确认后才执行，所以不会拿旧版本的冒烟结果冒充新版本成功 | — |
+| 失败回滚 | 凡是**尝试过**切流的服务（含失败或结果不明的）都切回原修订版并**校验**；回滚失败会明确提示"生产可能仍在新修订版"并打印手工命令 | 恢复 |
+
+### 切流前会改变线上资源/权限的操作（完整清单）
+这些在流量回滚时**不会**自动恢复，因此都被限制为"只增、幂等、仅在缺失时"：
+| 操作 | 位置 | 处理 |
+|---|---|---|
+| 推送镜像到 Artifact Registry | 构建 | 无害（不被引用） |
+| 创建新修订版（0% 流量） | 部署 | 无害 |
+| 部署参数 `--allow/--no-allow-unauthenticated`（服务级 IAM） | 部署 | **已改**：仅新建服务时使用 |
+| `add/remove-iam-policy-binding`（API 调用权限） | 原 `crr_ensure_api_access`，在候选验证之前执行 | **已改**：只读预检 + 缺失时才新增、推迟到候选验证之后、回滚时撤销本次新增；**不再自动移除** `allUsers`（发现即停止） |
+| 附件桶的 IAM 绑定 | 部署前置步骤 | **已改**：仅当缺失时才添加（原来每次都重复写入） |
+| 创建 Artifact Registry 仓库 / 附件桶 / Firestore 复合索引 | 部署前置步骤 | 仅在不存在时创建，幂等，不删除任何东西；Phase 1 应移到一次性 bootstrap |
+| 服务级伸缩参数（`--min/max-instances`） | 部署 | **未核实**是否随 0% 流量的候选一起立即生效；请在测试服务演练时确认 |
+
+### 私有 API 候选需要身份令牌
+候选 API 是私有的，要验证它必须能调用它。联合身份（WIF）凭据**不能**直接签发 ID 令牌，所以 CI 需要：
+1. 一个专用服务账号（例如 `ci-api-probe@<project>.iam.gserviceaccount.com`），在 **API 服务**上拥有 `roles/run.invoker`；
+2. 部署身份对该服务账号拥有 `roles/iam.serviceAccountTokenCreator`；
+3. 仓库变量 `CRR_IDENTITY_TOKEN_SA` = 该服务账号邮箱。
+**取不到令牌时发布会直接停止**（不会跳过检查），因为 API 候选是风险最高的部分。如果你明确接受"API 候选未经切流前验证、只靠切流后的冒烟与回滚兜底"，可设置仓库变量 `CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true`，日志里会有醒目的警告。
+未核实的假设：候选标签 URL 的拼接规则、标签 URL 是否接受以服务 URL 为受众的令牌——请在测试服务上演练一次。
+
 配置一律用 `--update-env-vars` / `--update-secrets` 合并，不会覆盖手工配置（见 `docs/secrets.md`）。下面的手工命令同理。
 
 ## API Service

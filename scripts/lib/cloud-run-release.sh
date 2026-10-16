@@ -3,19 +3,27 @@
 #
 # Release helpers shared by scripts/deploy-cloud-run.sh and .github/workflows/deploy-cloud-run.yml.
 #
-# Safety properties (covered by scripts/test/cloud-run-release.test.sh with a fake gcloud):
+# Safety properties (covered by scripts/test/cloud-run-release.test.sh with a stateful fake gcloud):
 #   1. Configuration is MERGED (--update-env-vars / --update-secrets), never replaced, so anything
 #      configured on the service by other means survives a deploy.
 #   2. On an existing service a new revision is deployed with --no-traffic; the service keeps serving
-#      the old revision until the whole release is promoted.
-#   3. After promotion a smoke check runs; if it fails every service that was promoted is rolled back
-#      to the revision that was serving before this release.
-#   4. Nothing here ever prints or stores secret values: secrets are referenced by Secret Manager name.
-#
-#   5. Timeouts are layered with clean-up margins (see crr_validate_timeouts): the app ends a generation
-#      first, then the API platform timeout, then the web proxy, then the web platform timeout.
-#   6. A revision that carries the local-only auth bypass (DISABLE_SERVERLESS_AUTH) is never promoted.
-#   7. The candidate revisions are exercised through their 0%-traffic tag URLs BEFORE any traffic moves.
+#      the old revision until the whole release is promoted. Deploy-time flags that rewrite the
+#      SERVICE-level IAM policy (--allow/--no-allow-unauthenticated) are used on first deploy only.
+#   3. Nothing that is NOT undone by a traffic rollback changes before the candidates have passed their
+#      checks. The only IAM change the release makes (granting the web service account run.invoker on the
+#      API when it is missing) happens right before promotion and is removed again on rollback. A public
+#      API (allUsers) is never "fixed" silently: the release stops and tells the operator.
+#   4. Candidates are exercised through their 0%-traffic tag URLs BEFORE any traffic moves. If the private
+#      API candidate cannot be exercised (no identity token) the release STOPS, unless the operator
+#      explicitly accepts the risk with CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true.
+#   5. A traffic switch only counts when the service is really serving the new revision afterwards
+#      (checked, not assumed). A failed or unverifiable switch fails the release; the smoke test can
+#      never "pass" against the old revision and be mistaken for a successful release.
+#   6. After promotion a smoke check runs; on any failure every service whose switch was ATTEMPTED is put
+#      back on the revision that served before, and the result is verified.
+#   7. Timeouts are layered with clean-up margins (see crr_validate_timeouts).
+#   8. A revision that carries the local-only auth bypass (DISABLE_SERVERLESS_AUTH) is never promoted.
+#   9. Nothing here ever prints or stores secret values: secrets are referenced by Secret Manager name.
 #
 # Required environment: PROJECT_ID REGION REPOSITORY API_SERVICE WEB_SERVICE RUNTIME_SERVICE_ACCOUNT
 #   WEB_SERVICE_ACCOUNT WEB_INVOKER_SERVICE_ACCOUNT IMAGE_TAG FIREBASE_PROJECT_ID FIRESTORE_PROJECT_ID
@@ -23,17 +31,36 @@
 #   API_CPU API_MEMORY API_CONCURRENCY API_TIMEOUT API_MIN_INSTANCES API_MAX_INSTANCES
 #   WEB_CPU WEB_MEMORY WEB_CONCURRENCY WEB_TIMEOUT WEB_MIN_INSTANCES WEB_MAX_INSTANCES
 # Optional: DEPLOY_TARGET (all|api|web, default all), API_SECRETS (see docs/secrets.md),
+#   CRR_IDENTITY_TOKEN_SA (service account to impersonate for the private API candidate check; the deploy
+#   identity needs roles/iam.serviceAccountTokenCreator on it and the SA needs roles/run.invoker on the API),
+#   CRR_ALLOW_UNVERIFIED_API_CANDIDATE (true = accept promoting an API candidate that could not be tested),
 #   CHAT_MAX_GENERATION_SECONDS (default 240),
 #   ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
 #   QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
 
 crr_log() { echo "[release] $*"; }
 
-# Name of the revision currently receiving traffic ("" when the service does not exist yet).
+# Name of the revision currently receiving 100% of traffic ("" when the service does not exist yet).
+# Parsed from JSON because the order of status.traffic entries (tagged 0% entries) is not guaranteed.
 crr_serving_revision() {
-  gcloud run services describe "$1" \
-    --project="$PROJECT_ID" --region="$REGION" \
-    --format='value(status.traffic[0].revisionName)' 2>/dev/null || true
+  local spec
+  spec="$(gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json 2>/dev/null || true)"
+  [[ -z "$spec" ]] && return 0
+  python3 - "$spec" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    traffic = json.loads(sys.argv[1]).get("status", {}).get("traffic", [])
+except Exception:
+    sys.exit(0)
+best = next((t for t in traffic if t.get("percent") == 100 and t.get("revisionName")), None) \
+    or next((t for t in traffic if t.get("percent", 0) > 0 and t.get("revisionName")), None)
+print(best["revisionName"] if best else "")
+PY
+}
+
+crr_latest_ready_revision() {
+  gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" \
+    --format='value(status.latestReadyRevisionName)' 2>/dev/null || true
 }
 
 crr_service_url() {
@@ -86,18 +113,28 @@ crr_traffic_flags() { # $1 = previous revision
   fi
 }
 
+# --allow-unauthenticated / --no-allow-unauthenticated rewrite the SERVICE-level IAM policy immediately,
+# even together with --no-traffic, and a traffic rollback does not undo them. They are therefore used
+# only when the service is created; an existing service keeps the access policy it has.
+crr_access_flag() { # $1 = previous revision, $2 = flag for a new service
+  if [[ -z "$1" ]]; then
+    echo "$2"
+  fi
+}
+
 crr_deploy_api() {
-  local image="$1" flags
+  local image="$1" flags access
   flags="$(crr_traffic_flags "${PREV_API_REVISION:-}")"
+  access="$(crr_access_flag "${PREV_API_REVISION:-}" --no-allow-unauthenticated)"
   local secret_args=()
   [[ -n "${API_SECRETS:-}" ]] && secret_args=("--update-secrets=${API_SECRETS}")
 
-  # shellcheck disable=SC2086  # $flags is a deliberate, fixed word list
+  # shellcheck disable=SC2086  # $flags / $access are deliberate, fixed word lists
   gcloud run deploy "$API_SERVICE" \
     --project="$PROJECT_ID" --region="$REGION" \
     --image="$image" \
     --service-account="$RUNTIME_SERVICE_ACCOUNT" \
-    --no-allow-unauthenticated \
+    $access \
     --port=8080 \
     --cpu="$API_CPU" --memory="$API_MEMORY" \
     --concurrency="$API_CONCURRENCY" --timeout="$API_TIMEOUT" \
@@ -108,15 +145,16 @@ crr_deploy_api() {
 }
 
 crr_deploy_web() {
-  local image="$1" api_url="$2" flags
+  local image="$1" api_url="$2" flags access
   flags="$(crr_traffic_flags "${PREV_WEB_REVISION:-}")"
+  access="$(crr_access_flag "${PREV_WEB_REVISION:-}" --allow-unauthenticated)"
 
   # shellcheck disable=SC2086
   gcloud run deploy "$WEB_SERVICE" \
     --project="$PROJECT_ID" --region="$REGION" \
     --image="$image" \
     --service-account="$WEB_SERVICE_ACCOUNT" \
-    --allow-unauthenticated \
+    $access \
     --port=8080 \
     --cpu="$WEB_CPU" --memory="$WEB_MEMORY" \
     --concurrency="$WEB_CONCURRENCY" --timeout="$WEB_TIMEOUT" \
@@ -125,22 +163,101 @@ crr_deploy_web() {
     --update-env-vars="^#^BACKEND_URL=${api_url}#UPSTREAM_TIMEOUT_MS=$(crr_upstream_timeout_ms)"
 }
 
-# Only the web service account may invoke the private API; remove any public access.
-crr_ensure_api_access() {
+# --- infrastructure the release depends on (all additive and idempotent) ---------------------------------
+# These run BEFORE any candidate is tested and are NOT undone by a traffic rollback, so they only ever
+# create what is missing and never rewrite what already exists.
+
+# Grants the API runtime service account object access on the attachment bucket, only if it lacks it.
+# (The old code re-applied the binding on every run.)
+crr_ensure_bucket_access() {
+  local present
+  present="$(gcloud storage buckets get-iam-policy "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+    --flatten=bindings --filter="bindings.role=${ATTACHMENT_STORAGE_ROLE} AND bindings.members:serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+    --format='value(bindings.role)' 2>/dev/null || true)"
+  if [[ -n "$present" ]]; then
+    crr_log "bucket access already present for ${RUNTIME_SERVICE_ACCOUNT}; leaving it alone."
+    return 0
+  fi
+  crr_log "Granting ${ATTACHMENT_STORAGE_ROLE} on gs://${ATTACHMENT_STORAGE_BUCKET} to ${RUNTIME_SERVICE_ACCOUNT} (missing)."
+  gcloud storage buckets add-iam-policy-binding "gs://${ATTACHMENT_STORAGE_BUCKET}" \
+    --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+    --role="${ATTACHMENT_STORAGE_ROLE}" >/dev/null
+}
+
+# --- API access: read-only preflight, then one additive, tracked change right before promotion ----------
+
+# Read-only. A public API (allUsers / allAuthenticatedUsers) is a security finding the release must not
+# paper over: removing the grant is an immediate, un-rollbackable change to production access.
+crr_preflight_api_access() {
+  local public
+  public="$(gcloud run services get-iam-policy "$API_SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+    --flatten=bindings --filter="bindings.members:allUsers OR bindings.members:allAuthenticatedUsers" \
+    --format='value(bindings.role)' 2>/dev/null || true)"
+  if [[ -n "$public" ]]; then
+    crr_log "The API service grants access to allUsers/allAuthenticatedUsers. Remove it deliberately, then release again:"
+    crr_log "  gcloud run services remove-iam-policy-binding ${API_SERVICE} --region=${REGION} --member=allUsers --role=roles/run.invoker"
+    return 1
+  fi
+}
+
+crr_api_invoker_present() {
+  local found
+  found="$(gcloud run services get-iam-policy "$API_SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+    --flatten=bindings --filter="bindings.role=roles/run.invoker AND bindings.members:serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
+    --format='value(bindings.role)' 2>/dev/null || true)"
+  [[ -n "$found" ]]
+}
+
+# Additive only, and only when missing. Remembered so a rollback can take it away again.
+crr_grant_web_invoker() {
+  IAM_GRANTED_BY_RELEASE=0
+  if crr_api_invoker_present; then
+    return 0
+  fi
+  crr_log "Granting roles/run.invoker on ${API_SERVICE} to ${WEB_INVOKER_SERVICE_ACCOUNT} (missing)."
   gcloud run services add-iam-policy-binding "$API_SERVICE" \
     --project="$PROJECT_ID" --region="$REGION" \
     --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
-    --role="roles/run.invoker" >/dev/null
-  gcloud run services remove-iam-policy-binding "$API_SERVICE" \
-    --project="$PROJECT_ID" --region="$REGION" \
-    --member="allUsers" --role="roles/run.invoker" >/dev/null 2>&1 || true
+    --role="roles/run.invoker" >/dev/null || return 1
+  IAM_GRANTED_BY_RELEASE=1
 }
 
+crr_revoke_web_invoker_if_granted() {
+  if [[ "${IAM_GRANTED_BY_RELEASE:-0}" == "1" ]]; then
+    crr_log "Removing the invoker grant this release added."
+    gcloud run services remove-iam-policy-binding "$API_SERVICE" \
+      --project="$PROJECT_ID" --region="$REGION" \
+      --member="serviceAccount:${WEB_INVOKER_SERVICE_ACCOUNT}" \
+      --role="roles/run.invoker" >/dev/null 2>&1 || crr_log "WARNING: could not remove the grant; remove it by hand if it is unwanted."
+    IAM_GRANTED_BY_RELEASE=0
+  fi
+}
+
+# --- traffic -------------------------------------------------------------------------------------------
+
+# A failed switch MUST fail the function. Removing the (cosmetic) candidate tag is best effort and must
+# never be the command whose exit status the caller sees.
 crr_promote() { # $1 = service
+  if ! gcloud run services update-traffic "$1" \
+      --project="$PROJECT_ID" --region="$REGION" --to-latest; then
+    crr_log "Traffic switch FAILED for $1."
+    return 1
+  fi
   gcloud run services update-traffic "$1" \
-    --project="$PROJECT_ID" --region="$REGION" --to-latest
-  gcloud run services update-traffic "$1" \
-    --project="$PROJECT_ID" --region="$REGION" --remove-tags=candidate >/dev/null 2>&1 || true
+    --project="$PROJECT_ID" --region="$REGION" --remove-tags=candidate >/dev/null 2>&1 \
+    || crr_log "note: could not remove the candidate tag from $1 (harmless)."
+  return 0
+}
+
+# Trust but verify: a zero exit status is not proof that the new revision serves traffic.
+crr_verify_serving_latest() { # $1 = service
+  local latest serving
+  latest="$(crr_latest_ready_revision "$1")"
+  serving="$(crr_serving_revision "$1")"
+  if [[ -z "$latest" || "$latest" != "$serving" ]]; then
+    crr_log "$1 is serving '${serving:-none}' but the new revision is '${latest:-none}'; the switch did not take effect."
+    return 1
+  fi
 }
 
 crr_rollback() { # $1 = service, $2 = revision that was serving before the release
@@ -149,8 +266,17 @@ crr_rollback() { # $1 = service, $2 = revision that was serving before the relea
     return 0
   fi
   crr_log "Rolling $1 back to revision $2"
-  gcloud run services update-traffic "$1" \
-    --project="$PROJECT_ID" --region="$REGION" --to-revisions="$2=100"
+  if ! gcloud run services update-traffic "$1" \
+      --project="$PROJECT_ID" --region="$REGION" --to-revisions="$2=100"; then
+    crr_log "ROLLBACK FAILED for $1. Run by hand: gcloud run services update-traffic $1 --region=${REGION} --to-revisions=$2=100"
+    return 1
+  fi
+  local now
+  now="$(crr_serving_revision "$1")"
+  if [[ "$now" != "$2" ]]; then
+    crr_log "ROLLBACK NOT CONFIRMED for $1 (serving '${now:-none}', wanted '$2'). Check it by hand."
+    return 1
+  fi
 }
 
 crr_http_status() { # url [bearer token]; overridable in tests
@@ -249,8 +375,14 @@ crr_candidate_url() { # $1 = service url
   echo "${1/https:\/\//https://candidate---}"
 }
 
-crr_identity_token() { # overridable in tests
-  gcloud auth print-identity-token 2>/dev/null || true
+# ID token for calling the PRIVATE api candidate. Federated (WIF) credentials cannot mint ID tokens
+# directly, so CI sets CRR_IDENTITY_TOKEN_SA to a service account it may impersonate. Overridable in tests.
+crr_identity_token() { # $1 = audience (the API service URL)
+  if [[ -n "${CRR_IDENTITY_TOKEN_SA:-}" ]]; then
+    gcloud auth print-identity-token --impersonate-service-account="$CRR_IDENTITY_TOKEN_SA" --audiences="$1" 2>/dev/null || true
+  else
+    gcloud auth print-identity-token --audiences="$1" 2>/dev/null || true
+  fi
 }
 
 crr_retry() { # attempts delay cmd...
@@ -282,9 +414,17 @@ crr_check_candidates() { # $1 = api url, $2 = web url
   fi
 
   if [[ -n "${PREV_API_REVISION:-}" && ( "$target" == "all" || "$target" == "api" ) ]]; then
-    token="$(crr_identity_token)"
+    token="$(crr_identity_token "$1")"
     if [[ -z "$token" ]]; then
-      crr_log "WARNING: could not mint an identity token, so the private API candidate was not exercised before promotion (post-promotion smoke test and rollback still apply)."
+      if [[ "${CRR_ALLOW_UNVERIFIED_API_CANDIDATE:-}" == "true" ]]; then
+        crr_log "WARNING: no identity token; promoting an API candidate that was NOT exercised (CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true). Only the post-promotion smoke test and rollback protect production."
+      else
+        crr_log "Cannot exercise the private API candidate: no identity token. Stopping before any traffic moves."
+        crr_log "Fix: set CRR_IDENTITY_TOKEN_SA to a service account the deploy identity may impersonate"
+        crr_log "     (roles/iam.serviceAccountTokenCreator on it, roles/run.invoker for it on ${API_SERVICE}),"
+        crr_log "     or accept the risk explicitly with CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true."
+        return 1
+      fi
     else
       crr_retry "$attempts" "$delay" crr_expect_status "$(crr_candidate_url "$1")/health/ready" 200 "$token" || return 1
     fi
@@ -296,8 +436,12 @@ crr_release() {
   crr_validate_secrets || return 1
   crr_assert_no_auth_bypass || return 1
   crr_warn_open_access
+  command -v python3 >/dev/null || { crr_log "python3 is required (used to read the serving revision)."; return 1; }
   local target="${DEPLOY_TARGET:-all}" api_image web_image api_url web_url
-  local promoted=()
+  local do_api=0 do_web=0
+  [[ "$target" == "all" || "$target" == "api" ]] && do_api=1
+  [[ "$target" == "all" || "$target" == "web" ]] && do_web=1
+  IAM_GRANTED_BY_RELEASE=0
 
   PREV_API_REVISION="$(crr_serving_revision "$API_SERVICE")"
   PREV_WEB_REVISION="$(crr_serving_revision "$WEB_SERVICE")"
@@ -306,48 +450,68 @@ crr_release() {
   api_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${IMAGE_TAG}"
   web_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${IMAGE_TAG}"
 
-  # Phase 1: build and deploy candidates. A failure here leaves the live revisions untouched.
-  if [[ "$target" == "all" || "$target" == "api" ]]; then
+  # Phase 0: read-only preflight. Nothing has been changed yet.
+  if (( do_api )) && [[ -n "$PREV_API_REVISION" ]]; then
+    crr_preflight_api_access || return 1
+  fi
+
+  # Phase 1: build and deploy candidates. Creates revisions only; live traffic and access are untouched.
+  if (( do_api )); then
     crr_build_image VertexAI "$api_image" || return 1
     crr_deploy_api "$api_image" || return 1
-    crr_ensure_api_access || return 1
   fi
   api_url="$(crr_service_url "$API_SERVICE")" || return 1
 
-  if [[ "$target" == "all" || "$target" == "web" ]]; then
+  if (( do_web )); then
     crr_build_image apps/web "$web_image" || return 1
     crr_deploy_web "$web_image" "$api_url" || return 1
   fi
 
-  # Phase 2: prove the candidates work while they still carry no traffic, then promote.
+  # Phase 2: prove the candidates work while they still carry no traffic.
   crr_assert_no_auth_bypass || return 1
   web_url="$(crr_service_url "$WEB_SERVICE")" || return 1
   if ! crr_check_candidates "$api_url" "$web_url"; then
-    crr_log "Candidate revision failed its pre-promotion checks. No traffic was moved; the live revisions are untouched."
+    crr_log "Candidate revision failed its pre-promotion checks. No traffic was moved and no access was changed; the live revisions are untouched."
     return 1
   fi
 
-  # Phase 3: promote, then verify; undo everything promoted in this run if anything goes wrong.
-  local failed=0
-  if [[ "$target" == "all" || "$target" == "api" ]]; then
-    crr_promote "$API_SERVICE" && promoted+=("api") || failed=1
-  fi
-  if [[ "$failed" == 0 && ( "$target" == "all" || "$target" == "web" ) ]]; then
-    crr_promote "$WEB_SERVICE" && promoted+=("web") || failed=1
+  # Phase 3: the only non-traffic change (an additive invoker grant, only if missing) happens now, right
+  # before promotion, and is taken away again on rollback.
+  if (( do_api )); then
+    crr_grant_web_invoker || { crr_log "Could not grant the web service account access to the API; nothing was promoted."; return 1; }
   fi
 
-  web_url="$(crr_service_url "$WEB_SERVICE")" || failed=1
-  if [[ "$failed" == 0 ]] && ! crr_smoke_with_retry "$api_url" "$web_url"; then
+  # Phase 4: switch traffic. Every switch that is ATTEMPTED is rolled back on failure, because a failed
+  # command can still have taken effect.
+  local failed=0 attempted=()
+  if (( do_api )); then
+    attempted+=("api")
+    if ! crr_promote "$API_SERVICE" || ! crr_verify_serving_latest "$API_SERVICE"; then failed=1; fi
+  fi
+  if (( failed == 0 && do_web )); then
+    attempted+=("web")
+    if ! crr_promote "$WEB_SERVICE" || ! crr_verify_serving_latest "$WEB_SERVICE"; then failed=1; fi
+  fi
+
+  # Phase 5: smoke test against the production URLs, only after both switches are confirmed.
+  if (( failed == 0 )); then
+    web_url="$(crr_service_url "$WEB_SERVICE")" || failed=1
+  fi
+  if (( failed == 0 )) && ! crr_smoke_with_retry "$api_url" "$web_url"; then
     failed=1
   fi
 
-  if [[ "$failed" != 0 ]]; then
-    crr_log "Release failed verification; rolling back."
-    local item
-    for item in "${promoted[@]+"${promoted[@]}"}"; do
-      if [[ "$item" == "api" ]]; then crr_rollback "$API_SERVICE" "${PREV_API_REVISION:-}"; fi
-      if [[ "$item" == "web" ]]; then crr_rollback "$WEB_SERVICE" "${PREV_WEB_REVISION:-}"; fi
+  if (( failed != 0 )); then
+    crr_log "Release failed; rolling back every service whose traffic switch was attempted."
+    local rollback_failed=0 i
+    for (( i = ${#attempted[@]} - 1; i >= 0; i-- )); do
+      if [[ "${attempted[i]}" == "web" ]]; then crr_rollback "$WEB_SERVICE" "${PREV_WEB_REVISION:-}" || rollback_failed=1; fi
+      if [[ "${attempted[i]}" == "api" ]]; then crr_rollback "$API_SERVICE" "${PREV_API_REVISION:-}" || rollback_failed=1; fi
     done
+    crr_revoke_web_invoker_if_granted
+    if (( rollback_failed )); then
+      crr_log "PRODUCTION MAY BE ON THE NEW REVISION. Follow the manual commands printed above."
+    fi
     return 1
   fi
 
