@@ -9,6 +9,22 @@ const HOP_BY_HOP = new Set([
 ]);
 
 /**
+ * The ID token audience for the private API. Cloud Run's rule: the audience is the receiving SERVICE's URL
+ * (origin, no path), also when the request goes to a tagged revision URL (https://<tag>---<service>...).
+ * Pointing BACKEND_URL at a tag URL without naming the service URL would mint tokens Cloud Run rejects.
+ */
+export function resolveBackendAudience(env, backendUrl) {
+  const explicit = env.BACKEND_AUDIENCE?.trim();
+  if (explicit) return new URL(explicit).origin;
+  if (backendUrl.hostname.includes("---")) {
+    throw new Error(
+      "BACKEND_URL is a tagged revision URL. Cloud Run requires the ID token audience to be the SERVICE url; " +
+      "set BACKEND_AUDIENCE to the API service URL.");
+  }
+  return backendUrl.origin;
+}
+
+/**
  * DISABLE_SERVERLESS_AUTH exists only so the web server can talk to a local API that has no Cloud Run IAM in
  * front of it. Cloud Run sets K_SERVICE; refusing to start there means a stray copy of the flag can never
  * produce a serving revision that forwards requests without the service identity token.

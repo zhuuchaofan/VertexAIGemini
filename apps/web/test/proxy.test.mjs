@@ -237,3 +237,27 @@ test("server.mjs refuses to start on Cloud Run with the bypass flag", async () =
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /local development only/);
 });
+
+test("the ID token audience is the service URL, never a tagged revision URL", async () => {
+  const { resolveBackendAudience } = await import("../proxy.mjs");
+  const service = new URL("https://vertex-ai-api-123.asia-east1.run.app");
+  assert.equal(resolveBackendAudience({}, service), "https://vertex-ai-api-123.asia-east1.run.app");
+  assert.equal(resolveBackendAudience({}, new URL("https://vertex-ai-api-123.asia-east1.run.app/with/path")), "https://vertex-ai-api-123.asia-east1.run.app");
+
+  const tagged = new URL("https://candidate---vertex-ai-api-123.asia-east1.run.app");
+  assert.throws(() => resolveBackendAudience({}, tagged), /SERVICE url/);
+  assert.equal(
+    resolveBackendAudience({ BACKEND_AUDIENCE: "https://vertex-ai-api-123.asia-east1.run.app/ignored-path" }, tagged),
+    "https://vertex-ai-api-123.asia-east1.run.app");
+});
+
+test("server.mjs refuses a tagged BACKEND_URL without BACKEND_AUDIENCE", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync("node", ["server.mjs"], {
+    cwd: new URL("..", import.meta.url).pathname,
+    env: { ...process.env, PORT: "0", BACKEND_URL: "https://candidate---vertex-ai-api-123.asia-east1.run.app", DISABLE_SERVERLESS_AUTH: "" },
+    encoding: "utf8", timeout: 10_000
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /tagged revision URL/);
+});

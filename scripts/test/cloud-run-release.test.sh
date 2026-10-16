@@ -33,10 +33,15 @@ JSON
     ;;
   "run services describe"*"status.latestReadyRevisionName"*) read_state "latest_$name" ;;
   "run services describe"*"status.url"*) echo "https://$name.example.run.app" ;;
+  "run revisions describe"*)
+    rev="${3:-}"; for a in "$@"; do case "$a" in vertex-ai-*|api-*|web-*) rev="$a" ;; esac; done
+    read_state "rev_image_$rev" ;;
   "run deploy"*)
     contains "${FAKE_FAIL_DEPLOY:-}" "$name" && exit 1
     n=$(( $(read_state "deploys_$name" | tr -d '\n' | wc -c) + 1 )); printf x >> "$S/deploys_$name"
     new="$name-new-$n"
+    img=""; for a in "$@"; do case "$a" in --image=*) img="${a#--image=}" ;; esac; done
+    echo "$img" > "$S/rev_image_$new"
     echo "$new" > "$S/latest_$name"
     [[ "$*" != *"--no-traffic"* ]] && echo "$new" > "$S/serving_$name"
     ;;
@@ -78,33 +83,45 @@ line_of()        { grep -nE -- "$1" "$LOG" | head -1 | cut -d: -f1; }
 
 reset_state() { rm -f "${FAKE_STATE:?}"/*; }
 
-base_env() {
-  export PROJECT_ID=proj REGION=asia-east1 REPOSITORY=repo API_SERVICE=vertex-ai-api WEB_SERVICE=vertex-ai-web
+base_env() { # $1 = production (default) | staging
+  local kind="${1:-production}"
+  export CRR_ENV="$kind"
+  if [[ "$kind" == "staging" ]]; then
+    export API_SERVICE=vertex-ai-api-staging WEB_SERVICE=vertex-ai-web-staging ATTACHMENT_STORAGE_BUCKET=bucket-staging
+    export FIREBASE_PROJECT_ID=stg-fb FIRESTORE_PROJECT_ID=stg-fb
+  else
+    export API_SERVICE=vertex-ai-api WEB_SERVICE=vertex-ai-web ATTACHMENT_STORAGE_BUCKET=bucket
+    export FIREBASE_PROJECT_ID=fb FIRESTORE_PROJECT_ID=fb
+  fi
+  export PRODUCTION_FIREBASE_PROJECT_ID=fb PRODUCTION_FIRESTORE_PROJECT_ID=fb PRODUCTION_ATTACHMENT_STORAGE_BUCKET=bucket
+  export PROJECT_ID=proj REGION=asia-east1 REPOSITORY=repo
   export RUNTIME_SERVICE_ACCOUNT=run@proj.iam WEB_SERVICE_ACCOUNT=web@proj.iam WEB_INVOKER_SERVICE_ACCOUNT=web@proj.iam
-  export IMAGE_TAG=abc123 FIREBASE_PROJECT_ID=fb FIRESTORE_PROJECT_ID=fb FIREBASE_API_KEY=public-web-key
-  export FIREBASE_AUTH_DOMAIN=fb.firebaseapp.com FIREBASE_APP_ID=app DEFAULT_PROVIDER_ID=gemini ATTACHMENT_STORAGE_BUCKET=bucket
+  export IMAGE_TAG=abc123 FIREBASE_API_KEY=public-web-key
+  export FIREBASE_AUTH_DOMAIN=fb.firebaseapp.com FIREBASE_APP_ID=app DEFAULT_PROVIDER_ID=gemini
   export ATTACHMENT_STORAGE_ROLE=projects/proj/roles/attachments
   export API_CPU=1 API_MEMORY=1Gi API_CONCURRENCY=20 API_TIMEOUT=300s API_MIN_INSTANCES=0 API_MAX_INSTANCES=3
   export WEB_CPU=1 WEB_MEMORY=512Mi WEB_CONCURRENCY=80 WEB_TIMEOUT=330s WEB_MIN_INSTANCES=0 WEB_MAX_INSTANCES=2
   export CRR_SMOKE_RETRIES=2 CRR_SMOKE_DELAY=0 DEPLOY_TARGET=all
+  unset CRR_MODE CRR_CONFIRM_PROMOTE CRR_ACCEPTANCE_REF
   unset API_SECRETS ACCESS_ALLOWED_EMAILS ACCESS_ALLOWED_EMAIL_DOMAINS ACCESS_ALLOWED_UIDS ACCESS_REQUIRE_VERIFIED_EMAIL
   unset QUOTA_GLOBAL_DAILY_REQUEST_LIMIT QUOTA_GLOBAL_DAILY_TOKEN_LIMIT QUOTA_GLOBAL_DAILY_SEARCH_LIMIT
   unset CHAT_MAX_GENERATION_SECONDS DISABLE_SERVERLESS_AUTH CRR_IDENTITY_TOKEN_SA CRR_ALLOW_UNVERIFIED_API_CANDIDATE
   unset FAKE_FAIL_DEPLOY FAKE_WEB_ENV_EXTRA FAKE_TOKEN FAKE_PROMOTE_FAILS FAKE_PROMOTE_APPLIES_THEN_FAILS FAKE_PROMOTE_NOOP
   unset FAKE_REMOVE_TAGS_RC FAKE_ROLLBACK_FAILS FAKE_API_PUBLIC
-  # existing production: both services serve an old revision, the web invoker grant is present
+  # existing services: both serve an old revision built from an OLD commit; the web invoker grant is present
   reset_state
-  echo api-00005 > "$FAKE_STATE/serving_api"; echo api-00005 > "$FAKE_STATE/latest_api"
-  echo web-00007 > "$FAKE_STATE/serving_web"; echo web-00007 > "$FAKE_STATE/latest_web"
+  echo api-00005 > "$FAKE_STATE/serving_api"; echo api-00005 > "$FAKE_STATE/latest_api"; echo "repo/vertex-ai-api:old000" > "$FAKE_STATE/rev_image_api-00005"
+  echo web-00007 > "$FAKE_STATE/serving_web"; echo web-00007 > "$FAKE_STATE/latest_web"; echo "repo/vertex-ai-web:old000" > "$FAKE_STATE/rev_image_web-00007"
   echo 1 > "$FAKE_STATE/binding"
   SMOKE_API=403 SMOKE_WEB=200 SMOKE_CONFIG=200 CAND_WEB=200 CAND_CONFIG=200 CAND_API=200
   : > "$LOG"
 }
 fresh_services() { rm -f "${FAKE_STATE:?}"/serving_* "${FAKE_STATE:?}"/latest_*; echo 0 > "$FAKE_STATE/binding"; }
 
-# Run one release in a subshell so state never leaks between cases.
-run_release() {
+# One invocation of the release library in a subshell, so state never leaks between invocations.
+run_mode() { # $1 = mode (empty = leave CRR_MODE unset: the default)
   (
+    [[ -n "${1:-}" ]] && export CRR_MODE="$1"
     # shellcheck source=../lib/cloud-run-release.sh
     source "$ROOT/scripts/lib/cloud-run-release.sh"
     crr_http_status() {
@@ -120,6 +137,14 @@ run_release() {
     crr_release
   ) > "$WORK/out.txt" 2>&1
 }
+run_prepare() { run_mode prepare; }
+confirm() { export CRR_CONFIRM_PROMOTE="promote:${CRR_ENV}:${IMAGE_TAG}" CRR_ACCEPTANCE_REF="https://example.invalid/acceptance/1"; }
+run_promote() { run_mode promote; }
+# prepare, then (with the operator's confirmation) promote - the whole release
+run_release() { run_prepare && { confirm; run_promote; }; }
+mutating_calls() { grep -cE 'builds submit|run deploy|update-traffic|iam-policy-binding|services update' "$LOG"; }
+expect_untouched() { [[ "$(mutating_calls)" == "0" ]] && pass "$1" || { fail "$1"; grep -E 'builds submit|run deploy|update-traffic|iam-policy-binding' "$LOG" | sed 's/^/    /' | cut -c1-160; }; }
+expect_log_empty() { [[ ! -s "$LOG" ]] && pass "$1" || { fail "$1"; sed 's/^/    /' "$LOG" | cut -c1-160; }; }
 
 echo "== static checks"
 offenders="$(grep -rnE --include='*.sh' --include='*.yml' -e '--set-env-vars|--set-secrets' \
@@ -237,19 +262,21 @@ expect_log 'storage buckets add-iam-policy-binding gs://bucket .*serviceAccount:
 expect_no_log 'add-iam-policy-binding' "second run: existing bucket grant is left alone (idempotent)"
 expect_out "already present" "operator sees why nothing changed"
 
-echo "== first deploy of brand-new services"
-base_env; fresh_services
-run_release && pass "first release succeeds" || { fail "first release succeeds"; cat "$WORK/out.txt"; }
-expect_log 'run deploy vertex-ai-api .*--no-allow-unauthenticated' "new API is created private"
-expect_log 'run deploy vertex-ai-web .*--allow-unauthenticated' "new web is created public"
+echo "== first deploy of brand-new STAGING services (production services are never created)"
+base_env staging; fresh_services
+run_prepare && pass "first staging prepare succeeds" || { fail "first staging prepare succeeds"; cat "$WORK/out.txt"; }
+expect_log 'run deploy vertex-ai-api[a-z-]* .*--no-allow-unauthenticated' "new API is created private"
+expect_log 'run deploy vertex-ai-web[a-z-]* .*--allow-unauthenticated' "new web is created public"
 expect_no_log 'no-traffic' "first deploy takes traffic (nothing live to protect)"
 expect_log 'add-iam-policy-binding vertex-ai-api' "web invoker grant is created on first deploy"
 grep -q "candidate check" "$WORK/out.txt" && fail "first deploy has no candidate to test" || pass "first deploy skips candidate checks"
 
-base_env; fresh_services; SMOKE_WEB=500
-run_release && fail "first release with failing smoke must fail" || pass "first release with failing smoke fails"
-expect_out "nothing to roll back to" "operator told there is no rollback target"
-expect_no_log 'to-revisions' "no rollback attempted without a previous revision"
+expect_out "nothing to roll back to" "operator told a new service has no earlier revision to fall back to"
+expect_out "already serving" "operator told the new staging services are already serving"
+base_env staging; fresh_services
+run_prepare && confirm && run_promote && pass "promote after a first deploy is an idempotent no-op" || fail "promote after a first deploy is an idempotent no-op"
+expect_out "Nothing to promote" "nothing to switch: the new services already serve this commit"
+expect_no_log 'update-traffic' "no traffic command for services that already serve the commit"
 
 echo "== candidates are exercised before traffic moves"
 base_env
@@ -259,7 +286,7 @@ expect_out "candidate check: candidate---api.example.run.app/health/ready -> 200
 base_env; CAND_WEB=500
 run_release && fail "bad web candidate" || pass "bad web candidate blocks the release"
 expect_no_log 'update-traffic' "no traffic moved for a bad web candidate"
-expect_out "live revisions are untouched" "operator told live revisions are untouched"
+expect_out "No traffic was moved" "operator told no traffic was moved"
 base_env; CAND_API=503
 run_release && fail "bad API candidate" || pass "bad API candidate blocks the release"
 expect_no_log 'update-traffic' "no traffic moved for a bad API candidate"
@@ -318,11 +345,153 @@ base_env; export API_TIMEOUT=600s WEB_TIMEOUT=660s CHAT_MAX_GENERATION_SECONDS=5
 run_release && pass "a consistent longer configuration is accepted" || fail "a consistent longer configuration is accepted"
 expect_log 'UPSTREAM_TIMEOUT_MS=645000' "proxy cap follows the web timeout"
 
+echo "== PREPARE is the default and can never move traffic"
+for env in production staging; do
+  base_env $env
+  run_mode "" && pass "[$env] default mode succeeds" || { fail "[$env] default mode succeeds"; cat "$WORK/out.txt"; }
+  expect_out "mode=prepare" "[$env] the default mode IS prepare"
+  expect_out "PREPARED" "[$env] operator is told this is only prepared"
+  expect_out "NOT business acceptance" "[$env] smoke checks are not presented as acceptance"
+  expect_no_log 'update-traffic' "[$env] prepare issued no traffic command at all"
+  expect_serving api api-00005 "[$env] API still serves the old revision after prepare"
+  expect_serving web web-00007 "[$env] web still serves the old revision after prepare"
+  expect_log 'run deploy .*--no-traffic --tag=candidate' "[$env] candidates were deployed with no traffic"
+done
+base_env production; echo 0 > "$FAKE_STATE/binding"
+run_prepare || fail "production prepare with a missing grant"
+expect_no_log 'iam-policy-binding' "production prepare changes NO IAM, even when the web grant is missing"
+base_env staging; echo 0 > "$FAKE_STATE/binding"
+run_prepare || fail "staging prepare with a missing grant"
+expect_log 'add-iam-policy-binding .*serviceAccount:web@proj.iam' "staging prepare may add the web grant (staging only)"
+for t in api web; do
+  base_env production; export DEPLOY_TARGET=$t
+  run_prepare || fail "prepare $t"
+  expect_no_log 'update-traffic' "prepare of only $t moved no traffic"
+done
+base_env production; CAND_WEB=500
+run_prepare && fail "bad candidate" || pass "failing smoke makes prepare fail"
+expect_no_log 'update-traffic|iam-policy-binding' "failing prepare changed neither traffic nor IAM"
+
+echo "== invalid mode or environment stops before anything happens"
+base_env; export CRR_MODE=deploy
+run_mode "" && fail "unknown mode must be rejected" || pass "unknown mode is rejected"
+expect_out "Unknown CRR_MODE" "reason stated"
+expect_log_empty "no gcloud call at all for an unknown mode"
+base_env; export CRR_ENV=prod
+run_mode prepare && fail "unknown env must be rejected" || pass "unknown environment is rejected"
+expect_log_empty "no gcloud call at all for an unknown environment"
+
+echo "== PROMOTE needs explicit, commit-bound confirmation (checked before any gcloud call)"
+base_env; run_prepare || fail "prepare"
+: > "$LOG"
+run_promote && fail "promote without confirmation" || pass "promote without confirmation is refused"
+expect_out "promote:production:abc123" "the exact phrase is shown to the operator"
+expect_log_empty "no gcloud call at all without confirmation"
+export CRR_CONFIRM_PROMOTE="promote:staging:abc123" CRR_ACCEPTANCE_REF=x
+run_promote && fail "confirmation for another environment" || pass "a confirmation for ANOTHER environment is refused"
+expect_log_empty "no gcloud call with a wrong-environment confirmation"
+export CRR_CONFIRM_PROMOTE="promote:production:deadbee"
+run_promote && fail "confirmation for another commit" || pass "a confirmation for ANOTHER commit is refused"
+expect_log_empty "no gcloud call with a wrong-commit confirmation"
+export CRR_CONFIRM_PROMOTE="promote:production:abc123"; unset CRR_ACCEPTANCE_REF
+run_promote && fail "production promote needs an acceptance reference" || pass "production promote without an acceptance reference is refused"
+expect_out "CRR_ACCEPTANCE_REF" "the missing acceptance reference is named"
+expect_log_empty "no gcloud call without an acceptance reference"
+expect_serving api api-00005 "nothing moved after all those refusals"
+confirm
+run_promote && pass "with the correct confirmation the prepared candidates are promoted" || { fail "correct confirmation promotes"; cat "$WORK/out.txt"; }
+expect_serving api api-new-1 "API serves the prepared revision"
+expect_serving web web-new-1 "web serves the prepared revision"
+expect_out "Acceptance reference" "the acceptance reference is recorded in the log"
+expect_no_log 'builds submit|run deploy' "promote built and deployed nothing"
+
+echo "== PROMOTE only promotes what was prepared for the confirmed commit"
+base_env; confirm; : > "$LOG"
+run_promote && fail "nothing prepared" || pass "promote with nothing prepared is refused"
+expect_out "Run prepare for this commit first" "operator is told to prepare first"
+expect_untouched "nothing was changed"
+base_env; run_prepare || fail "prepare"; export IMAGE_TAG=zzz999; confirm; : > "$LOG"
+run_promote && fail "other commit" || pass "a candidate built from another commit is refused"
+expect_untouched "nothing was changed for a commit mismatch"
+base_env; run_release || fail "release"; : > "$LOG"; confirm
+run_promote && pass "second promote of the same commit is a safe no-op" || fail "second promote"
+expect_out "Nothing to promote" "idempotent: nothing left to promote"
+expect_no_log 'update-traffic' "no traffic command on the repeated promote"
+base_env; export DEPLOY_TARGET=web; run_prepare || fail "prepare web"; confirm
+run_promote && pass "only the prepared service is promoted" || { fail "partial prepare promote"; cat "$WORK/out.txt"; }
+expect_serving web web-new-1 "the prepared web is promoted"
+expect_serving api api-00005 "the API that was never prepared is untouched"
+expect_no_log 'update-traffic vertex-ai-api' "no traffic command for the unprepared API"
+base_env; export DEPLOY_TARGET=web; run_prepare || fail "prepare web"; export DEPLOY_TARGET=all; confirm; : > "$LOG"
+run_promote && fail "all with an unprepared API" || pass "promoting 'all' while one service was never prepared is refused"
+expect_untouched "nothing changed when part of the release was never prepared"
+
+echo "== PROMOTE rolls back (modes split)"
+base_env; run_prepare || fail "prepare"; confirm; export FAKE_PROMOTE_FAILS="web"
+run_promote && fail "web switch fails" || pass "web switch failure fails the promotion"
+expect_serving api api-00005 "API restored after the web switch failed"
+expect_serving web web-00007 "web unchanged"
+base_env; run_prepare || fail "prepare"; confirm; SMOKE_WEB=500
+run_promote && fail "smoke fails" || pass "post-promotion smoke failure fails the promotion"
+expect_serving api api-00005 "API restored after smoke failure"
+expect_serving web web-00007 "web restored after smoke failure"
+echo "== the web candidate is re-tested against the NEW api before the web switch"
+base_env; run_prepare || fail "prepare"; confirm
+# first web candidate check (before the API switch) passes, the second (after it) fails
+echo 0 > "$WORK/cfgcount"
+( source "$ROOT/scripts/lib/cloud-run-release.sh"
+  crr_http_status() {
+    case "$1" in
+      https://candidate---api*/health/ready) echo 200 ;;
+      https://candidate---web*/api/workspace/config)
+        c=$(( $(cat "$WORK/cfgcount") + 1 )); echo "$c" > "$WORK/cfgcount"
+        [[ $c -ge 2 ]] && echo 502 || echo 200 ;;
+      https://candidate---*) echo 200 ;;
+      */health/live) echo 403 ;;
+      *) echo 200 ;;
+    esac
+  }
+  CRR_MODE=promote crr_release ) > "$WORK/out.txt" 2>&1 && fail "chain re-check must fail" || pass "a web candidate that fails against the new API stops the promotion"
+expect_out "does not work against the newly promoted API" "reason stated"
+expect_serving api api-00005 "API rolled back"
+expect_serving web web-00007 "web was never switched"
+expect_no_log 'update-traffic vertex-ai-web .*--to-latest' "no web traffic switch happened"
+
+echo "== production services are never created by this tool"
+base_env production; fresh_services
+run_prepare && fail "production prepare must not create services" || pass "production prepare refuses to create services"
+expect_out "Refusing to create a production service" "reason stated"
+expect_untouched "nothing was built or deployed"
+base_env production; fresh_services; confirm
+run_promote && fail "production promote must not create services" || pass "production promote refuses when services do not exist"
+expect_untouched "nothing was changed"
+
+echo "== staging is isolated from production (checked before anything runs)"
+base_env staging; export API_SERVICE=vertex-ai-api
+run_prepare && fail "staging with a production-looking name" || pass "staging service names must end with -staging"
+expect_log_empty "no gcloud call for a bad staging name"
+base_env staging; export FIRESTORE_PROJECT_ID=fb
+run_prepare && fail "staging with production Firestore" || pass "staging may not share the PRODUCTION Firestore project"
+expect_out "own data" "reason stated"
+expect_log_empty "no gcloud call"
+base_env staging; export FIREBASE_PROJECT_ID=fb
+run_prepare && fail "staging with production Firebase" || pass "staging may not share the PRODUCTION Firebase project (real users)"
+expect_log_empty "no gcloud call"
+base_env staging; export ATTACHMENT_STORAGE_BUCKET=bucket
+run_prepare && fail "staging with production bucket" || pass "staging may not use the production bucket"
+base_env staging; export ATTACHMENT_STORAGE_BUCKET=other-bucket
+run_prepare && fail "staging bucket name" || pass "staging bucket name must contain 'staging'"
+base_env production; export WEB_SERVICE=vertex-ai-web-staging
+run_prepare && fail "production pointed at staging" || pass "a production run pointed at a staging resource is refused"
+expect_log_empty "no gcloud call"
+base_env staging
+run_prepare && pass "a properly isolated staging prepare works" || { fail "isolated staging prepare"; cat "$WORK/out.txt"; }
+
 echo "== open-access warning"
 base_env
-run_release; grep -q "registration is OPEN" "$WORK/out.txt" && pass "warns when no access policy is configured" || fail "warns when no access policy is configured"
+run_prepare; grep -q "registration is OPEN" "$WORK/out.txt" && pass "warns when no access policy is configured" || fail "warns when no access policy is configured"
 base_env; export ACCESS_ALLOWED_EMAILS="me@example.com"
-run_release; grep -q "registration is OPEN" "$WORK/out.txt" && fail "no warning when a policy is set" || pass "no warning when a policy is set"
+run_prepare; grep -q "registration is OPEN" "$WORK/out.txt" && fail "no warning when a policy is set" || pass "no warning when a policy is set"
 
 echo
 if (( failures > 0 )); then echo "$failures check(s) failed"; exit 1; fi

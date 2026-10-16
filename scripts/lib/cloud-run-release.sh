@@ -3,6 +3,24 @@
 #
 # Release helpers shared by scripts/deploy-cloud-run.sh and .github/workflows/deploy-cloud-run.yml.
 #
+# TWO MODES, ONE PROCEDURE FOR BOTH ENVIRONMENTS (CRR_ENV = staging | production, default staging):
+#
+#   CRR_MODE=prepare   (DEFAULT)  build the image, deploy candidate revisions with NO traffic, test them
+#                                 through their private tag URLs. It never moves traffic, never changes
+#                                 IAM in production, and never creates a production service. Safe to run
+#                                 for acceptance; nothing here can reach users.
+#   CRR_MODE=promote              switch traffic to what `prepare` produced. It builds and deploys nothing.
+#                                 It refuses to start unless CRR_CONFIRM_PROMOTE is exactly
+#                                 "promote:<env>:<IMAGE_TAG>" (bound to the environment and the commit),
+#                                 and for production also needs CRR_ACCEPTANCE_REF (the staging acceptance
+#                                 run for the same commit). It promotes only a candidate whose image is the
+#                                 confirmed commit.
+#
+# Staging is a separate set of services (names end in -staging) with its own data, attachment bucket and
+# Firebase project; the isolation is verified before anything runs. A brand-new service cannot be
+# protected by an older revision: its first deploy takes traffic and there is nothing to roll back to.
+# That is acceptable for staging and is refused for production (production services must already exist).
+#
 # Safety properties (covered by scripts/test/cloud-run-release.test.sh with a stateful fake gcloud):
 #   1. Configuration is MERGED (--update-env-vars / --update-secrets), never replaced, so anything
 #      configured on the service by other means survives a deploy.
@@ -402,98 +420,270 @@ crr_expect_status() { # url want [token]
   [[ "$got" == "$2" ]]
 }
 
-# Exercise the candidates through their private tag URLs while they still carry no traffic.
-crr_check_candidates() { # $1 = api url, $2 = web url
-  local attempts="${CRR_SMOKE_RETRIES:-3}" delay="${CRR_SMOKE_DELAY:-5}" target="${DEPLOY_TARGET:-all}" token
+# Exercise the web candidate through its tag URL. Its /api/workspace/config goes through the proxy to the
+# API, so a 200 proves the proxy -> API hop (including the service-to-service identity token).
+crr_check_web_candidate() { # $1 = web service url
+  local attempts="${CRR_SMOKE_RETRIES:-3}" delay="${CRR_SMOKE_DELAY:-5}" web_candidate
+  web_candidate="$(crr_candidate_url "$1")"
+  crr_retry "$attempts" "$delay" crr_expect_status "${web_candidate}/" 200 || return 1
+  crr_retry "$attempts" "$delay" crr_expect_status "${web_candidate}/api/workspace/config" 200 || return 1
+}
 
-  if [[ -n "${PREV_WEB_REVISION:-}" && ( "$target" == "all" || "$target" == "web" ) ]]; then
-    local web_candidate
-    web_candidate="$(crr_candidate_url "$2")"
-    crr_retry "$attempts" "$delay" crr_expect_status "${web_candidate}/" 200 || return 1
-    crr_retry "$attempts" "$delay" crr_expect_status "${web_candidate}/api/workspace/config" 200 || return 1
+# Exercise the PRIVATE api candidate. Per the Cloud Run rule the token audience is the SERVICE url, also when
+# the request goes to a tagged revision URL.
+crr_check_api_candidate() { # $1 = api service url
+  local attempts="${CRR_SMOKE_RETRIES:-3}" delay="${CRR_SMOKE_DELAY:-5}" token
+  token="$(crr_identity_token "$1")"
+  if [[ -z "$token" ]]; then
+    if [[ "${CRR_ALLOW_UNVERIFIED_API_CANDIDATE:-}" == "true" ]]; then
+      crr_log "WARNING: no identity token; the API candidate was NOT exercised (CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true). Only the post-promotion smoke test and rollback protect production."
+      return 0
+    fi
+    crr_log "Cannot exercise the private API candidate: no identity token. Stopping before any traffic moves."
+    crr_log "Fix: set CRR_IDENTITY_TOKEN_SA to a service account the deploy identity may impersonate"
+    crr_log "     (roles/iam.serviceAccountTokenCreator on it, roles/run.invoker for it on ${API_SERVICE}),"
+    crr_log "     or accept the risk explicitly with CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true."
+    return 1
   fi
+  crr_retry "$attempts" "$delay" crr_expect_status "$(crr_candidate_url "$1")/health/ready" 200 "$token"
+}
 
+# Candidate smoke test: "is it up and wired together". It is NOT business acceptance (real model calls,
+# attachments, thinking, search, cancel, data saved) - that is scripts/acceptance/staging-acceptance.mjs.
+crr_check_candidates() { # $1 = api url, $2 = web url
+  local target="${DEPLOY_TARGET:-all}"
+  if [[ -n "${PREV_WEB_REVISION:-}" && ( "$target" == "all" || "$target" == "web" ) ]]; then
+    crr_check_web_candidate "$2" || return 1
+  fi
   if [[ -n "${PREV_API_REVISION:-}" && ( "$target" == "all" || "$target" == "api" ) ]]; then
-    token="$(crr_identity_token "$1")"
-    if [[ -z "$token" ]]; then
-      if [[ "${CRR_ALLOW_UNVERIFIED_API_CANDIDATE:-}" == "true" ]]; then
-        crr_log "WARNING: no identity token; promoting an API candidate that was NOT exercised (CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true). Only the post-promotion smoke test and rollback protect production."
-      else
-        crr_log "Cannot exercise the private API candidate: no identity token. Stopping before any traffic moves."
-        crr_log "Fix: set CRR_IDENTITY_TOKEN_SA to a service account the deploy identity may impersonate"
-        crr_log "     (roles/iam.serviceAccountTokenCreator on it, roles/run.invoker for it on ${API_SERVICE}),"
-        crr_log "     or accept the risk explicitly with CRR_ALLOW_UNVERIFIED_API_CANDIDATE=true."
-        return 1
-      fi
-    else
-      crr_retry "$attempts" "$delay" crr_expect_status "$(crr_candidate_url "$1")/health/ready" 200 "$token" || return 1
+    crr_check_api_candidate "$1" || return 1
+  fi
+}
+
+# --- modes, environments, confirmation ------------------------------------------------------------------
+
+crr_env()  { echo "${CRR_ENV:-staging}"; }
+crr_mode() { echo "${CRR_MODE:-prepare}"; }
+
+crr_validate_mode_and_env() {
+  case "$(crr_mode)" in
+    prepare|promote) ;;
+    *) crr_log "Unknown CRR_MODE '$(crr_mode)'. Use 'prepare' (default) or 'promote'."; return 1 ;;
+  esac
+  case "$(crr_env)" in
+    staging|production) ;;
+    *) crr_log "Unknown CRR_ENV '$(crr_env)'. Use 'staging' (default) or 'production'."; return 1 ;;
+  esac
+}
+
+# Staging must be unmistakably separate from production: service names, attachment bucket, Firestore and
+# Firebase project. This is what stops "staging" tests from touching real users' data.
+crr_validate_environment_isolation() {
+  if [[ "$(crr_env)" == "staging" ]]; then
+    if [[ "$API_SERVICE" != *-staging || "$WEB_SERVICE" != *-staging ]]; then
+      crr_log "Staging service names must end with '-staging' (got api='${API_SERVICE}', web='${WEB_SERVICE}'), so they can never be mistaken for production."
+      return 1
+    fi
+    if [[ "$ATTACHMENT_STORAGE_BUCKET" != *staging* ]]; then
+      crr_log "The staging attachment bucket name must contain 'staging' (got '${ATTACHMENT_STORAGE_BUCKET}')."
+      return 1
+    fi
+    if [[ -n "${PRODUCTION_FIRESTORE_PROJECT_ID:-}" && "$FIRESTORE_PROJECT_ID" == "$PRODUCTION_FIRESTORE_PROJECT_ID" ]]; then
+      crr_log "Staging would use the PRODUCTION Firestore project (${FIRESTORE_PROJECT_ID}). Refusing: staging must have its own data."
+      return 1
+    fi
+    if [[ -n "${PRODUCTION_FIREBASE_PROJECT_ID:-}" && "$FIREBASE_PROJECT_ID" == "$PRODUCTION_FIREBASE_PROJECT_ID" ]]; then
+      crr_log "Staging would use the PRODUCTION Firebase project (${FIREBASE_PROJECT_ID}), i.e. real users' accounts. Refusing."
+      return 1
+    fi
+    if [[ -n "${PRODUCTION_ATTACHMENT_STORAGE_BUCKET:-}" && "$ATTACHMENT_STORAGE_BUCKET" == "$PRODUCTION_ATTACHMENT_STORAGE_BUCKET" ]]; then
+      crr_log "Staging would use the PRODUCTION attachment bucket. Refusing."
+      return 1
+    fi
+  else
+    if [[ "$API_SERVICE" == *-staging || "$WEB_SERVICE" == *-staging || "$ATTACHMENT_STORAGE_BUCKET" == *staging* ]]; then
+      crr_log "A production release was pointed at a staging-looking resource (api='${API_SERVICE}', web='${WEB_SERVICE}', bucket='${ATTACHMENT_STORAGE_BUCKET}'). Refusing."
+      return 1
     fi
   fi
 }
 
-crr_release() {
+crr_expected_confirmation() { echo "promote:$(crr_env):${IMAGE_TAG}"; }
+
+# Checked BEFORE any gcloud call, so a missing or wrong confirmation changes nothing.
+crr_validate_promote_authorization() {
+  if [[ "${CRR_CONFIRM_PROMOTE:-}" != "$(crr_expected_confirmation)" ]]; then
+    crr_log "Promotion needs explicit confirmation. Set CRR_CONFIRM_PROMOTE to exactly:"
+    crr_log "  $(crr_expected_confirmation)"
+    crr_log "(it names the environment and the commit, so a confirmation for one release cannot approve another.)"
+    return 1
+  fi
+  if [[ "$(crr_env)" == "production" && -z "${CRR_ACCEPTANCE_REF:-}" ]]; then
+    crr_log "A production promotion needs CRR_ACCEPTANCE_REF: the link or ID of the staging acceptance run that passed for this commit."
+    return 1
+  fi
+}
+
+crr_revision_image() {
+  gcloud run revisions describe "$1" --project="$PROJECT_ID" --region="$REGION" \
+    --format='value(spec.containers[0].image)' 2>/dev/null || true
+}
+
+# absent | mismatch | live | prepared  (for the commit named by IMAGE_TAG)
+crr_candidate_state() { # $1 = service
+  local serving latest image
+  serving="$(crr_serving_revision "$1")"
+  [[ -z "$serving" ]] && { echo absent; return 0; }
+  latest="$(crr_latest_ready_revision "$1")"
+  image="$(crr_revision_image "$latest")"
+  if [[ -z "$latest" || "$image" != *":${IMAGE_TAG}"* ]]; then echo mismatch; return 0; fi
+  if [[ "$latest" == "$serving" ]]; then echo live; else echo prepared; fi
+}
+
+crr_common_validation() {
+  crr_validate_mode_and_env || return 1
+  crr_validate_environment_isolation || return 1
   crr_validate_timeouts || return 1
   crr_validate_secrets || return 1
-  crr_assert_no_auth_bypass || return 1
-  crr_warn_open_access
   command -v python3 >/dev/null || { crr_log "python3 is required (used to read the serving revision)."; return 1; }
+}
+
+# --- PREPARE: build, deploy candidates, smoke-test them. Never moves traffic. -----------------------------
+
+crr_run_prepare() {
   local target="${DEPLOY_TARGET:-all}" api_image web_image api_url web_url
-  local do_api=0 do_web=0
+  local do_api=0 do_web=0 env
+  env="$(crr_env)"
   [[ "$target" == "all" || "$target" == "api" ]] && do_api=1
   [[ "$target" == "all" || "$target" == "web" ]] && do_web=1
-  IAM_GRANTED_BY_RELEASE=0
 
+  crr_assert_no_auth_bypass || return 1
+  crr_warn_open_access
   PREV_API_REVISION="$(crr_serving_revision "$API_SERVICE")"
   PREV_WEB_REVISION="$(crr_serving_revision "$WEB_SERVICE")"
-  crr_log "serving before release: api=${PREV_API_REVISION:-none} web=${PREV_WEB_REVISION:-none}"
+  crr_log "mode=prepare env=${env}; serving now: api=${PREV_API_REVISION:-none} web=${PREV_WEB_REVISION:-none}"
+
+  # A production service is never created by this tool: with nothing serving there is no candidate to
+  # protect and no revision to roll back to.
+  if [[ "$env" == "production" ]]; then
+    if (( do_api )) && [[ -z "$PREV_API_REVISION" ]]; then crr_log "Production API service '${API_SERVICE}' does not exist. Refusing to create a production service."; return 1; fi
+    if (( do_web )) && [[ -z "$PREV_WEB_REVISION" ]]; then crr_log "Production web service '${WEB_SERVICE}' does not exist. Refusing to create a production service."; return 1; fi
+  fi
 
   api_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${IMAGE_TAG}"
   web_image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${IMAGE_TAG}"
 
-  # Phase 0: read-only preflight. Nothing has been changed yet.
   if (( do_api )) && [[ -n "$PREV_API_REVISION" ]]; then
     crr_preflight_api_access || return 1
   fi
 
-  # Phase 1: build and deploy candidates. Creates revisions only; live traffic and access are untouched.
   if (( do_api )); then
     crr_build_image VertexAI "$api_image" || return 1
     crr_deploy_api "$api_image" || return 1
   fi
   api_url="$(crr_service_url "$API_SERVICE")" || return 1
-
   if (( do_web )); then
     crr_build_image apps/web "$web_image" || return 1
     crr_deploy_web "$web_image" "$api_url" || return 1
   fi
 
-  # Phase 2: prove the candidates work while they still carry no traffic.
   crr_assert_no_auth_bypass || return 1
   web_url="$(crr_service_url "$WEB_SERVICE")" || return 1
+
+  # Staging only: let the new web talk to the API (an additive, staging-only grant). Production IAM is never
+  # touched by prepare; it happens in promote, right before the traffic switch.
+  if [[ "$env" == "staging" ]] && (( do_api )); then
+    crr_grant_web_invoker || return 1
+  fi
+
   if ! crr_check_candidates "$api_url" "$web_url"; then
-    crr_log "Candidate revision failed its pre-promotion checks. No traffic was moved and no access was changed; the live revisions are untouched."
+    crr_log "Candidate failed its smoke checks. No traffic was moved and production access is unchanged."
     return 1
   fi
 
-  # Phase 3: the only non-traffic change (an additive invoker grant, only if missing) happens now, right
-  # before promotion, and is taken away again on rollback.
-  if (( do_api )); then
+  crr_log "PREPARED (${env}). Smoke checks only - this is NOT business acceptance."
+  if [[ -n "$PREV_WEB_REVISION" ]]; then
+    crr_log "Candidate web: $(crr_candidate_url "$web_url")   Candidate api (private): $(crr_candidate_url "$api_url")"
+  else
+    crr_log "These ${env} services were just created and are already serving (no earlier revision exists, so there is nothing to roll back to)."
+  fi
+  crr_log "Next: run the acceptance suite, then promote with CRR_MODE=promote CRR_CONFIRM_PROMOTE=$(crr_expected_confirmation)"
+  return 0
+}
+
+# --- PROMOTE: switch traffic to the prepared candidates, verify, roll back on failure. -------------------
+
+crr_run_promote() {
+  local target="${DEPLOY_TARGET:-all}" api_url web_url env
+  local do_api=0 do_web=0 failed=0 attempted=()
+  env="$(crr_env)"
+  [[ "$target" == "all" || "$target" == "api" ]] && do_api=1
+  [[ "$target" == "all" || "$target" == "web" ]] && do_web=1
+
+  crr_assert_no_auth_bypass || return 1
+  PREV_API_REVISION="$(crr_serving_revision "$API_SERVICE")"
+  PREV_WEB_REVISION="$(crr_serving_revision "$WEB_SERVICE")"
+  crr_log "mode=promote env=${env} commit=${IMAGE_TAG}; serving now: api=${PREV_API_REVISION:-none} web=${PREV_WEB_REVISION:-none}"
+
+  # Only what `prepare` produced for THIS commit can be promoted.
+  local api_state="n/a" web_state="n/a"
+  if (( do_api )); then api_state="$(crr_candidate_state "$API_SERVICE")"; fi
+  if (( do_web )); then web_state="$(crr_candidate_state "$WEB_SERVICE")"; fi
+  local svc state
+  for svc in "api:$api_state" "web:$web_state"; do
+    state="${svc#*:}"
+    case "$state" in
+      prepared|live|n/a) ;;
+      absent)   crr_log "The ${svc%%:*} service does not exist. Nothing to promote (promote never creates services)."; return 1 ;;
+      mismatch) crr_log "The newest ${svc%%:*} revision was not built from commit ${IMAGE_TAG}. Run prepare for this commit first."; return 1 ;;
+    esac
+  done
+  local need_api=0 need_web=0
+  [[ "$api_state" == "prepared" ]] && need_api=1
+  [[ "$web_state" == "prepared" ]] && need_web=1
+  if (( need_api == 0 && need_web == 0 )); then
+    crr_log "Nothing to promote: the selected service(s) already serve commit ${IMAGE_TAG}."
+    return 0
+  fi
+  api_url="$(crr_service_url "$API_SERVICE")" || return 1
+  web_url="$(crr_service_url "$WEB_SERVICE")" || return 1
+
+  if (( do_api )) && [[ -n "$PREV_API_REVISION" ]]; then
+    crr_preflight_api_access || return 1
+  fi
+
+  # Fresh smoke checks of the candidates right before the switch (they may have changed since prepare).
+  if (( need_web )); then
+    crr_check_web_candidate "$web_url" || { crr_log "Web candidate failed its smoke checks. No traffic was moved and no access was changed."; return 1; }
+  fi
+  if (( need_api )); then
+    crr_check_api_candidate "$api_url" || { crr_log "API candidate failed its smoke checks. No traffic was moved and no access was changed."; return 1; }
+  fi
+
+  IAM_GRANTED_BY_RELEASE=0
+  if (( need_api )); then
     crr_grant_web_invoker || { crr_log "Could not grant the web service account access to the API; nothing was promoted."; return 1; }
   fi
 
-  # Phase 4: switch traffic. Every switch that is ATTEMPTED is rolled back on failure, because a failed
-  # command can still have taken effect.
-  local failed=0 attempted=()
-  if (( do_api )); then
+  if (( need_api )); then
     attempted+=("api")
     if ! crr_promote "$API_SERVICE" || ! crr_verify_serving_latest "$API_SERVICE"; then failed=1; fi
   fi
-  if (( failed == 0 && do_web )); then
+
+  # The web candidate still has no traffic but its proxy now reaches the NEW api: this is the first moment
+  # the new web and the new api are exercised together, and it happens before the web switch.
+  if (( failed == 0 && need_web && need_api )); then
+    if ! crr_check_web_candidate "$web_url"; then
+      crr_log "The web candidate does not work against the newly promoted API."
+      failed=1
+    fi
+  fi
+
+  if (( failed == 0 && need_web )); then
     attempted+=("web")
     if ! crr_promote "$WEB_SERVICE" || ! crr_verify_serving_latest "$WEB_SERVICE"; then failed=1; fi
   fi
 
-  # Phase 5: smoke test against the production URLs, only after both switches are confirmed.
   if (( failed == 0 )); then
     web_url="$(crr_service_url "$WEB_SERVICE")" || failed=1
   fi
@@ -502,7 +692,7 @@ crr_release() {
   fi
 
   if (( failed != 0 )); then
-    crr_log "Release failed; rolling back every service whose traffic switch was attempted."
+    crr_log "Promotion failed; rolling back every service whose traffic switch was attempted."
     local rollback_failed=0 i
     for (( i = ${#attempted[@]} - 1; i >= 0; i-- )); do
       if [[ "${attempted[i]}" == "web" ]]; then crr_rollback "$WEB_SERVICE" "${PREV_WEB_REVISION:-}" || rollback_failed=1; fi
@@ -515,6 +705,19 @@ crr_release() {
     return 1
   fi
 
-  crr_log "API URL: ${api_url}"
-  crr_log "Web URL: ${web_url}"
+  crr_log "PROMOTED (${env}, commit ${IMAGE_TAG}). API URL: ${api_url}  Web URL: ${web_url}"
+  [[ -n "${CRR_ACCEPTANCE_REF:-}" ]] && crr_log "Acceptance reference: ${CRR_ACCEPTANCE_REF}"
+  return 0
+}
+
+# Entry point. The default is `prepare`: acceptance can never promote by accident.
+crr_release() {
+  crr_common_validation || return 1
+  case "$(crr_mode)" in
+    prepare)
+      crr_run_prepare ;;
+    promote)
+      crr_validate_promote_authorization || return 1
+      crr_run_promote ;;
+  esac
 }

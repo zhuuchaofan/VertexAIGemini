@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { extname, join, normalize } from "node:path";
-import { assertAuthBypassAllowed, createApiProxy } from "./proxy.mjs";
+import { assertAuthBypassAllowed, createApiProxy, resolveBackendAudience } from "./proxy.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -16,6 +16,7 @@ let serverlessTokenCache = null;
 // The real terminator of a generation is the API's own cap, which is much shorter.
 const upstreamTimeoutMs = Number.parseInt(process.env.UPSTREAM_TIMEOUT_MS ?? "315000", 10);
 assertAuthBypassAllowed(process.env);
+const backendAudience = resolveBackendAudience(process.env, backendUrl);
 const serverlessAuthDisabled = process.env.DISABLE_SERVERLESS_AUTH === "true";
 
 const proxyApi = createApiProxy({
@@ -74,7 +75,7 @@ async function getServerlessIdentityToken() {
   }
 
   const metadataUrl = new URL("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity");
-  metadataUrl.searchParams.set("audience", backendUrl.origin);
+  metadataUrl.searchParams.set("audience", backendAudience);
   metadataUrl.searchParams.set("format", "full");
 
   try {
