@@ -30,6 +30,32 @@ private API service, grants the web service account `roles/run.invoker` on that
 API service, reads the API URL, then deploys the public web service with
 `BACKEND_URL` pointing at the API.
 
+For the first deployment (neither service exists), supply the configuration
+below. It is persisted in Cloud Run. Subsequent deployments default to rebuilding
+and updating only the two images:
+
+```bash
+PROJECT_ID=zhumyproject REGION=asia-east1 bash scripts/deploy-cloud-run.sh
+```
+
+No Firebase values or service account arguments are required for image-only
+deployments. Environment variables, Secret Manager references, service accounts,
+IAM, scaling, and resource settings are preserved. Image-only deployments do
+not recreate indexes or storage resources.
+
+To explicitly reapply configuration, supply the complete initial configuration
+and append `--update-config`. This also reapplies resource settings and IAM;
+omitted options use the defaults below. Environment updates merge the managed
+keys rather than replacing unrelated variables or Secret Manager references.
+To change only one setting, use Cloud Run's configuration editor or
+`gcloud run services update --update-env-vars` / `--update-secrets` instead.
+Store model provider keys in Secret Manager and grant the API runtime account
+Secret Accessor on the specific secret. Do not put model keys in this script.
+
+If only one service exists after an interrupted initial deployment, the script
+stops before building. Resume with the complete initial configuration and
+`--update-config`. Service lookup errors also stop the script.
+
 All deployment values are provided through shell environment variables or CI
 variables/secrets. The script does not read env files.
 

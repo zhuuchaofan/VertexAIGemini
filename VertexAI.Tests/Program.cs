@@ -16,6 +16,10 @@ var tests = new (string Name, Action Test)[]
     ("GeminiPartFactory creates text and image parts", GeminiPartFactoryTests.CreateTextAndImageParts),
     ("GeminiCatalog exposes thinking levels", GeminiCatalogTests.ExposesThinkingLevels),
     ("GeminiSafetyPolicy splits admin and default thresholds", GeminiSafetyPolicyTests.SplitsAdminAndDefaultThresholds),
+    ("Gemini advanced options validate ranges", GeminiAdvancedTests.ValidatesRanges),
+    ("Gemini safety overrides enforce permissions", GeminiAdvancedTests.EnforcesSafetyPermissions),
+    ("Gemini model catalog includes requested models", GeminiAdvancedTests.IncludesRequestedModels),
+    ("Chat API forwards advanced options and rejects forbidden filtering", GeminiAdvancedTests.ForwardsAndAuthorizesOptions),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
     ("ChatAttachmentSerializer round-trips and tolerates invalid json", ChatAttachmentSerializerTests.RoundTripsAndToleratesInvalidJson),
@@ -107,9 +111,21 @@ internal static class GeminiCatalogTests
 {
     public static void ExposesThinkingLevels()
     {
-        var models = GeminiCatalog.CreateModelOptions(new GeminiSettings());
-        var flash = models.First(model => model.ModelName == "gemini-3.5-flash");
-        var pro = models.First(model => model.ModelName == "gemini-3.1-pro-preview");
+        // Verify configured thinking without retaining legacy catalog entries.
+        var models = GeminiCatalog.CreateModelOptions(new GeminiSettings
+        {
+            Models =
+            [
+                new() { ModelName = "test-flash", SupportsThinking = true },
+                new() { ModelName = "test-pro", Thinking = new ChatThinkingConfig
+                {
+                    CanDisable = false, Default = "high",
+                    Options = [new() { Value = "high", Label = "高" }]
+                }}
+            ]
+        });
+        var flash = models.First(model => model.ModelName == "test-flash");
+        var pro = models.First(model => model.ModelName == "test-pro");
 
         Assert.True(flash.SupportsThinking);
         Assert.Equal("medium", flash.Thinking?.Default);
@@ -118,6 +134,91 @@ internal static class GeminiCatalogTests
         Assert.True(pro.SupportsThinking);
         Assert.False(pro.Thinking?.CanDisable ?? true);
         Assert.False(pro.Thinking?.Options.Any(option => option.Value == "off") ?? true);
+    }
+}
+
+internal static class GeminiAdvancedTests
+{
+    public static void ForwardsAndAuthorizesOptions()
+    {
+        var user = new AuthenticatedUser(Guid.NewGuid(), "user", "user@example.com");
+        var policy = new GeminiSafetyPolicy(Options.Create(new GeminiSettings()));
+        var model = new FakeChatModelClient { Chunks = [new ChatChunk { Text = "ok" }] };
+        var chat = new ChatOrchestrator(new FakeProviderCatalog(model),
+            new FakeConversationStore(), NullLogger<ChatOrchestrator>.Instance);
+        var advanced = new ChatAdvancedOptions("BLOCK_LOW_AND_ABOVE", 0.5, 0.8, 4096);
+        var request = new ChatEndpoints.ApiChatSendRequest(null, "hello", [], [],
+            "off", false, "gemini", null, null, null, null, null, null, advanced);
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+        ChatEndpoints.StreamChatAsync(request, context, new FakeUserContext(user), chat, policy)
+            .GetAwaiter().GetResult();
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Equal(advanced, model.LastOptions?.Advanced);
+
+        foreach (var (options, expected) in new[]
+        {
+            (advanced with { SafetyThreshold = "OFF" }, StatusCodes.Status403Forbidden),
+            (advanced with { Temperature = 3 }, StatusCodes.Status400BadRequest)
+        })
+        {
+            var rejected = new DefaultHttpContext();
+            rejected.Response.Body = new MemoryStream();
+            ChatEndpoints.StreamChatAsync(request with { Advanced = options }, rejected,
+                new FakeUserContext(user), chat, policy).GetAwaiter().GetResult();
+            Assert.Equal(expected, rejected.Response.StatusCode);
+            Assert.Equal(advanced, model.LastOptions?.Advanced);
+        }
+    }
+
+    public static void ValidatesRanges()
+    {
+        Assert.Null(new ChatAdvancedOptions(Temperature: 0, TopP: 1, MaxOutputTokens: 65536).Validate());
+        Assert.NotNull(new ChatAdvancedOptions(Temperature: double.NaN).Validate());
+        Assert.NotNull(new ChatAdvancedOptions(Temperature: 2.1).Validate());
+        Assert.NotNull(new ChatAdvancedOptions(TopP: 0).Validate());
+        Assert.NotNull(new ChatAdvancedOptions(MaxOutputTokens: 65537).Validate());
+    }
+
+    public static void EnforcesSafetyPermissions()
+    {
+        var policy = new GeminiSafetyPolicy(Options.Create(new GeminiSettings()));
+        var user = new AuthenticatedUser(Guid.NewGuid(), "user", "user@example.com");
+        Assert.False(policy.GetAllowedThresholds(user).Contains("OFF"));
+        Assert.True(policy.CreateSafetySettings(user, "BLOCK_LOW_AND_ABOVE")
+            .All(setting => setting.Threshold == HarmBlockThreshold.BLOCK_LOW_AND_ABOVE));
+        bool rejected = false;
+        try { policy.CreateSafetySettings(user, "OFF"); }
+        catch (ArgumentException) { rejected = true; }
+        Assert.True(rejected);
+        Assert.True(policy.CreateSafetySettings(user with { IsAdmin = true }, "OFF")
+            .All(setting => setting.Threshold == HarmBlockThreshold.OFF));
+        var locked = new GeminiSafetyPolicy(Options.Create(new GeminiSettings
+        {
+            Safety = new GeminiSafetySettings { AdminCanDisable = false }
+        }));
+        Assert.False(locked.GetAllowedThresholds(user with { IsAdmin = true }).Contains("OFF"));
+    }
+
+    public static void IncludesRequestedModels()
+    {
+        var settings = new GeminiSettings();
+        var models = GeminiCatalog.CreateModelOptions(settings);
+        Assert.Equal(2, models.Count);
+        Assert.True(models.Any(model => model.ModelName == "gemini-3.8-flash"));
+        Assert.True(models.Any(model => model.ModelName == "gemini-4-argon"));
+        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName(settings.ModelName, models));
+        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName("gemini-3.5-flash", models));
+        foreach (var model in models)
+        {
+            Assert.True(model.SupportsThinking);
+            Assert.False(model.SupportsSampling);
+            Assert.False(model.Thinking?.CanDisable ?? true);
+            Assert.Equal("medium", model.Thinking?.Default);
+            Assert.SequenceEqual(new[] { "low", "medium", "high" },
+                model.Thinking!.Options.Select(option => option.Value).ToArray());
+            Assert.Equal(1048576, model.MaxTokens);
+        }
     }
 }
 
@@ -631,12 +732,14 @@ internal static class AuthEndpointTests
             new FakeUserContext(null)));
         var authenticated = ResultTestHelpers.Execute(AuthEndpoints.GetStatusAsync(
             new DefaultHttpContext(),
-            new FakeUserContext(user)));
+            new FakeUserContext(user),
+            new GeminiSafetyPolicy(Options.Create(new GeminiSettings()))));
 
         Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.StatusCode);
         Assert.Equal(StatusCodes.Status200OK, authenticated.StatusCode);
         Assert.Contains("\"success\":true", authenticated.Body);
         Assert.Contains("\"email\":\"user@example.com\"", authenticated.Body);
+        Assert.Contains("\"safetyThresholds\":[\"BLOCK_MEDIUM_AND_ABOVE\",\"BLOCK_LOW_AND_ABOVE\"]", authenticated.Body);
         Assert.Contains($"\"id\":\"{user.LocalUserId:D}\"", authenticated.Body);
     }
 }

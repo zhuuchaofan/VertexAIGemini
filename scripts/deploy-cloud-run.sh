@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+UPDATE_CONFIG=false
+case "${1:-}" in
+  "") ;;
+  --update-config) UPDATE_CONFIG=true ;;
+  --help|-h)
+    echo "Usage: PROJECT_ID=project bash scripts/deploy-cloud-run.sh [--update-config]"
+    echo "Existing services: rebuild and update images only. --update-config reapplies deployment settings."
+    exit 0 ;;
+  *) echo "[ERROR] Unknown option: $1" >&2; exit 1 ;;
+esac
+if (( $# > 1 )); then
+  echo "[ERROR] Too many arguments." >&2
+  exit 1
+fi
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
 PROJECT_ID="${PROJECT_ID:-}"
 REGION="${REGION:-asia-east1}"
 REPOSITORY="${REPOSITORY:-vertex-ai}"
@@ -9,7 +25,7 @@ WEB_SERVICE="${WEB_SERVICE:-vertex-ai-web}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
 WEB_SERVICE_ACCOUNT="${WEB_SERVICE_ACCOUNT:-}"
 WEB_INVOKER_SERVICE_ACCOUNT="${WEB_INVOKER_SERVICE_ACCOUNT:-}"
-ATTACHMENT_STORAGE_ROLE="${ATTACHMENT_STORAGE_ROLE:-projects/${PROJECT_ID}/roles/vertexAiAttachmentObjectUser}"
+ATTACHMENT_STORAGE_ROLE="${ATTACHMENT_STORAGE_ROLE:-roles/storage.objectUser}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
 API_CPU="${API_CPU:-1}"
 API_MEMORY="${API_MEMORY:-1Gi}"
@@ -34,6 +50,40 @@ ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "[ERROR] PROJECT_ID is required, for example PROJECT_ID=my-gcp-project"
+  exit 1
+fi
+
+# Lookup failures must not be mistaken for missing services.
+SERVICES="$(gcloud run services list --project="$PROJECT_ID" --region="$REGION" --format='value(metadata.name)')"
+API_EXISTS=false
+WEB_EXISTS=false
+while IFS= read -r service; do
+  [[ "$service" != "$API_SERVICE" ]] || API_EXISTS=true
+  [[ "$service" != "$WEB_SERVICE" ]] || WEB_EXISTS=true
+done <<< "$SERVICES"
+
+if [[ "$UPDATE_CONFIG" == false && "$API_EXISTS" == true && "$WEB_EXISTS" == true ]]; then
+  echo "[INFO] Image-only deployment: preserving environment variables, secrets, identities, IAM and resource settings."
+  for target in api web; do
+    if [[ "$target" == api ]]; then
+      context=VertexAI
+      service="$API_SERVICE"
+    else
+      context=apps/web
+      service="$WEB_SERVICE"
+    fi
+    image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-${target}:${IMAGE_TAG}"
+    gcloud builds submit "$context" --project="$PROJECT_ID" --tag="$image"
+    gcloud run services update "$service" --project="$PROJECT_ID" --region="$REGION" --image="$image"
+  done
+  for service in "$API_SERVICE" "$WEB_SERVICE"; do
+    gcloud run services describe "$service" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)'
+  done
+  exit 0
+fi
+
+if [[ "$UPDATE_CONFIG" == false && ( "$API_EXISTS" == true || "$WEB_EXISTS" == true ) ]]; then
+  echo "[ERROR] Only one service exists. Supply the initial configuration and use --update-config to resume safely." >&2
   exit 1
 fi
 
@@ -104,7 +154,7 @@ gcloud run deploy "$API_SERVICE" \
   --timeout="$API_TIMEOUT" \
   --min-instances="$API_MIN_INSTANCES" \
   --max-instances="$API_MAX_INSTANCES" \
-  --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
+  --update-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
 
 gcloud run services add-iam-policy-binding "$API_SERVICE" \
   --project="$PROJECT_ID" \
@@ -142,7 +192,7 @@ gcloud run deploy "$WEB_SERVICE" \
   --timeout="$WEB_TIMEOUT" \
   --min-instances="$WEB_MIN_INSTANCES" \
   --max-instances="$WEB_MAX_INSTANCES" \
-  --set-env-vars="BACKEND_URL=${API_URL}"
+  --update-env-vars="BACKEND_URL=${API_URL}"
 
 WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
   --project="$PROJECT_ID" \

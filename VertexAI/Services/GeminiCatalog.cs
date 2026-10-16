@@ -59,35 +59,21 @@ internal static class GeminiCatalog
         [
             new()
             {
-                Name = "Gemini 3.5 Flash",
-                ModelName = "gemini-3.5-flash",
-                Description = "旗舰速度模型，提供极佳的响应速度与多模态能力",
-                Thinking = CreateGeminiThinking(["minimal", "low", "medium", "high"], "medium"),
+                Name = "Gemini 3.8 Flash",
+                ModelName = "gemini-3.8-flash",
+                Description = "快速多模态模型，支持低、中、高思考级别",
+                Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
+                SupportsSampling = false,
                 MaxTokens = 1048576
             },
             new()
             {
-                Name = "Gemini 3.1 Flash Lite",
-                ModelName = "gemini-3.1-flash-lite",
-                Description = "超低延迟、极度轻量级，适合日常高频交互",
-                Thinking = CreateGeminiThinking(["minimal", "low", "medium", "high"], "minimal"),
+                Name = "Gemini 4 Pro (Argon)",
+                ModelName = "gemini-4-argon",
+                Description = "Gemini 4 Argon，支持低、中、高思考级别及统一上下文",
+                Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
+                SupportsSampling = false,
                 MaxTokens = 1048576
-            },
-            new()
-            {
-                Name = "Gemini 3 Flash (Preview)",
-                ModelName = "gemini-3-flash-preview",
-                Description = "第三代快速原型预览，均衡的多模态多任务模型",
-                Thinking = CreateGeminiThinking(["minimal", "low", "medium", "high"], "high"),
-                MaxTokens = 1048576
-            },
-            new()
-            {
-                Name = "Gemini 3.1 Pro (Preview)",
-                ModelName = "gemini-3.1-pro-preview",
-                Description = "深度推理版预览，适合复杂的代码逻辑和长文本深度思考",
-                Thinking = CreateGeminiThinking(["low", "medium", "high"], "high", canDisable: false),
-                MaxTokens = 2097152
             }
         ]);
     }

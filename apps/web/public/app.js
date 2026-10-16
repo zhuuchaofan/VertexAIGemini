@@ -1,6 +1,7 @@
 import { parseMarkdown } from "./markdown.js";
 import { readEventStream } from "./sse.js";
 import { createThinkingSettings } from "./thinking.js";
+import { getAdvancedPayload, safetyLabels } from "./advanced.js";
 import {
   MAX_ATTACHMENTS, MAX_SOURCE_IMAGE_BYTES, MAX_FILE_BYTES,
   readFileAsBase64, createCompressedImageAttachment, normalizeFileMimeType,
@@ -98,6 +99,15 @@ const thinkingSettings = createThinkingSettings(elements.thinkingSettings, {
 });
 function renderThinkingSettings() {
   thinkingSettings.render();
+  document.querySelector("#advanced-settings").classList.toggle(
+    "hidden", getSelectedProviderConfig()?.provider?.id !== "gemini");
+  const supportsSampling = getSelectedModel()?.supportsSampling !== false;
+  for (const id of ["generation-temperature", "generation-top-p"]) {
+    const input = document.getElementById(id);
+    input.disabled = !supportsSampling;
+    input.closest("label").classList.toggle("hidden", !supportsSampling);
+  }
+  document.querySelector("#sampling-note").classList.toggle("hidden", supportsSampling);
 }
 function getThinkingPayload() {
   return thinkingSettings.getPayload();
@@ -140,6 +150,49 @@ elements.customPrompt.addEventListener("input", () => {
 elements.searchMode.addEventListener("change", () => {
   saveWorkspacePreference("searchMode", elements.searchMode.value);
 });
+const advancedFields = {
+  safetyThreshold: document.querySelector("#safety-threshold"),
+  temperature: document.querySelector("#generation-temperature"),
+  topP: document.querySelector("#generation-top-p"),
+  maxOutputTokens: document.querySelector("#generation-max-tokens")
+};
+for (const [key, field] of Object.entries(advancedFields)) {
+  if (key !== "safetyThreshold") field.value = workspacePreferences.advanced?.[key] ?? "";
+  field.addEventListener("change", () => {
+    workspacePreferences.advanced = Object.fromEntries(
+      Object.entries(advancedFields).map(([name, input]) => [name, input.value]));
+    saveWorkspacePreferences();
+  });
+}
+document.querySelector("#reset-advanced").addEventListener("click", () => {
+  for (const field of Object.values(advancedFields)) field.value = "";
+  delete workspacePreferences.advanced;
+  saveWorkspacePreferences();
+});
+
+async function refreshAdvancedAccess() {
+  const userId = state.user?.id;
+  const select = advancedFields.safetyThreshold;
+  select.replaceChildren(new Option("跟随服务器策略", ""));
+  select.disabled = true;
+  const status = document.querySelector("#safety-status");
+  status.textContent = "登录后加载可用过滤级别。";
+  if (!userId) return;
+  try {
+    const response = await apiFetch("/api/auth/status");
+    const config = await readJson(response);
+    if (state.user?.id !== userId) return;
+    if (!response.ok) throw new Error("权限加载失败");
+    for (const value of config?.safetyThresholds ?? []) {
+      if (Object.hasOwn(safetyLabels, value)) select.add(new Option(safetyLabels[value], value));
+    }
+    setSelectValue(select, workspacePreferences.advanced?.safetyThreshold ?? "");
+    select.disabled = false;
+    status.textContent = "选项由服务器授权；管理员身份通过 Firebase admin 声明判断。";
+  } catch {
+    if (state.user?.id === userId) status.textContent = "过滤权限加载失败，当前使用服务器策略。";
+  }
+}
 elements.chatForm.addEventListener("submit", sendMessage);
 elements.messages.addEventListener("click", handleMessagesClick);
 elements.imageInput.addEventListener("change", handleAttachmentSelection);
@@ -380,6 +433,7 @@ async function refreshSession() {
 }
 
 function renderSession() {
+  void refreshAdvancedAccess();
   elements.appLoading.classList.add("hidden");
   elements.authForm.classList.remove("hidden");
 
@@ -916,7 +970,12 @@ async function sendMessage(event) {
         modelName: elements.modelSelect.value || null,
         presetId: elements.presetSelect.value || null,
         customPrompt: elements.presetSelect.value === "custom" ? elements.customPrompt.value : null,
-        ...getThinkingPayload()
+        ...getThinkingPayload(),
+        advanced: getSelectedProviderConfig()?.provider?.id === "gemini"
+          ? getAdvancedPayload(Object.fromEntries(
+            Object.entries(advancedFields).map(([key, input]) => [key, input.value])),
+            { supportsSampling: getSelectedModel()?.supportsSampling !== false })
+          : null
       })
     });
 

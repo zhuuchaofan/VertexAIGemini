@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>球球布丁工作室</title>
-    <link rel="stylesheet" href="/styles.css?v=20261016b" />
+    <link rel="stylesheet" href="/styles.css?v=20261016c" />
   </head>
   <body>
     <main class="app-loading" id="app-loading" aria-live="polite" aria-busy="true">
@@ -92,6 +92,33 @@
               <option value="force">强制查证</option>
             </select>
           </label>
+          <details id="advanced-settings" class="settings-fold">
+            <summary>高级设置</summary>
+            <div class="workspace-settings">
+              <label>
+                内容过滤
+                <select id="safety-threshold" disabled>
+                  <option value="">跟随服务器策略</option>
+                </select>
+              </label>
+              <p class="status-line" id="safety-status">登录后加载可用过滤级别。</p>
+              <p class="status-line hidden" id="sampling-note">此模型忽略温度和 Top-P，请通过思考级别调整推理深度。</p>
+              <label>
+                温度（0–2）
+                <input id="generation-temperature" type="number" min="0" max="2" step="0.1" placeholder="默认 1" />
+              </label>
+              <label>
+                Top-P（大于 0，最多 1）
+                <input id="generation-top-p" type="number" min="0.01" max="1" step="0.01" placeholder="默认 0.9" />
+              </label>
+              <label>
+                最大输出 Token（1–65536）
+                <input id="generation-max-tokens" type="number" min="1" max="65536" step="1" placeholder="默认 8192" />
+              </label>
+              <p class="status-line">仅用于 Gemini；实际输出上限受模型限制。设置在本浏览器保存，每次发送时生效。关闭可配置过滤不影响服务商的其他限制。</p>
+              <button id="reset-advanced" type="button" class="ghost">恢复服务器默认</button>
+            </div>
+          </details>
         </section>
         </details>
         <button id="new-chat" class="primary" type="button">＋ 新对话</button>
@@ -170,6 +197,6 @@
       </article>
     </template>
 
-    <script type="module" src="/app.js?v=20261016b"></script>
+    <script type="module" src="/app.js?v=20261016c"></script>
   </body>
 </html>

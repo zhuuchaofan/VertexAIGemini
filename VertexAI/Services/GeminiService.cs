@@ -28,6 +28,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     private string? _thinkingLevel;
     private int? _thinkingBudget;
     private AuthenticatedUser? _requestUser;
+    private ChatAdvancedOptions? _advanced;
 
     // 公开属性 - 委托给 HistoryManager
     public int CurrentTokenCount => _historyManager.CurrentTokenCount;
@@ -128,8 +129,12 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
     public Task ConfigureAsync(ChatSessionOptions? options)
     {
+        _advanced = options?.Advanced;
+        if (_advanced?.Validate() is { } error)
+            throw new ArgumentException(error);
         if (options == null)
         {
+            RebuildConfig();
             return Task.CompletedTask;
         }
 
@@ -468,7 +473,11 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             _thinkingEnabled,
             _thinkingLevel,
             _thinkingBudget,
-            _safetyPolicy.CreateSafetySettings(_requestUser));
+            _safetyPolicy.CreateSafetySettings(_requestUser, _advanced?.SafetyThreshold));
+        var supportsSampling = ModelOptions.FirstOrDefault(model => model.ModelName == _modelName)?.SupportsSampling != false;
+        _config.Temperature = supportsSampling ? _advanced?.Temperature ?? 1 : null;
+        _config.TopP = supportsSampling ? _advanced?.TopP ?? 0.9 : null;
+        _config.MaxOutputTokens = _advanced?.MaxOutputTokens ?? 8192;
     }
 
     private static string? NormalizeThinkingLevel(ChatThinkingConfig thinking, string? requested)

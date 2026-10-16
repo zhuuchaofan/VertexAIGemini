@@ -1,6 +1,7 @@
 using System.Text.Json;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
+using VertexAI.Services;
 
 namespace VertexAI.Api;
 
@@ -15,17 +16,33 @@ public static class ChatEndpoints
         group.MapPost("/stream", StreamChatAsync);
     }
 
-    private static async Task StreamChatAsync(
+    internal static async Task StreamChatAsync(
         ApiChatSendRequest request,
         HttpContext context,
         IUserContext users,
-        ChatOrchestrator chat)
+        ChatOrchestrator chat,
+        GeminiSafetyPolicy safety)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
         if (currentUser == null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" }, JsonOptions);
+            return;
+        }
+
+        if (request.Advanced?.Validate() is { } validationError)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new { error = validationError }, JsonOptions);
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(request.Advanced?.SafetyThreshold)
+            && !safety.GetAllowedThresholds(currentUser).Contains(
+                request.Advanced.SafetyThreshold, StringComparer.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "当前账户不允许使用此过滤级别。" }, JsonOptions);
             return;
         }
 
@@ -66,7 +83,8 @@ public static class ChatEndpoints
                     request.CustomPrompt,
                     request.ThinkingEnabled,
                     request.ThinkingLevel,
-                    request.ThinkingBudget)),
+                    request.ThinkingBudget,
+                    request.Advanced)),
             update => WriteEventAsync(context, "update", update));
 
         await WriteEventAsync(context, "final", new ApiChatFinalResponse(
@@ -86,7 +104,7 @@ public static class ChatEndpoints
         await context.Response.Body.FlushAsync();
     }
 
-    private sealed record ApiChatSendRequest(
+    internal sealed record ApiChatSendRequest(
         Guid? ConversationId,
         string Message,
         IReadOnlyCollection<ChatAttachment> Attachments,
@@ -99,7 +117,8 @@ public static class ChatEndpoints
         string? CustomPrompt,
         bool? ThinkingEnabled,
         string? ThinkingLevel,
-        int? ThinkingBudget)
+        int? ThinkingBudget,
+        ChatAdvancedOptions? Advanced = null)
     {
         public IReadOnlyCollection<ChatAttachment> Attachments { get; init; } = Attachments ?? [];
         public IReadOnlyCollection<ChatAttachment> Images { get; init; } = Images ?? [];

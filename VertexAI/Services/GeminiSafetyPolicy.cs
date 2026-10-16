@@ -27,9 +27,15 @@ public sealed class GeminiSafetyPolicy
         _settings = settings.Value.Safety;
     }
 
-    public IReadOnlyList<SafetySetting> CreateSafetySettings(AuthenticatedUser? user)
+    public IReadOnlyList<SafetySetting> CreateSafetySettings(AuthenticatedUser? user, string? requested = null)
     {
         var threshold = ResolveThreshold(user);
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            if (!GetAllowedThresholds(user).Contains(requested, StringComparer.OrdinalIgnoreCase))
+                throw new ArgumentException("The requested safety threshold is not permitted.");
+            threshold = Enum.Parse<HarmBlockThreshold>(requested, ignoreCase: true);
+        }
         return Categories
             .Select(category => new SafetySetting
             {
@@ -37,6 +43,17 @@ public sealed class GeminiSafetyPolicy
                 Threshold = threshold
             })
             .ToArray();
+    }
+
+    public IReadOnlyList<string> GetAllowedThresholds(AuthenticatedUser? user)
+    {
+        string[] thresholds = ["OFF", "BLOCK_NONE", "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE", "BLOCK_LOW_AND_ABOVE"];
+        if (user?.IsAdmin == true && _settings.AdminCanDisable)
+            return thresholds;
+        var baseline = Array.IndexOf(thresholds, ResolveThreshold(user).ToString());
+        // Unknown server configuration must never allow a weaker threshold.
+        return thresholds.Skip(baseline < 0 ? thresholds.Length - 1 : baseline).ToArray();
     }
 
     private HarmBlockThreshold ResolveThreshold(AuthenticatedUser? user)

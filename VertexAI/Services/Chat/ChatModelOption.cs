@@ -6,6 +6,7 @@ public sealed class ChatModelOption
     public string ModelName { get; set; } = "";
     public string Description { get; set; } = "";
     public bool SupportsThinking { get; set; }
+    public bool SupportsSampling { get; set; } = true;
     public ChatThinkingConfig? Thinking { get; set; }
     public int MaxTokens { get; set; } = 1048576;
 }
