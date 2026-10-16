@@ -229,7 +229,7 @@ gcloud run deploy vertex-ai-web \
   --cpu=1 \
   --memory=512Mi \
   --concurrency=80 \
-  --timeout=300s \
+  --timeout=330s \
   --min-instances=0 \
   --max-instances=5 \
   --update-env-vars=BACKEND_URL=https://vertex-ai-api-xxxxx-REGION.a.run.app
@@ -517,15 +517,20 @@ Firestore indexes in my-agent-app-a5e42: 3 READY
 
 ## 流式生成：超时、取消与中断（Phase 0）
 
-### 超时契约（必须保持的不等式）
+### 超时契约（分层，每层都给内层留清理余量）
 ```text
-Chat__MaxGenerationSeconds (240，应用层硬上限)
-  < UPSTREAM_TIMEOUT_MS (295000，web 代理对后端的整体上限)
-  <= web 服务 --timeout (300s)  与  api 服务 --timeout (300s)
+生成上限（应用）       Chat__MaxGenerationSeconds   240s   到点以 failed 结束并保留已生成内容
+  + 30s 清理余量（保存回复、结算配额、发送 final 事件）
+API Cloud Run 超时     --timeout                    300s
+  + 30s
+web 代理对后端上限     UPSTREAM_TIMEOUT_MS          315s   = web 超时 - 15s，仅作"后端挂死"的兜底
+web Cloud Run 超时     --timeout                    330s
 ```
-- 应用先以 `failed`（"生成时间过长…"）并保留已生成内容的方式结束，而不是被平台在流中间掐断。
-- 旧默认值 web=60s 会在 60 秒时切断任何更长的生成，已改为 300s。若通过仓库变量覆盖 `WEB_TIMEOUT`/`API_TIMEOUT`，请保持上面的不等式。
-- API 每 15 秒（`Chat__HeartbeatSeconds`）发送一次 SSE 注释 `: ping`，避免模型长时间思考时中间链路认为连接空闲。
+- 真正结束一次生成的是应用层的 240s 上限；其余各层是逐级外扩的兜底，避免任何一层在内层完成清理之前就把连接掐断。
+- `scripts/lib/cloud-run-release.sh` 在部署前强制校验：`生成上限 ≤ API 超时 − 30s`、`web 超时 ≥ API 超时 + 30s`，并把 `Chat__MaxGenerationSeconds` 与 `UPSTREAM_TIMEOUT_MS` 显式写入服务；覆盖 `API_TIMEOUT`/`WEB_TIMEOUT` 时请保持这个关系，否则部署会被拒绝。
+- 旧默认值 web=60s 会在 60 秒时切断更长的生成，已不再使用。
+- OpenAI 兼容供应商的 `HttpClient` 不再使用 100 秒默认超时（它会提前掐断首个 token 很慢的推理模型），时间上限统一由上面的生成上限负责。
+- API 每 15 秒（`Chat__HeartbeatSeconds`）发送一次 SSE 注释 `: ping`。
 
 ### 终止状态
 SSE `final` 事件的 `status` 取值：`completed`、`truncated`（输出上限，内容可用但不完整）、`cancelled`（用户停止/断线）、`failed`（上游错误、超时）。`succeeded` 仅在 `completed`/`truncated` 时为 true。没有收到 `final` 事件的流，前端一律显示为"连接中断"，不会当作成功。

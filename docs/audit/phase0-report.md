@@ -1,5 +1,7 @@
 # Phase 0 实施报告
 
+> 本报告写于实施当天。验收轮（`phase0-release-readiness.md`）修正了其中的超时数值并新增若干修复；二者不一致时以验收报告和代码为准。
+
 分支：`phase0-hardening`（基于 `claude`，未合并到 `main`，未创建 PR，未部署，未改动任何云端配置）
 日期：2026-10-16
 
@@ -23,7 +25,7 @@
 | 编号 | 状态 | 做了什么 | 余项 / 限制 |
 |---|---|---|---|
 | F-01 费用失控 | 部分解决 | 全站日上限（请求/Token/搜索，Firestore 事务内与用户配额一并检查）；每用户/每实例并发上限；访问白名单与可选"必须验证邮箱"（后端强制）；`max-instances` 默认收紧为 api=3/web=2 | **默认仍是开放注册**（白名单为空）；Spend cap 与第三方供应商额度需你在控制台设置；并发上限仅单实例有效；全站计数文档是写热点（个人规模足够） |
-| F-02 超时不一致 | 已解决 | web 默认 60s→300s；代理整体上限 295s；应用层 240s 生成上限；部署前校验 web≥api；SSE 15s 心跳 | 未在真实 Cloud Run 验证 |
+| F-02 超时不一致 | 已解决 | 超时分层（应用 240s < API 300s < 代理 315s < web 330s，部署前强制校验，详见 `docs/cloud-run.md` 与 `phase0-release-readiness.md`）；SSE 15s 心跳 | 未在真实 Cloud Run 验证 |
 | F-03 取消传播 | 部分解决 | 浏览器→代理→API→OpenAI 兼容供应商均传播取消并关闭连接（有测试，含真实浏览器端到端）；前端停止按钮；写失败视为取消 | Vertex 路径仅在块边界终止（见上）；静默思考期间取消后，上游可能继续到下一块；预热阶段 `CountTokens`/摘要不会被中止；GFE 对容器中途断开的表现未验证 |
 | F-04 `--set-env-vars` | 已解决（代码） | 全部改为 `--update-env-vars`/`--update-secrets`；Secret Manager 接入方案与迁移步骤见 `docs/secrets.md`；测试守护 | 需要你创建密钥并设置 `API_SECRETS`；"明文→密钥引用"的类型冲突错误文案未实测 |
 | F-05 配额算法 | 部分解决 | 结算改为"释放估算、记入实际"，消除重复计数；任何路径只结算一次；服务端按解码长度估算（PDF 512KB 不再≈17.5 万 token）；到达模型前失败不占 Token | 实际用量仍来自 `CurrentTokenCount`（Gemini=历史 CountTokens，OpenAI 兼容=字符数/4），非供应商 usage（Phase 1）；UTC 日界线未改；搜索/附件失败不退还 |
@@ -58,8 +60,8 @@ b8fef01 feat(stream): 流式生成的取消、超时、终止状态与部分回�
 | 项 | 结果 |
 |---|---|
 | `dotnet build VertexAI.slnx` | 成功，0 警告 0 错误（dotnet SDK 10.0.112 经 apt 安装） |
-| C# 测试（自写运行器） | **68 项全部通过**（基线 32 项） |
-| Node 单测 `npm test` | **32 项全部通过**（基线 10 项；新增代理 10 项、状态机 12 项） |
+| C# 测试（自写运行器） | **68 项全部通过**（基线 32 项；验收轮之后见 `phase0-release-readiness.md`：75 项，接 Firestore 模拟器 87 项） |
+| Node 单测 `npm test` | **32 项全部通过**（基线 10 项；新增代理 10 项、状态机 12 项；验收轮后为 34 项） |
 | 浏览器端到端 `test-e2e/stream.e2e.mjs` | **6 项通过**（真实 Chromium + 真实 `server.mjs`/`proxy.mjs` + 脚本化假后端；覆盖完成/截断/失败/连接中断/停止并关闭上游/无页面错误）。需要 Playwright，不在 `npm test` 内 |
 | 部署脚本测试 `scripts/test/cloud-run-release.test.sh` | 全部通过（假 `gcloud`，不接触云端）；已在 CI 新增 `scripts-test` 作业 |
 | 真实 API 进程冒烟 | 用本地生成的**假**服务账号密钥启动：`/health/live` 200、`/api/workspace/config` 200、无令牌/畸形令牌 401、无未处理异常。证明 DI 与中间件管线接线正确；**不证明** Firebase/Firestore/Vertex 的真实行为 |
@@ -76,7 +78,7 @@ b8fef01 feat(stream): 流式生成的取消、超时、终止状态与部分回�
 4. **Secret Manager**：按 `docs/secrets.md` 创建密钥、授权运行服务账号、迁移现有明文变量、设置 `API_SECRETS`。
 5. **GitHub 变量/机密**：补齐 `GCP_PROJECT_ID`、`WIF_PROVIDER`、`GCP_DEPLOY_SERVICE_ACCOUNT`、`CLOUD_RUN_SERVICE_ACCOUNT`、`FIREBASE_AUTH_DOMAIN`、`FIREBASE_API_KEY`、`FIREBASE_APP_ID`（工作流此前因缺少这些而失败）。
 6. **模型生命周期**：对照官方 model-versions 页面，为需要的模型在配置里填写 `Stage`/`RetireDate`。
-7. **Cloud Run 服务超时**：如服务曾手工设置过 web=60s，需在下次发布时确认已变为 300s（脚本默认已改）。
+7. **Cloud Run 服务超时**：如服务曾手工设置过 web=60s，需在下次发布时确认已变为 330s、API 为 300s（脚本默认已改并会在部署前校验）。
 8. 确认合并时间：合并 `main` = 触发生产部署。
 
 ## 6. 上线前仍需验证
