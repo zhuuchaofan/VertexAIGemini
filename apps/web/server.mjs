@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { extname, join, normalize } from "node:path";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
@@ -145,24 +147,51 @@ async function serveStatic(req, res) {
     return;
   }
 
+  let body;
+  let type;
   try {
-    const body = await readFile(fileUrl);
-    const type = contentTypes[extname(fileUrl.pathname)] ?? "application/octet-stream";
-    res.writeHead(200, {
-      "content-type": type,
-      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      "pragma": "no-cache",
-      "expires": "0"
-    });
-    res.end(body);
+    body = await readFile(fileUrl);
+    type = contentTypes[extname(fileUrl.pathname)] ?? "application/octet-stream";
   } catch {
-    const fallback = await readFile(new URL("index.html", publicDir));
-    res.writeHead(200, {
-      "content-type": contentTypes[".html"],
-      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      "pragma": "no-cache",
-      "expires": "0"
-    });
-    res.end(fallback);
+    // Unknown asset-looking paths are real 404s; extensionless routes fall back to the SPA shell.
+    if (extname(fileUrl.pathname)) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
+    body = await readFile(new URL("index.html", publicDir));
+    type = contentTypes[".html"];
   }
+
+  sendStatic(req, res, body, type);
+}
+
+// Always revalidate (ES module imports carry no version query), but answer 304 via ETag and gzip text.
+function sendStatic(req, res, body, type) {
+  const etag = `"${createHash("sha1").update(body).digest("base64url")}"`;
+  const headers = {
+    "content-type": type,
+    "cache-control": "no-cache",
+    "etag": etag,
+    "vary": "Accept-Encoding",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "x-frame-options": "DENY"
+  };
+
+  if (req.headers["if-none-match"] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+
+  const compressible = type.startsWith("text/") || type.startsWith("application/json");
+  if (compressible && /\bgzip\b/.test(req.headers["accept-encoding"] ?? "")) {
+    body = gzipSync(body);
+    headers["content-encoding"] = "gzip";
+  }
+
+  headers["content-length"] = body.length;
+  res.writeHead(200, headers);
+  res.end(req.method === "HEAD" ? undefined : body);
 }
