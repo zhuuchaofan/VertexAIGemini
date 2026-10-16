@@ -24,6 +24,8 @@ var tests = new (string Name, Action Test)[]
     ("ChatConcurrencyLimiter bounds users and releases once", CostControlTests.ConcurrencyLimiterBoundsUsersAndReleasesOnce),
     ("ChatOrchestrator rejects when too many concurrent chats", CostControlTests.OrchestratorRejectsWhenTooManyConcurrentChats),
     ("ChatOrchestrator settles reservation on every path", CostControlTests.OrchestratorSettlesReservationOnEveryPath),
+    ("FirebaseUserContext: malformed bearer tokens are anonymous, not 500", FirebaseUserContextTests.MalformedBearerTokensAreAnonymousNotServerErrors),
+    ("FirebaseUserContext: missing or non-bearer header is anonymous", FirebaseUserContextTests.MissingOrNonBearerHeaderIsAnonymous),
     ("AccessSettings expands comma-separated lists", AccessSettingsTests.ExpandsCsvLists),
     ("AccessPolicy is open by default", CostControlTests.AccessPolicyDefaultsToOpen),
     ("AccessPolicy requires verified email when configured", CostControlTests.AccessPolicyRequiresVerifiedEmailWhenConfigured),

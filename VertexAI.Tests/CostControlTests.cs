@@ -261,3 +261,53 @@ internal static class AccessSettingsTests
         Assert.False(new AccessSettings { AllowedEmailsCsv = " , " }.HasAllowList);
     }
 }
+
+internal static class FirebaseUserContextTests
+{
+    // A throw-away key generated at run time: nothing here is a real credential, and malformed tokens
+    // are rejected before the verifier would ever contact Google.
+    private static FirebaseAdmin.Auth.FirebaseAuth NewAuth()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            type = "service_account",
+            project_id = "unit-test",
+            private_key_id = "k1",
+            private_key = rsa.ExportPkcs8PrivateKeyPem(),
+            client_email = "unit@unit-test.iam.gserviceaccount.com",
+            client_id = "1",
+            token_uri = "https://oauth2.googleapis.com/token"
+        });
+        var app = FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions
+        {
+            Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(json),
+            ProjectId = "unit-test"
+        }, $"unit-{Guid.NewGuid():N}");
+        return FirebaseAdmin.Auth.FirebaseAuth.GetAuth(app);
+    }
+
+    public static void MalformedBearerTokensAreAnonymousNotServerErrors()
+    {
+        var context = new FirebaseUserContext(NewAuth(), NullLogger<FirebaseUserContext>.Instance);
+
+        foreach (var token in new[] { "not.a.jwt", "garbage", "a.b.c", "....", "%%%.%%%.%%%" })
+        {
+            var http = new DefaultHttpContext();
+            http.Request.Headers.Authorization = $"Bearer {token}";
+            var user = context.GetCurrentUserAsync(http).GetAwaiter().GetResult();
+            Assert.Null(user);
+        }
+    }
+
+    public static void MissingOrNonBearerHeaderIsAnonymous()
+    {
+        var context = new FirebaseUserContext(NewAuth(), NullLogger<FirebaseUserContext>.Instance);
+
+        Assert.Null(context.GetCurrentUserAsync(new DefaultHttpContext()).GetAwaiter().GetResult());
+
+        var basic = new DefaultHttpContext();
+        basic.Request.Headers.Authorization = "Basic abc";
+        Assert.Null(context.GetCurrentUserAsync(basic).GetAwaiter().GetResult());
+    }
+}

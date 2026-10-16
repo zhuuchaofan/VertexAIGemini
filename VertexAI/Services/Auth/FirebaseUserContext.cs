@@ -40,9 +40,16 @@ public sealed class FirebaseUserContext : IUserContext
             var decoded = await _auth.VerifyIdTokenAsync(idToken);
             user = ToAuthenticatedUser(decoded);
         }
-        catch (Exception ex) when (ex is FirebaseAuthException or InvalidOperationException)
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Firebase token verification failed");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Any verification failure means "not authenticated". The SDK throws FirebaseAuthException
+            // for invalid tokens but raw parser exceptions (e.g. Newtonsoft JsonReaderException) for
+            // malformed ones, which used to escape as an HTTP 500 for any anonymous caller.
+            _logger.LogWarning(ex, "Firebase token verification failed ({Reason})", ex.GetType().Name);
         }
 
         _cached = (idToken, user);
