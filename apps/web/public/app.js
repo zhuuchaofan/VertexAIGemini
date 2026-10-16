@@ -1,3 +1,11 @@
+import { parseMarkdown } from "./markdown.js";
+import { readEventStream } from "./sse.js";
+import {
+  MAX_ATTACHMENTS, MAX_SOURCE_IMAGE_BYTES, MAX_FILE_BYTES,
+  readFileAsBase64, createCompressedImageAttachment, normalizeFileMimeType,
+  isAllowedAttachment, getAttachmentLabel, toDataUrl
+} from "./attachments.js";
+
 const mobileQuery = window.matchMedia("(max-width: 820px)");
 const SIDEBAR_COLLAPSED_KEY = "vertex-sidebar-collapsed";
 const savedSidebarState = getSavedSidebarCollapsed();
@@ -26,16 +34,6 @@ const state = {
   sidebarCollapsed: mobileQuery.matches ? true : savedSidebarState === "true"
 };
 
-const MAX_ATTACHMENTS = 8;
-const MAX_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
-const MAX_FILE_BYTES = 512 * 1024;
-const MAX_IMAGE_UPLOAD_BYTES = 700 * 1024;
-const IMAGE_MAX_DIMENSION = 1600;
-const IMAGE_WEBP_QUALITY = 0.82;
-const TEXT_FILE_EXTENSIONS = new Set([
-  "csv", "cs", "go", "java", "json", "md", "markdown",
-  "py", "rs", "sql", "txt", "yaml", "yml"
-]);
 const STREAM_RENDER_INTERVAL_MS = 80;
 
 const elements = {
@@ -1218,215 +1216,6 @@ function renderMessageContent(container, content, role) {
   container.textContent = content;
 }
 
-function parseMarkdown(markdown) {
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const nodes = [];
-  let paragraph = [];
-  let list = null;
-  let codeFence = null;
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    const p = document.createElement("p");
-    renderInlineMarkdown(p, paragraph.join("\n"));
-    nodes.push(p);
-    paragraph = [];
-  };
-
-  const flushList = () => {
-    if (!list) return;
-    nodes.push(list.element);
-    list = null;
-  };
-
-  const flushCodeFence = () => {
-    if (!codeFence) return;
-    const pre = document.createElement("pre");
-    const code = document.createElement("code");
-    if (codeFence.language) {
-      code.dataset.language = codeFence.language;
-    }
-    code.textContent = codeFence.lines.join("\n");
-    pre.append(code);
-    nodes.push(pre);
-    codeFence = null;
-  };
-
-  for (const line of lines) {
-    const fenceMatch = line.match(/^```([\w.+-]*)\s*$/);
-    if (fenceMatch) {
-      if (codeFence) {
-        flushCodeFence();
-      } else {
-        flushParagraph();
-        flushList();
-        codeFence = { language: fenceMatch[1], lines: [] };
-      }
-      continue;
-    }
-
-    if (codeFence) {
-      codeFence.lines.push(line);
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const heading = document.createElement(`h${headingMatch[1].length}`);
-      renderInlineMarkdown(heading, headingMatch[2].trim());
-      nodes.push(heading);
-      continue;
-    }
-
-    const quoteMatch = line.match(/^>\s?(.+)$/);
-    if (quoteMatch) {
-      flushParagraph();
-      flushList();
-      const blockquote = document.createElement("blockquote");
-      renderInlineMarkdown(blockquote, quoteMatch[1]);
-      nodes.push(blockquote);
-      continue;
-    }
-
-    const listMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.+)$/);
-    if (listMatch) {
-      flushParagraph();
-      const ordered = /\d/.test(listMatch[2][0]);
-      if (!list || list.ordered !== ordered) {
-        flushList();
-        list = {
-          ordered,
-          element: document.createElement(ordered ? "ol" : "ul")
-        };
-      }
-      const item = document.createElement("li");
-      renderInlineMarkdown(item, listMatch[3]);
-      list.element.append(item);
-      continue;
-    }
-
-    paragraph.push(line);
-  }
-
-  flushCodeFence();
-  flushParagraph();
-  flushList();
-
-  if (nodes.length === 0) {
-    return [document.createTextNode(markdown)];
-  }
-
-  return nodes;
-}
-
-function renderInlineMarkdown(container, text) {
-  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_|\[([^\]\n]+)\]\(([^)\s]+)\))/g;
-  let cursor = 0;
-  let match;
-
-  while ((match = tokenPattern.exec(text)) !== null) {
-    if (match.index > cursor) {
-      appendTextWithBreaks(container, text.slice(cursor, match.index));
-    }
-
-    const token = match[0];
-    if (token.startsWith("`")) {
-      const code = document.createElement("code");
-      code.textContent = token.slice(1, -1);
-      container.append(code);
-    } else if (token.startsWith("**") || token.startsWith("__")) {
-      const strong = document.createElement("strong");
-      renderInlineMarkdown(strong, token.slice(2, -2));
-      container.append(strong);
-    } else if (token.startsWith("*") || token.startsWith("_")) {
-      const em = document.createElement("em");
-      renderInlineMarkdown(em, token.slice(1, -1));
-      container.append(em);
-    } else {
-      const link = createSafeLink(match[2], match[3]);
-      container.append(link ?? document.createTextNode(token));
-    }
-
-    cursor = tokenPattern.lastIndex;
-  }
-
-  if (cursor < text.length) {
-    appendTextWithBreaks(container, text.slice(cursor));
-  }
-}
-
-function appendTextWithBreaks(container, text) {
-  const parts = text.split("\n");
-  parts.forEach((part, index) => {
-    if (index > 0) {
-      container.append(document.createElement("br"));
-    }
-    if (part) {
-      container.append(document.createTextNode(part));
-    }
-  });
-}
-
-function createSafeLink(label, href) {
-  try {
-    const url = new URL(href, window.location.href);
-    if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) {
-      return null;
-    }
-
-    const link = document.createElement("a");
-    link.href = url.href;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.textContent = label;
-    return link;
-  } catch {
-    return null;
-  }
-}
-
-async function readEventStream(body, handlers) {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += value;
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      const rawEvent = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      dispatchEventBlock(rawEvent, handlers);
-      boundary = buffer.indexOf("\n\n");
-    }
-  }
-}
-
-function dispatchEventBlock(rawEvent, handlers) {
-  const lines = rawEvent.split("\n");
-  const eventName = lines.find(line => line.startsWith("event:"))?.slice(6).trim();
-  const data = lines
-    .filter(line => line.startsWith("data:"))
-    .map(line => line.slice(5).trimStart())
-    .join("\n");
-
-  if (!eventName || !data || !handlers[eventName]) {
-    return;
-  }
-
-  handlers[eventName](JSON.parse(data));
-}
-
 async function apiFetch(input, init = {}) {
   const headers = new Headers(init.headers ?? {});
   const token = await getAuthToken();
@@ -1598,86 +1387,6 @@ function clearPendingAttachments() {
   renderAttachmentPreview();
 }
 
-function readFileAsBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      const result = String(reader.result ?? "");
-      resolve(result.includes(",") ? result.split(",", 2)[1] : result);
-    });
-    reader.addEventListener("error", () => reject(reader.error));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function createCompressedImageAttachment(file) {
-  const compressed = await compressImageToWebp(file);
-  if (compressed.size > MAX_IMAGE_UPLOAD_BYTES) {
-    throw new Error("图片压缩后仍然过大，请裁剪或选择更小的图片");
-  }
-
-  return {
-    base64Data: await blobToBase64(compressed.blob),
-    mimeType: compressed.mimeType,
-    fileName: toWebpFileName(file.name)
-  };
-}
-
-async function compressImageToWebp(file) {
-  if (!supportsCanvasImageCompression()) {
-    return {
-      blob: file,
-      mimeType: normalizeFileMimeType(file),
-      size: file.size
-    };
-  }
-
-  const bitmap = await createImageBitmap(file);
-  try {
-    const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: false });
-    context.drawImage(bitmap, 0, 0, width, height);
-
-    let blob = await canvasToBlob(canvas, "image/webp", IMAGE_WEBP_QUALITY);
-    if (!blob || blob.size > MAX_IMAGE_UPLOAD_BYTES) {
-      blob = await canvasToBlob(canvas, "image/webp", 0.68);
-    }
-    if (!blob) {
-      throw new Error("图片压缩失败");
-    }
-
-    return { blob, mimeType: "image/webp", size: blob.size };
-  } finally {
-    bitmap.close?.();
-  }
-}
-
-function supportsCanvasImageCompression() {
-  return typeof createImageBitmap === "function";
-}
-
-function canvasToBlob(canvas, mimeType, quality) {
-  return new Promise(resolve => canvas.toBlob(resolve, mimeType, quality));
-}
-
-function blobToBase64(blob) {
-  return readFileAsBase64(blob);
-}
-
-function toWebpFileName(fileName) {
-  const baseName = fileName.replace(/\.[^.]+$/, "");
-  return `${baseName || "image"}.webp`;
-}
-
-function toDataUrl(image) {
-  return `data:${image.mimeType};base64,${image.base64Data}`;
-}
-
 function createAttachmentPreviewIcon(attachment) {
   if (attachment.mimeType.startsWith("image/")) {
     const thumb = document.createElement("img");
@@ -1689,48 +1398,6 @@ function createAttachmentPreviewIcon(attachment) {
   const icon = document.createElement("em");
   icon.textContent = getAttachmentLabel(attachment.fileName);
   return icon;
-}
-
-function normalizeFileMimeType(file) {
-  if (file.type) {
-    return file.type;
-  }
-
-  const extension = getAttachmentExtension(file.name);
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "json") return "application/json";
-  if (extension === "csv") return "text/csv";
-  if (extension === "md" || extension === "markdown") return "text/markdown";
-  if (extension === "yaml" || extension === "yml") return "text/yaml";
-  if (TEXT_FILE_EXTENSIONS.has(extension)) return "text/plain";
-  return "application/octet-stream";
-}
-
-function isAllowedAttachment(file, mimeType) {
-  if (mimeType.startsWith("image/")) {
-    return true;
-  }
-
-  if (mimeType === "application/pdf"
-    || mimeType === "application/json"
-    || mimeType === "application/x-yaml"
-    || mimeType === "text/csv"
-    || mimeType === "text/markdown"
-    || mimeType === "text/plain"
-    || mimeType === "text/yaml") {
-    return true;
-  }
-
-  return TEXT_FILE_EXTENSIONS.has(getAttachmentExtension(file.name));
-}
-
-function getAttachmentExtension(fileName = "") {
-  const extension = fileName.split(".").pop() ?? "";
-  return extension === fileName ? "" : extension.toLowerCase();
-}
-
-function getAttachmentLabel(fileName = "") {
-  return getAttachmentExtension(fileName).slice(0, 5).toUpperCase() || "FILE";
 }
 
 function formatConversationMeta(conversation) {
