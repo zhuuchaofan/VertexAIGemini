@@ -16,7 +16,7 @@ export function UserMessage({ message, children }: { message: Pick<StoredMessage
           {message.createdAt && <time>{formatClock(message.createdAt)}</time>}
         </div>
         {children}
-        <div className="bubble user">{message.content}</div>
+        {message.content && <div className="bubble user">{message.content}</div>}
       </div>
     </div>
   );

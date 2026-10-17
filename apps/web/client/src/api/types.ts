@@ -35,6 +35,22 @@ export interface Citation {
   uri: string;
 }
 
+/** What the browser is told about an attachment. The content is fetched separately, one attachment at a time. */
+export interface AttachmentView {
+  index: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** "pending" while its run is still going, "failed" when it never reached storage. */
+  state: "pending" | "stored" | "failed";
+}
+
+export interface OutgoingAttachment {
+  base64Data: string;
+  mimeType: string;
+  fileName: string;
+}
+
 export interface StoredMessage {
   id: string;
   role: "user" | "model";
@@ -43,6 +59,7 @@ export interface StoredMessage {
   runId: string | null;
   status: "final" | "partial" | null;
   citations?: Citation[];
+  attachments?: AttachmentView[];
   createdAt: string;
 }
 
@@ -97,6 +114,7 @@ export interface CreateRunRequest extends RunOptions {
   runId: string;
   conversationId: string;
   message: string;
+  attachments?: OutgoingAttachment[];
 }
 
 export interface ThinkingOption {
@@ -205,6 +223,7 @@ export interface RunApi {
   listConversations(cursor?: string | null): Promise<ConversationPage>;
   getWorkspace(): Promise<WorkspaceConfig>;
   getAuthStatus(): Promise<AuthStatus>;
+  getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob>;
   getDefaults(): Promise<StoredSettings | null>;
   putDefaults(settings: StoredSettings): Promise<StoredSettings | null>;
   putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void>;

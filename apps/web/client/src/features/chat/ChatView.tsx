@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationDetail, RunApi, RunSnapshot, WorkspaceConfig } from "../../api/types";
 import { useIsMobile } from "../../ui/useMedia";
 import { Overlay } from "../../ui/Overlay";
+import { AttachmentList, LocalAttachmentList } from "../attachments/AttachmentList";
+import { prepareAttachment, releasePreview, type PendingAttachment } from "../attachments/prepare";
+import { selectFiles, type Rejection } from "../attachments/rules";
 import { Composer } from "../composer/Composer";
 import { ModelPicker } from "../composer/ModelPicker";
 import { findModel, fromStored, toRunOptions, toStored, withModel, type ChatSettings } from "../settings/chatSettings";
@@ -64,6 +67,17 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [rejections, setRejections] = useState<Rejection[]>([]);
+  const [preparing, setPreparing] = useState(0);
+  // What was handed to the run being made, kept on this device until its stored copy can be shown (or the send is taken back).
+  const [sent, setSent] = useState<PendingAttachment[]>([]);
+  const held = useRef<PendingAttachment[]>([]);
+  useEffect(() => {
+    held.current = [...attachments, ...sent];
+  });
+  // Leaving the conversation lets go of the local picture previews.
+  useEffect(() => () => held.current.forEach(releasePreview), []);
   const [settings, setSettings] = useState<ChatSettings>(defaults);
   const touched = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(readInspectorOpen);
@@ -118,6 +132,10 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
         if (cancelled) return;
         setDetail(loaded);
         reset();
+        setSent(previous => {
+          previous.forEach(releasePreview);
+          return [];
+        });
         if (endedRun) onRunEnded?.(endedRun);
       })
       .catch(() => {
@@ -184,12 +202,50 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   const replyLabel = detail ? labelFor(detail.providerId, detail.modelName) : labelFor(settings.providerId, settings.modelName);
   const liveLabel = model?.name ?? settings.modelName;
 
+  // A send that never reached the server brings its attachments back along with its text.
+  const shownAttachments = attachments.length > 0 ? attachments : state.unsentMessage != null ? sent : [];
+
+  const addFiles = async (files: File[]) => {
+    const { accepted, rejected } = selectFiles(files, shownAttachments.length);
+    const problems = [...rejected];
+    setRejections([]);
+    if (attachments.length === 0 && shownAttachments.length > 0) setAttachments(shownAttachments); // took them back from a failed send
+    setPreparing(count => count + accepted.length);
+    for (const { file, mimeType } of accepted) {
+      try {
+        const prepared = await prepareAttachment(file, mimeType, crypto.randomUUID());
+        setAttachments(current => [...current, prepared]);
+      } catch (error) {
+        problems.push({ name: file.name, reason: error instanceof Error ? error.message : "处理失败。" });
+      } finally {
+        setPreparing(count => count - 1);
+      }
+    }
+
+    setRejections(problems);
+  };
+
+  const removeAttachment = (id: string) => {
+    const base = attachments.length > 0 ? attachments : shownAttachments;
+    const gone = base.find(item => item.id === id);
+    if (gone) releasePreview(gone);
+    setAttachments(base.filter(item => item.id !== id));
+  };
+
   const submit = async () => {
     const text = composerText.trim();
-    if (!text || !canSend(state)) return;
+    const files = shownAttachments;
+    if ((!text && files.length === 0) || preparing > 0 || !canSend(state)) return;
     setDraft("");
+    setAttachments([]);
+    setRejections([]);
+    setSent(files);
     if (state.unsentMessage) controller.unsentRestored();
-    await controller.send(text, toRunOptions(workspace, settings));
+    await controller.send(
+      text,
+      toRunOptions(workspace, settings),
+      files.map(({ base64Data, mimeType, fileName }) => ({ base64Data, mimeType, fileName }))
+    );
   };
 
   // A change is kept with the conversation shortly after the person stops adjusting. Leaving the page does not lose it.
@@ -315,7 +371,13 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
 
           {thread.map(item => (
             <article key={item.key} className="turn">
-              {item.user && <UserMessage message={item.user} />}
+              {item.user && (
+                <UserMessage message={item.user}>
+                  {item.user.attachments && item.user.attachments.length > 0 && (
+                    <AttachmentList api={api} conversationId={conversationId} messageId={item.user.id} items={item.user.attachments} />
+                  )}
+                </UserMessage>
+              )}
               {(item.reply || item.run) && (
                 <ModelMessage
                   modelLabel={replyLabel}
@@ -333,7 +395,11 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
 
           {live && (
             <article className="turn live">
-              {!questionStored && <UserMessage message={{ content: state.message ?? "", createdAt: "" }} />}
+              {!questionStored && (
+                <UserMessage message={{ content: state.message ?? "", createdAt: "" }}>
+                  {sent.length > 0 && <LocalAttachmentList items={sent} />}
+                </UserMessage>
+              )}
               {(state.content || state.thinking || state.phase === "streaming") && (
                 <ModelMessage
                   modelLabel={liveLabel}
@@ -373,6 +439,12 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
         modelInHeader={mobile}
         statusLine={status ?? (followId ? "这个会话正在另一个窗口生成回复，结束后会自动显示" : null)}
         phase={followId ? "following" : state.phase}
+        attachments={shownAttachments}
+        rejections={rejections}
+        preparing={preparing > 0}
+        onAddFiles={files => void addFiles(files)}
+        onRemoveAttachment={removeAttachment}
+        onDismissRejections={() => setRejections([])}
         footer="内容由 AI 生成，请核对重要信息"
       />
     </section>

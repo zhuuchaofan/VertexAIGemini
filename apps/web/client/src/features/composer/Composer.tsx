@@ -1,5 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "../../api/types";
+import type { PendingAttachment } from "../attachments/prepare";
+import { PendingStrip } from "../attachments/PendingStrip";
+import { MAX_ATTACHMENTS, type Rejection } from "../attachments/rules";
 import { findModel, type ChatSettings } from "../settings/chatSettings";
 import { withModel } from "../settings/chatSettings";
 import { ModelPicker } from "./ModelPicker";
@@ -23,13 +26,24 @@ interface Props {
   statusLine: string | null;
   phase: string;
   footer?: string;
+  attachments: PendingAttachment[];
+  rejections: Rejection[];
+  preparing: boolean;
+  onAddFiles: (files: File[]) => void;
+  onRemoveAttachment: (id: string) => void;
+  onDismissRejections: () => void;
 }
+
+const ACCEPT = "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf,.txt,.md,.markdown,.csv,.json,.yaml,.yml,.py,.cs,.go,.java,.rs,.sql";
 
 const MAX_HEIGHT = 220;
 
 export function Composer(props: Props) {
   const { value, onChange, onSubmit, onStop, running, stopping, canSend, workspace, settings, onSettings, modelInHeader, statusLine, phase, footer } = props;
+  const { attachments, rejections, preparing, onAddFiles, onRemoveAttachment, onDismissRejections } = props;
   const area = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   // Grow with the text up to a limit, then scroll.
   useEffect(() => {
@@ -40,7 +54,8 @@ export function Composer(props: Props) {
   }, [value]);
 
   const model = findModel(workspace, settings.providerId, settings.modelName);
-  const canSubmit = canSend && value.trim().length > 0;
+  const canSubmit = canSend && !preparing && (value.trim().length > 0 || attachments.length > 0);
+  const full = attachments.length >= MAX_ATTACHMENTS;
 
   return (
     <form
@@ -56,7 +71,32 @@ export function Composer(props: Props) {
           {statusLine}
         </div>
       )}
-      <div className="composer-box">
+      <div
+        className={dragging ? "composer-box dragging" : "composer-box"}
+        onDragOver={event => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={event => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={event => {
+          setDragging(false);
+          if (event.dataTransfer.files.length > 0) {
+            event.preventDefault();
+            onAddFiles(Array.from(event.dataTransfer.files));
+          }
+        }}
+      >
+        <PendingStrip
+          attachments={attachments}
+          rejections={rejections}
+          preparing={preparing}
+          onRemove={onRemoveAttachment}
+          onDismissRejections={onDismissRejections}
+        />
         <textarea
           ref={area}
           id="message"
@@ -65,6 +105,14 @@ export function Composer(props: Props) {
           rows={1}
           value={value}
           onChange={event => onChange(event.target.value)}
+          onPaste={event => {
+            // Pasting a picture attaches it; pasting text is left alone.
+            const files = Array.from(event.clipboardData.files);
+            if (files.length > 0) {
+              event.preventDefault();
+              onAddFiles(files);
+            }
+          }}
           onKeyDown={event => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -73,6 +121,33 @@ export function Composer(props: Props) {
           }}
         />
         <div className="composer-controls">
+          <input
+            ref={picker}
+            type="file"
+            className="sr-only"
+            multiple
+            accept={ACCEPT}
+            tabIndex={-1}
+            aria-hidden="true"
+            data-testid="file-input"
+            onChange={event => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              if (files.length > 0) onAddFiles(files);
+            }}
+          />
+          <button
+            type="button"
+            className="icon-btn attach"
+            aria-label="添加附件"
+            title={full ? `最多 ${MAX_ATTACHMENTS} 个附件` : "添加附件（也可以拖入或粘贴）"}
+            disabled={full}
+            onClick={() => picker.current?.click()}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-2.8-2.8l8.3-8.3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
           {!modelInHeader && (
             <ModelPicker
               workspace={workspace}
@@ -97,6 +172,7 @@ export function Composer(props: Props) {
           )}
         </div>
       </div>
+      {dragging && <p className="drop-hint" role="status">松开以添加附件</p>}
       {footer && <p className="composer-foot">{footer}</p>}
     </form>
   );

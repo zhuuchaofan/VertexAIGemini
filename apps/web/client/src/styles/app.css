@@ -223,3 +223,38 @@
 .settings-sheet .settings-panel { max-height: 72dvh; }
 .settings-sheet .overlay-panel { padding-bottom: 0; }
 @media (max-width: 760px) { .inspector { display: none; } }
+
+/* ---- attachments ---- */
+.att-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.att-thumb { position: relative; width: 168px; height: 118px; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel-2); display: grid; }
+button.att-thumb { cursor: zoom-in; }
+.att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 8px 5px; font-size: 11px; color: #fff; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: linear-gradient(transparent, rgba(0,0,0,.6)); }
+.att-empty { place-items: center; color: var(--ink-3); font-size: 12px; }
+.att-empty .att-cap { color: var(--ink-2); background: none; }
+.att-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); font-size: 13px; }
+.att-chip:disabled { cursor: default; }
+.att-chip[data-state="unavailable"] { color: var(--ink-3); }
+.att-chip[data-state="unavailable"] .att-name { text-decoration: line-through; }
+.att-icon { flex: none; min-width: 34px; height: 24px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; font-family: var(--font-mono); }
+.att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.att-size { flex: none; color: var(--ink-3); font-size: 12px; }
+.pending { display: grid; gap: 8px; margin: -2px 0 8px; }
+.pending-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pending-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 4px 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); font-size: 13px; }
+.pending-chip.busy { color: var(--ink-3); padding: 6px 10px; }
+.pending-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; }
+.pending-remove { width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 16px; line-height: 1; }
+.pending-remove:hover { background: var(--line); color: var(--ink); }
+.pending-count { color: var(--ink-3); font-size: 12px; margin-left: 2px; }
+.rejections { display: flex; gap: 8px; align-items: flex-start; padding: 8px 8px 8px 12px; border-radius: 10px; background: var(--err-soft); color: var(--err); font-size: 13px; }
+.rejections ul { flex: 1; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.rejections .icon-btn { width: 24px; height: 24px; font-size: 16px; color: var(--err); }
+.composer-box.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.drop-hint { margin: 0; text-align: center; font-size: 12px; color: var(--accent); }
+.attach { color: var(--ink-2); }
+.attach:disabled { opacity: .4; cursor: default; }
+.viewer { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(8,11,16,.82); padding: 24px; }
+.viewer img { max-width: 100%; max-height: 100%; border-radius: 10px; background: #fff; }
+.viewer-close { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; font-size: 22px; }
+@media (max-width: 760px) { .att-thumb { width: calc(50% - 4px); height: 104px; } }

@@ -43,6 +43,7 @@ export class FakeRunApi implements RunApi {
   async listConversations() { return { items: [], hasMore: false, nextCursor: null }; }
   async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
   async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
+  async getAttachment() { return new Blob(["x"]); }
   defaults: import("../../api/types").StoredSettings | null = null;
   savedDefaults: import("../../api/types").StoredSettings[] = [];
   savedConversationSettings: { id: string; settings: import("../../api/types").StoredSettings }[] = [];

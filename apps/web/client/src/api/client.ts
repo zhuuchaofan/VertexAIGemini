@@ -118,6 +118,12 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       return (await response.json()) as WorkspaceConfig;
     },
 
+    async getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob> {
+      const response = await request(`/api/v2/conversations/${conversationId}/messages/${messageId}/attachments/${index}`);
+      if (!response.ok) await fail(response);
+      return response.blob();
+    },
+
     async getDefaults(): Promise<StoredSettings | null> {
       const response = await request("/api/v2/me/settings");
       if (!response.ok) await fail(response);
