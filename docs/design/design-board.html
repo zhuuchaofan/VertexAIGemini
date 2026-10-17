@@ -1,0 +1,787 @@
+<title>球球布丁 界面视觉稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap">
+<style>
+/* Layout: a design board. Frames are fixed-size app screens, scaled down to fit the viewer. */
+:root{
+  --bg:#E9EDF3; --app:#F8F9FB; --rail:#EEF1F6; --panel:#FFFFFF; --panel-2:#F0F3F8; --line:#DDE3EC; --line-2:#C9D1DE;
+  --ink:#111827; --ink-2:#465169; --ink-3:#7B879D;
+  --accent:#2A4BD0; --accent-ink:#FFFFFF; --accent-soft:#E4EAFD; --accent-line:#BCC9F6;
+  --ok:#1B7F55; --ok-soft:#E2F4EB; --warn:#9A5F0B; --warn-soft:#FBF0DA; --err:#B3321F; --err-soft:#FBE7E3;
+  --shadow:0 1px 0 rgba(255,255,255,.7) inset,0 10px 28px -14px rgba(17,24,39,.28);
+  --shadow-lg:0 18px 48px -18px rgba(17,24,39,.35);
+  --f-ui:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-brand:"Bricolage Grotesque","Noto Sans SC",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#080B10; --app:#0E131A; --rail:#0B1016; --panel:#151B25; --panel-2:#1B2330; --line:#252F41; --line-2:#344158;
+  --ink:#E8EDF5; --ink-2:#A7B2C6; --ink-3:#74809A;
+  --accent:#8AA2FF; --accent-ink:#0A1126; --accent-soft:#1B2547; --accent-line:#33427A;
+  --ok:#5FD3A0; --ok-soft:#12291F; --warn:#E5B35C; --warn-soft:#2E2412; --err:#FF8E7C; --err-soft:#33191A;
+  --shadow:0 1px 0 rgba(255,255,255,.04) inset,0 10px 28px -14px rgba(0,0,0,.7);
+  --shadow-lg:0 18px 48px -18px rgba(0,0,0,.8); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#080B10; --app:#0E131A; --rail:#0B1016; --panel:#151B25; --panel-2:#1B2330; --line:#252F41; --line-2:#344158;
+  --ink:#E8EDF5; --ink-2:#A7B2C6; --ink-3:#74809A;
+  --accent:#8AA2FF; --accent-ink:#0A1126; --accent-soft:#1B2547; --accent-line:#33427A;
+  --ok:#5FD3A0; --ok-soft:#12291F; --warn:#E5B35C; --warn-soft:#2E2412; --err:#FF8E7C; --err-soft:#33191A;
+  --shadow:0 1px 0 rgba(255,255,255,.04) inset,0 10px 28px -14px rgba(0,0,0,.7);
+  --shadow-lg:0 18px 48px -18px rgba(0,0,0,.8); color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 72px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:default}
+.ic{flex:none;display:block}
+
+/* ---------- board chrome ---------- */
+.board{max-width:1320px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+.bhead{display:flex;flex-wrap:wrap;gap:16px 32px;justify-content:space-between;align-items:flex-end}
+.bhead h1{font:700 30px/1.15 var(--f-brand);letter-spacing:-.02em;margin:0 0 8px;text-wrap:balance}
+.bhead p{margin:0;color:var(--ink-2);max-width:62ch;line-height:1.7;font-size:14px}
+.bnav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bnav a,.bnav button{height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);font-size:13px;display:inline-flex;align-items:center;text-decoration:none;cursor:pointer}
+.bnav a:hover,.bnav button:hover{color:var(--ink);border-color:var(--ink-3)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sec-h{display:flex;flex-direction:column;gap:6px;margin-bottom:20px}
+.sec-h h2{font:700 20px/1.3 var(--f-brand);margin:0;letter-spacing:-.01em}
+.sec-h p{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.7;max-width:78ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--ink-3);font-size:12px;margin-top:6px}
+.fit{position:relative;overflow:hidden;width:min(100%,calc(var(--w) * 1px));border-radius:16px;box-shadow:0 0 0 1px var(--line),var(--shadow-lg);background:var(--app);flex:0 1 auto}
+.fit-in{width:calc(var(--w) * 1px);height:calc(var(--h) * 1px);transform-origin:0 0}
+.fit.phone{border-radius:38px;box-shadow:0 0 0 2px var(--line-2),var(--shadow-lg)}
+.frames{display:flex;flex-direction:column;gap:36px}
+.cap{font:500 12px/1.5 var(--f-mono);color:var(--ink-3);margin:0 0 10px;letter-spacing:.02em}
+.phones{display:flex;flex-wrap:wrap;gap:28px 24px;align-items:flex-start}
+.phone-col{display:flex;flex-direction:column;gap:0;flex:0 1 auto;min-width:0;width:min(100%,390px)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,430px),1fr));gap:22px}
+.scard{background:var(--panel);border:1px solid var(--line);border-radius:16px;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.scard.wide{grid-column:1/-1}
+.scard h3{margin:0;font:600 15px/1.3 var(--f-ui)}
+.scard .sh{padding:16px 18px 12px;display:flex;flex-direction:column;gap:6px}
+.scard .rule{margin:0;color:var(--ink-2);font-size:12.5px;line-height:1.65}
+.scard .rule b{color:var(--ink);font-weight:600}
+.crop{background:var(--app);border-top:1px solid var(--line);flex:1;color:var(--ink);font-size:14px;line-height:1.55;position:relative;min-width:0}
+.crop.pad{padding:16px}
+.note{padding:12px 18px 16px;font-size:12.5px;line-height:1.65;color:var(--ink-2);border-top:1px dashed var(--line)}
+.note code,.rule code{font-family:var(--f-mono);font-size:11.5px;background:var(--panel-2);padding:1px 5px;border-radius:5px}
+.todo{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px;display:grid;gap:14px}
+.todo ol{margin:0;padding-left:20px;display:grid;gap:8px;color:var(--ink-2);font-size:14px;line-height:1.7}
+.todo li b{color:var(--ink)}
+
+/* ---------- app shell ---------- */
+.app{display:flex;height:100%;background:var(--app);color:var(--ink);font-size:14px;line-height:1.55;font-family:var(--f-ui);position:relative}
+.rail{width:264px;flex:none;background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:14px 10px 10px;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 6px 4px}
+.bmark{width:30px;height:30px;border-radius:10px;background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#7a3cff));color:var(--accent-ink);display:grid;place-items:center;font:700 15px var(--f-brand);flex:none;box-shadow:0 4px 10px -4px var(--accent)}
+.brand b{font:700 15px/1.1 var(--f-brand);letter-spacing:-.01em;display:block}
+.brand span{font-size:11.5px;color:var(--ink-3)}
+.brand .grow{flex:1}
+.ico-btn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink-3);flex:none}
+.ico-btn:hover,.ico-btn.on{background:var(--panel-2);color:var(--ink)}
+.rail .ico-btn:hover{background:var(--line)}
+.new{height:38px;border-radius:11px;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:13.5px;box-shadow:0 6px 14px -8px var(--accent)}
+.search{height:34px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--ink-3);font-size:13px}
+.clist{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:2px;margin:0 -4px;padding:0 4px}
+.cg{font:500 11px/1 var(--f-mono);color:var(--ink-3);letter-spacing:.06em;padding:12px 8px 6px;text-transform:uppercase}
+.ci{display:flex;align-items:center;gap:6px;padding:7px 6px 7px 10px;border-radius:10px;position:relative}
+.ci:hover{background:var(--line)}
+.ci.on{background:var(--panel);box-shadow:0 0 0 1px var(--line),0 2px 6px -3px rgba(17,24,39,.2)}
+.ci-main{flex:1;min-width:0}
+.ci-t{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.ci-s{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ci .ci-more{opacity:0}
+.ci:hover .ci-more,.ci.on .ci-more,.ci.menu .ci-more{opacity:1}
+.dot-run{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 0 3px var(--accent-soft);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 5px transparent}}
+@media (prefers-reduced-motion:reduce){.dot-run,.caret,.spin{animation:none!important}}
+.tag{font-size:10.5px;line-height:1;padding:3px 6px;border-radius:6px;background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line);font-weight:500;white-space:nowrap}
+.tag.draft{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.tag.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.tag.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.tag.err{background:var(--err-soft);color:var(--err);border-color:transparent}
+.rfoot{display:flex;align-items:center;gap:10px;padding:10px 8px 2px;border-top:1px solid var(--line)}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--ink-2);flex:none}
+.rfoot .who{flex:1;min-width:0;font-size:12px;color:var(--ink-2);line-height:1.3}
+.rfoot .who b{display:block;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.mhead{height:54px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px 0 22px;border-bottom:1px solid var(--line)}
+.mhead h1{margin:0;font:600 15px/1.2 var(--f-ui);display:flex;align-items:center;gap:10px;min-width:0}
+.mhead h1 span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mhead .sp{flex:1}
+.saved{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:5px;font-weight:400}
+.scroll{flex:1;overflow:hidden;position:relative}
+.thread{max-width:824px;margin:0 auto;padding:26px 32px 8px;display:flex;flex-direction:column;gap:26px}
+.turn{display:grid;grid-template-columns:30px minmax(0,1fr);gap:0 14px}
+.turn .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600}
+.turn.user .av{background:var(--panel-2);border:1px solid var(--line);color:var(--ink-2)}
+.turn.ai .av{border-radius:10px;background:linear-gradient(145deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#7a3cff));color:var(--accent-ink);font-family:var(--f-brand);font-weight:700}
+.who-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:30px}
+.who-r b{font-weight:600;font-size:13.5px}
+.who-r .time{font:400 11.5px var(--f-mono);color:var(--ink-3)}
+.ubody{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:2px;display:flex;flex-direction:column;gap:10px}
+.files{display:flex;flex-wrap:wrap;gap:8px}
+.file{display:inline-flex;align-items:center;gap:8px;padding:6px 10px 6px 8px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line);font-size:12.5px;color:var(--ink-2)}
+.file .fi{width:24px;height:24px;border-radius:7px;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center}
+.file small{color:var(--ink-3);font-size:11px}
+.file .x{color:var(--ink-3);margin-left:2px}
+.abody{margin-top:4px;font-size:14.5px;line-height:1.75;display:flex;flex-direction:column;gap:12px}
+.abody p{margin:0}
+.abody ul{margin:0;padding-left:20px;display:grid;gap:4px}
+.tbl{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel);font-size:13px}
+.tbl table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tbl th{text-align:left;font-weight:500;color:var(--ink-3);font-size:11.5px;padding:8px 14px;background:var(--panel-2);border-bottom:1px solid var(--line)}
+.tbl td{padding:8px 14px;border-bottom:1px solid var(--line)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td.n,.tbl th.n{text-align:right}
+.pos{color:var(--ok)} .neg{color:var(--err)}
+.code{border:1px solid var(--line);border-radius:12px;background:var(--panel-2);overflow:hidden}
+.code .ch{display:flex;justify-content:space-between;align-items:center;padding:6px 8px 6px 14px;font:400 11.5px var(--f-mono);color:var(--ink-3);border-bottom:1px solid var(--line)}
+.code pre{margin:0;padding:12px 14px;font:400 12.5px/1.65 var(--f-mono);overflow:hidden;color:var(--ink)}
+.code .k{color:var(--accent)} .code .s{color:var(--ok)}
+.think{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+.think .th{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12.5px;color:var(--ink-2)}
+.think .tb{padding:2px 12px 12px 12px;font-size:12.5px;line-height:1.7;color:var(--ink-3);border-top:1px dashed var(--line);padding-top:10px}
+.cites{display:flex;flex-wrap:wrap;gap:6px}
+.cite{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-size:12px;color:var(--ink-2)}
+.cite i{font-style:normal;font:500 10.5px var(--f-mono);color:var(--ink-3)}
+.acts{display:flex;align-items:center;gap:2px;margin-top:6px;margin-left:-6px;flex-wrap:wrap}
+.act{height:28px;padding:0 8px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+.act:hover{background:var(--panel-2);color:var(--ink)}
+.ver{display:inline-flex;align-items:center;gap:2px;height:28px;font:500 11.5px var(--f-mono);color:var(--ink-3);margin-right:4px}
+.caret{display:inline-block;width:7px;height:16px;background:var(--accent);border-radius:2px;vertical-align:-3px;margin-left:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.15}}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--accent-line);border-top-color:var(--accent);animation:rot .9s linear infinite;flex:none}
+@keyframes rot{to{transform:rotate(360deg)}}
+.gen{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2);flex-wrap:wrap}
+.gen .mono{font:500 12px var(--f-mono);color:var(--ink-3)}
+.banner{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;font-size:13px;line-height:1.6}
+.banner.err{background:var(--err-soft);color:var(--err)}
+.banner.warn{background:var(--warn-soft);color:var(--warn)}
+.banner.info{background:var(--accent-soft);color:var(--accent)}
+.banner .bt{flex:1;min-width:0;color:var(--ink)}
+.banner .bt b{font-weight:600}
+.banner .bt>span:not(.btn){color:var(--ink-2)}
+.banner .ic{margin-top:3px}
+.btn{height:30px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel);font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.dng{background:var(--err);border-color:var(--err);color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+
+/* composer */
+.composer{max-width:824px;width:100%;margin:0 auto;padding:6px 32px 14px;flex:none;container-type:inline-size}
+@container (max-width:600px){.hint{display:none}}
+.cbox{background:var(--panel);border:1px solid var(--line-2);border-radius:18px;box-shadow:var(--shadow)}
+.cbox.focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+.cin{padding:14px 16px 6px;min-height:50px;font-size:14.5px;color:var(--ink-3);line-height:1.6}
+.cin.has{color:var(--ink)}
+.cfiles{padding:12px 14px 0;display:flex;gap:8px;flex-wrap:wrap}
+.cbar{display:flex;align-items:center;gap:6px;padding:6px 10px 10px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.chip:hover{border-color:var(--line-2);color:var(--ink)}
+.chip .ic{color:var(--ink-3)}
+.chip.open{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.chip.open .ic{color:var(--accent)}
+.chip b{font-weight:500;color:var(--ink)}
+.chip.open b{color:var(--accent)}
+.chip .dotm{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.csp{flex:1}
+.hint{font-size:11.5px;color:var(--ink-3);padding:0 8px;white-space:nowrap}
+.send{width:34px;height:34px;border-radius:11px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none}
+.send.off{background:var(--panel-2);color:var(--ink-3);border:1px solid var(--line)}
+.send.stop{background:var(--ink);color:var(--panel)}
+.cfoot{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;color:var(--ink-3);padding:8px 6px 0}
+.cfoot span{display:inline-flex;align-items:center;gap:6px}
+.cfoot .okc{color:var(--ok)}
+
+/* popovers */
+.pop{background:var(--panel);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shadow-lg);padding:6px;font-size:13px;min-width:0}
+.pop .ph{font:500 11px/1 var(--f-mono);letter-spacing:.06em;color:var(--ink-3);padding:10px 10px 6px;text-transform:uppercase}
+.opt{display:flex;gap:10px;padding:9px 10px;border-radius:10px;align-items:flex-start}
+.opt:hover{background:var(--panel-2)}
+.opt.sel{background:var(--accent-soft)}
+.opt .rd{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-2);margin-top:2px;flex:none;display:grid;place-items:center}
+.opt.sel .rd{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.opt .ot{flex:1;min-width:0}
+.opt .on{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.opt .od{font-size:12px;color:var(--ink-2);line-height:1.55;margin-top:1px}
+.opt .caps{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.opt.dis{opacity:.5}
+.pf{border-top:1px solid var(--line);margin:6px 4px 0;padding:9px 6px 5px;font-size:11.5px;color:var(--ink-3);line-height:1.6}
+.menu{background:var(--panel);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow-lg);padding:5px;font-size:13px;width:200px}
+.mi{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--ink)}
+.mi:hover{background:var(--panel-2)}
+.mi .ic{color:var(--ink-3)}
+.mi.dng,.mi.dng .ic{color:var(--err)}
+.msep{height:1px;background:var(--line);margin:4px 2px}
+
+/* inspector */
+.insp{width:380px;flex:none;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.ihead{height:54px;display:flex;align-items:center;gap:8px;padding:0 10px 0 16px;border-bottom:1px solid var(--line);flex:none}
+.ihead b{font-weight:600;font-size:14px;flex:1}
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:2px;gap:2px}
+.seg button,.seg span{height:26px;padding:0 12px;border-radius:8px;font-size:12.5px;color:var(--ink-2);display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+.seg .on{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(17,24,39,.18);font-weight:500}
+.seg.full{display:flex}.seg.full>*{flex:1}
+.ibody{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:18px}
+.isec h4{margin:0 0 8px;font:500 11px/1 var(--f-mono);letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+.isec h4 i{font-style:normal;text-transform:none;letter-spacing:0;color:var(--ink-3)}
+.grid3{display:grid;grid-template-columns:78px minmax(0,1fr) minmax(0,1.15fr);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12.5px}
+.grid3>div{padding:7px 10px;border-bottom:1px solid var(--line);min-width:0;overflow-wrap:anywhere}
+.grid3>div:nth-last-child(-n+3){border-bottom:0}
+.grid3 .h{background:var(--panel-2);font-size:11px;color:var(--ink-3);font-weight:500}
+.grid3 .k{color:var(--ink-2)}
+.grid3 .v{font-family:var(--f-mono);font-size:11.5px}
+.kv{border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12.5px}
+.kv .r{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--line)}
+.kv .r:last-child{border-bottom:0}
+.kv .r .k{flex:1;color:var(--ink-2);min-width:0}
+.kv .r .v{font-family:var(--f-mono);font-size:12px;text-align:right}
+.src{font:500 10px/1 var(--f-ui);padding:3px 5px;border-radius:5px;margin-left:6px;vertical-align:1px;white-space:nowrap}
+.src.be{background:var(--accent-soft);color:var(--accent)}
+.src.br{background:var(--panel-2);color:var(--ink-3);border:1px solid var(--line)}
+.unk{font-family:var(--f-ui);font-size:11.5px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:2px 7px;white-space:nowrap}
+.ifoot{border-top:1px solid var(--line);padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;flex:none}
+.frozen{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--ink-2);line-height:1.6;background:var(--panel-2);border-radius:10px;padding:9px 11px}
+.frozen .ic{margin-top:2px;color:var(--ink-3)}
+.frow{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
+.frow:last-child{border-bottom:0}
+.frow .fl{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:500}
+.frow .fl i{font-style:normal;font-size:11.5px;color:var(--accent);font-weight:400}
+.frow .fd{font-size:11.5px;color:var(--ink-3);line-height:1.55}
+.field{height:34px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel);padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.field.off{background:var(--panel-2);color:var(--ink-3);border-style:dashed}
+.field .ph{color:var(--ink-3);padding:0;font:inherit;text-transform:none;letter-spacing:0}
+.adv{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.adv>summary,.adv>.sm{padding:10px 12px;font-size:13px;font-weight:500;display:flex;justify-content:space-between;align-items:center;list-style:none;background:var(--panel-2)}
+.adv .ab{padding:0 12px 4px}
+
+/* mobile */
+.phone-app{height:100%;display:flex;flex-direction:column;background:var(--app);position:relative;overflow:hidden;font-size:14px;line-height:1.55;font-family:var(--f-ui);color:var(--ink)}
+.status{height:44px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 6px;font:600 13px var(--f-ui)}
+.mtop{height:52px;flex:none;display:flex;align-items:center;gap:4px;padding:0 8px;border-bottom:1px solid var(--line)}
+.mtop .mt{flex:1;min-width:0;text-align:center;display:flex;flex-direction:column;align-items:center;line-height:1.25}
+.mtop .mt b{font-weight:600;font-size:14.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtop .mt .mm{display:inline-flex;align-items:center;gap:3px;font-size:12px;color:var(--accent);margin-top:1px;font-weight:500}
+.mscroll{flex:1;overflow:hidden;padding:18px 14px 6px;display:flex;flex-direction:column;gap:20px}
+.phone-app .turn{grid-template-columns:26px minmax(0,1fr);gap:0 10px}
+.phone-app .turn .av{width:26px;height:26px;font-size:11px}
+.phone-app .who-r{min-height:26px}
+.phone-app .abody{font-size:14.5px}
+.mcomp{flex:none;padding:6px 10px calc(14px) 10px}
+.mcomp .cin{padding:12px 14px 4px}
+.mcomp .cbar{padding:4px 8px 8px}
+.mcomp .chip{height:32px;padding:0 9px}
+.homebar{width:130px;height:5px;border-radius:3px;background:var(--ink);opacity:.8;margin:0 auto 8px;flex:none}
+.dim{position:absolute;inset:0;background:rgba(8,12,20,.5);z-index:5}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:6;background:var(--panel);border-radius:22px 22px 0 0;padding:8px 14px 18px;box-shadow:0 -12px 40px -12px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:10px}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line-2);margin:4px auto 2px}
+.sheet .sh-t{display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:15px;padding:2px 2px 0}
+.drawer{position:absolute;top:0;bottom:0;left:0;width:318px;z-index:6;background:var(--rail);border-right:1px solid var(--line);padding:50px 10px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:12px 0 40px -12px rgba(0,0,0,.5)}
+.full-sheet{position:absolute;inset:0;z-index:6;background:var(--panel);display:flex;flex-direction:column}
+.full-sheet .ibody{padding-bottom:20px}
+.phone-app .grid3{grid-template-columns:70px minmax(0,1fr) minmax(0,1.1fr)}
+
+/* extra states */
+.code .rfade{position:absolute;top:0;bottom:0;right:0;width:34px;background:linear-gradient(to right,transparent,var(--panel-2));pointer-events:none}
+.code.long .cbody{position:relative;max-height:318px;overflow:hidden}
+.code pre{counter-reset:ln;overflow-x:auto;overflow-y:hidden;padding:12px 14px 12px 12px}
+.code .l{display:block;counter-increment:ln;padding-left:38px;position:relative;white-space:pre;min-width:max-content}
+.code .l::before{content:counter(ln);position:absolute;left:0;width:26px;text-align:right;color:var(--ink-3);opacity:.7}
+.code .c{color:var(--ink-3);font-style:italic}.code .n{color:var(--warn)}.code .t{color:color-mix(in srgb,var(--accent) 70%,var(--ok))}
+.code .fade{position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(to bottom,transparent,var(--panel-2) 85%);pointer-events:none}
+.code .expand{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;border-top:1px solid var(--line);font-size:12px;color:var(--accent);background:var(--panel-2)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.thumb{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel-2)}
+.thumb .ti{aspect-ratio:16/10;display:block;background:var(--panel-2)}
+.thumb .tc{padding:6px 10px;font-size:12px;color:var(--ink-2);display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line);background:var(--panel)}
+.thumb .tc small{color:var(--ink-3);font-size:11px;white-space:nowrap}
+.file.pdf .fi{background:var(--err-soft);color:var(--err)}
+.file.md .fi{background:var(--accent-soft);color:var(--accent)}
+.reject{display:flex;gap:8px;align-items:flex-start;margin:8px 14px 0;font-size:12px;line-height:1.55;color:var(--err)}
+.reject .ic{margin-top:2px}
+.reject span{color:var(--ink-2)}
+.quota{font:500 11px var(--f-mono);color:var(--ink-3);margin-left:auto;padding:0 2px}
+.offline{margin:0 auto;max-width:824px;padding:0 32px;width:100%}
+.runid{font:400 11px var(--f-mono);color:var(--ink-3);margin-top:6px;display:flex;gap:8px;align-items:center}
+.phone-app .thumbs{grid-template-columns:repeat(2,minmax(0,1fr))}
+/* semantics */
+.sem{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:0}
+.sem>div{padding:16px 18px;border-right:1px solid var(--line);font-size:12.5px;line-height:1.7;color:var(--ink-2);min-width:0}
+.sem>div:last-child{border-right:0}
+.sem h5{margin:0 0 6px;font:600 13px var(--f-ui);color:var(--ink)}
+.sem pre{margin:8px 0 0;padding:10px 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;font:400 11.5px/1.65 var(--f-mono);color:var(--ink);overflow-x:auto}
+</style>
+
+<div class="board" id="top">
+  <header class="bhead">
+    <div>
+      <h1>球球布丁工作室 · 界面视觉稿 v1</h1>
+      <p>方向 A「静室」为主体，吸收 B 的按需检视器。冷灰蓝底色、单一钴蓝强调色；模型、思考、联网三个控件固定在输入框上，高级配置与调试详情收在右侧检视器。所有内容均为示例数据，仅用于视觉评审，尚未实现。</p>
+    </div>
+    <nav class="bnav" aria-label="章节">
+      <a href="#desktop">桌面端</a><a href="#mobile">移动端</a><a href="#states">关键状态</a><a href="#semantics">数据语义</a><a href="#confirm">待确认</a>
+      <button id="theme" type="button" aria-label="切换主题">主题：跟随系统</button>
+    </nav>
+  </header>
+
+  <section id="desktop">
+    <div class="sec-h"><h2>桌面端</h2>
+      <p>三栏：会话列表、对话、可开合的检视器。默认只有前两栏。检视器用「运行」和「设置」两个标签，不做常驻参数表。</p>
+      <div class="legend"><span>画布 1280×800，按窗口宽度缩放</span></div></div>
+    <div class="frames" id="desk-frames"></div>
+  </section>
+
+  <section id="mobile">
+    <div class="sec-h"><h2>移动端</h2>
+      <p>单栏。会话列表是左侧抽屉；模型在标题下方一点即选；思考与联网是输入框上的两个胶囊；其余设置和运行详情都是底部面板或整页。</p></div>
+    <div class="phones" id="phones"></div>
+  </section>
+
+  <section id="states">
+    <div class="sec-h"><h2>关键交互状态</h2>
+      <p>每张卡片先写「规则」，再给画面。规则来自后端实际能提供的信息：没有证据的内容不显示。</p></div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section id="semantics">
+    <div class="sec-h"><h2>设置分层与重新生成的数据语义</h2>
+      <p>下面是视觉稿所依据的语义，实现方案阶段会再展开成接口与 Firestore 字段。</p></div>
+    <div class="cards" id="sem"></div>
+  </section>
+
+  <section id="confirm">
+    <div class="todo">
+      <div class="sec-h" style="margin:0"><h2>请你确认的视觉决策</h2></div>
+      <ol>
+        <li><b>色调：</b>冷灰蓝底加钴蓝强调色，深浅两套主题。可以改为偏中性灰或带一点暖色，但避免奶油底加陶土橙的常见组合。</li>
+        <li><b>控件位置：</b>模型、思考、联网固定在输入框下方一行，不放侧栏。侧栏只放会话。</li>
+        <li><b>对话排版：</b>头像列加正文，用户消息为带边框的块，助手回复无底色，不用左右气泡。</li>
+        <li><b>检视器：</b>桌面端在右侧推开内容，移动端是整页。运行详情只展示后端或浏览器实际给出的值，未知就写「未知」。</li>
+        <li><b>第一阶段范围：</b>以上均不含批量管理、斜杠命令、模式、模型对比。</li>
+      </ol>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ---------- icons ---------- */
+const P={
+ plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>',
+ chev:'<path d="M6 9l6 6 6-6"/>',chevu:'<path d="M6 15l6-6 6 6"/>',chevl:'<path d="M15 5l-7 7 7 7"/>',chevr:'<path d="M9 5l7 7-7 7"/>',
+ send:'<path d="M12 19V5M5 12l7-7 7 7"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/>',
+ clip:'<path d="M20.5 11.5l-8.2 8.2a5 5 0 01-7.1-7.1l8.2-8.2a3.4 3.4 0 014.8 4.8l-8.2 8.2a1.7 1.7 0 01-2.4-2.4l7.4-7.4"/>',
+ globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/>',
+ spark:'<path d="M12 3l1.9 5.4L19.5 10l-5.6 1.7L12 17l-1.9-5.3L4.5 10l5.6-1.6z"/><path d="M19 16v4M17 18h4"/>',
+ sliders:'<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+ copy:'<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 017.5 4H15"/>',
+ redo:'<path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 4.5V11h-6.5"/>',
+ pen:'<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19z"/>',trash:'<path d="M5 7h14M10 7V4.5h4V7M7 7l1 12.5h8L17 7"/>',
+ dl:'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+ more:'<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+ alert:'<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.4v.1"/>',
+ panelr:'<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M14.5 4.5v15"/>',
+ panell:'<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/>',
+ menu:'<path d="M4 7h16M4 12h16M4 17h10"/>',
+ file:'<path d="M7 3.5h7l4 4V20a.5.5 0 01-.5.5h-10A.5.5 0 017 20z"/><path d="M14 3.5V8h4"/>',
+ link:'<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
+ cpu:'<rect x="6" y="6" width="12" height="12" rx="2.5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/>',
+ lock:'<rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+ info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.1"/>',
+ wifi:'<path d="M3 9a14 14 0 0118 0M6 12.5a9.5 9.5 0 0112 0M9 16a5 5 0 016 0"/><path d="M12 19.5v.1"/><path d="M4 4l16 16"/>'
+};
+const ic=(n,s=16)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+/* ---------- shared building blocks (example data) ---------- */
+const MODEL='Gemini 3.8 Flash';
+const csv=(x=true)=>`<span class="file"><span class="fi">${ic('file',14)}</span>销售数据.csv<small>186 KB</small>${x?`<span class="x">${ic('x',12)}</span>`:''}</span>`;
+
+function rail({active=0,menu=false,del=false}={}){
+  const item=(t,s,o={})=>{
+    if(o.del) return `<div class="banner err" style="margin:2px 0;flex-direction:column;gap:8px"><div class="bt"><b>删除「${t}」？</b><br><span>消息和附件会一并删除，无法恢复。</span></div><div class="btns" style="margin:0"><span class="btn">取消</span><span class="btn dng">删除</span></div></div>`;
+    return `<div class="ci ${o.on?'on':''} ${o.menu?'menu':''}"><div class="ci-main"><div class="ci-t">${o.run?'<span class="dot-run"></span>':''}<span style="overflow:hidden;text-overflow:ellipsis">${t}</span>${o.draft?'<span class="tag draft">草稿</span>':''}</div><div class="ci-s">${s}</div></div><span class="ico-btn ci-more">${ic('more',16)}</span>${o.menuHtml||''}</div>`;
+  };
+  const menuHtml=menu?`<div class="menu" style="position:absolute;left:176px;top:30px;z-index:5"><div class="mi">${ic('pen',15)}重命名</div><div class="mi">${ic('dl',15)}导出 Markdown</div><div class="mi">${ic('dl',15)}导出 JSON</div><div class="msep"></div><div class="mi dng">${ic('trash',15)}删除…</div></div>`:'';
+  return `<aside class="rail">
+   <div class="brand"><div class="bmark">球</div><div class="grow"><b>球球布丁</b><span>工作室</span></div><span class="ico-btn">${ic('panell',17)}</span></div>
+   <div class="new">${ic('plus',16)}新对话</div>
+   <div class="search">${ic('search',15)}搜索会话</div>
+   <div class="clist">
+    <div class="cg">今天</div>
+    ${item('销售数据季度汇总',MODEL+' · 14:02',{on:active===0,menu,menuHtml})}
+    ${item('合同条款审阅','DeepSeek V4 Pro · 生成中',{run:true})}
+    ${del?item('周报润色','',{del:true}):item('周报润色',MODEL+' · 10:15',{draft:true})}
+    <div class="cg">昨天</div>
+    ${item('SQL 慢查询排查','Gemini 4 Argon · 昨天 21:08')}
+    ${item('三份访谈稿的长文摘要','Kimi · 昨天 16:40')}
+    <div class="cg">过去 7 天</div>
+    ${item('API 错误码整理',MODEL+' · 周二')}
+    ${item('正则表达式调试','DeepSeek V4 Flash · 周一')}
+    ${item('会议纪要模板',MODEL+' · 周一')}
+   </div>
+   <div class="rfoot"><div class="avatar">T</div><div class="who"><b>you@example.com</b>我的默认设置</div><span class="ico-btn">${ic('sliders',16)}</span></div>
+  </aside>`;
+}
+
+function mhead({title='销售数据季度汇总',insp=false,saved='已保存'}={}){
+  return `<header class="mhead"><h1><span class="t">${title}</span><span class="saved">${ic('check',12)}${saved}</span></h1><span class="sp"></span>
+   <span class="ico-btn" title="导出">${ic('dl',17)}</span><span class="ico-btn ${insp?'on':''}" title="检视器">${ic('panelr',18)}</span><span class="ico-btn">${ic('more',18)}</span></header>`;
+}
+
+const userTurn=(txt,files=true,time='14:02')=>`<div class="turn user"><div class="av">你</div><div><div class="who-r"><b>你</b><span class="time">${time}</span></div><div class="ubody">${files?`<div class="files">${csv(false)}</div>`:''}<div>${txt}</div></div></div></div>`;
+
+const answer=()=>`<div class="abody">
+ <p>已读取 <b>销售数据.csv</b>（1,248 行）。按季度汇总如下：</p>
+ <div class="tbl"><table><thead><tr><th>季度</th><th class="n">订单数</th><th class="n">销售额（万元）</th><th class="n">环比</th></tr></thead><tbody>
+  <tr><td>Q1</td><td class="n">3,204</td><td class="n">412.6</td><td class="n">—</td></tr>
+  <tr><td>Q2</td><td class="n">3,587</td><td class="n">468.1</td><td class="n pos">+13.5%</td></tr>
+  <tr><td>Q3</td><td class="n">3,402</td><td class="n">441.9</td><td class="n neg">−5.6%</td></tr>
+  <tr><td>Q4</td><td class="n">4,055</td><td class="n">536.3</td><td class="n pos">+21.4%</td></tr></tbody></table></div>
+ <ul><li>全年销售额 1,858.9 万元，第四季度占 28.9%。</li><li>第三季度回落，订单数下降 5.2%，客单价基本持平。</li></ul>
+ <div class="code"><div class="ch"><span>python</span><span class="act" style="height:22px;margin:0">${ic('copy',13)}复制</span></div><pre><span class="k">df</span>.groupby(df[<span class="s">"日期"</span>].dt.quarter)[<span class="s">"金额"</span>].sum()</pre></div>
+</div>`;
+
+const aiWho=(extra='')=>`<div class="who-r"><b>${MODEL}</b><span class="tag">思考 中</span>${extra}<span class="time">14:02</span></div>`;
+const aiActs=(v='2 / 2')=>`<div class="acts"><span class="ver"><span class="ic-wrap">${ic('chevl',14)}</span>${v}${ic('chevr',14)}</span><span class="act">${ic('copy',14)}复制</span><span class="act">${ic('redo',14)}重新生成</span><span class="act">${ic('sliders',14)}运行详情</span></div>`;
+const aiTurn=(body=answer(),acts=aiActs(),who=aiWho())=>`<div class="turn ai"><div class="av">球</div><div>${who}${body}${acts}</div></div>`;
+
+const chip=(icon,label,val,o='')=>`<span class="chip ${o}">${ic(icon,15)}${label?label+' ':''}<b>${val}</b></span>`;
+const thinkChip=(open)=>`<span class="chip ${open?'open':''}">${ic('spark',15)}思考 <b>中</b>${ic('chev',12)}</span>`;
+const webChip=(open)=>`<span class="chip ${open?'open':''}">${ic('globe',15)}联网 <b>自动</b>${ic('chev',12)}</span>`;
+const modelChip=(open)=>`<span class="chip ${open?'open':''}">${ic('cpu',15)}<b>${MODEL}</b>${ic('chev',12)}</span>`;
+function composer2({draft='',files='',focus=false,open='',foot,hint='⏎ 发送　⇧⏎ 换行',send='send'}={}){
+  return `<div class="composer"><div class="cbox ${focus?'focus':''}">
+   ${files?`<div class="cfiles">${files}</div>`:''}
+   <div class="cin ${draft?'has':''}">${draft||'输入消息，或把文件拖到这里'}</div>
+   <div class="cbar"><span class="ico-btn" title="添加附件">${ic('clip',17)}</span>
+    ${modelChip(open==='model')}${thinkChip(open==='think')}${webChip(open==='web')}
+    <span class="ico-btn" title="更多设置">${ic('sliders',17)}</span>
+    <span class="csp"></span><span class="hint">${hint}</span>
+    <span class="send ${send==='stop'?'stop':send==='off'?'off':''}">${ic(send==='stop'?'stop':'send',18)}</span></div>
+  </div>
+  <div class="cfoot">${foot||`<span>内容由 AI 生成，请核对重要信息</span><span class="okc">${ic('check',12)}草稿已自动保存</span>`}</div></div>`;
+}
+
+/* ---------- popovers ---------- */
+const cap=(t,c='')=>`<span class="tag ${c}">${t}</span>`;
+const opt=(name,desc,{sel=false,caps='',dis=false,right=''}={})=>`<div class="opt ${sel?'sel':''} ${dis?'dis':''}"><span class="rd">${sel?ic('check',10):''}</span><div class="ot"><div class="on">${name}${right}</div><div class="od">${desc}</div>${caps?`<div class="caps">${caps}</div>`:''}</div></div>`;
+function popModel(w=380){return `<div class="pop" style="width:${w}px;max-width:100%">
+ <div class="ph">Vertex AI · Gemini</div>
+ ${opt('Gemini 3.8 Flash','快速多模态模型，适合日常对话与文件分析',{sel:true,caps:cap('思考 低/中/高')+cap('上下文 1,048,576')+cap('忽略温度 / Top-P')})}
+ ${opt('Gemini 4 Argon','能力更强，统一输入输出预算',{caps:cap('思考 低/中/高')+cap('上下文 1,048,576')+cap('忽略温度 / Top-P')})}
+ <div class="ph">DeepSeek</div>
+ ${opt('DeepSeek V4 Flash','快速，可关闭思考',{caps:cap('思考 关闭/高/最大')+cap('上下文 1,000,000')+cap('可调温度')})}
+ ${opt('DeepSeek V4 Pro','更强推理',{caps:cap('思考 关闭/高/最大')+cap('上下文 1,000,000')+cap('可调温度')})}
+ <div class="ph">Kimi</div>
+ ${opt('Kimi','Moonshot 长文本模型')}
+ <div class="pf">切换只影响之后发送的消息。已有回复保留各自的模型标记。</div></div>`;}
+function popThink(){return `<div class="pop" style="width:300px;max-width:100%">
+ <div class="ph">思考深度 · ${MODEL}</div>
+ ${opt('低','更快，适合简单问题')}${opt('中','默认，速度与质量平衡',{sel:true,right:cap('默认','acc')})}${opt('高','更慢，适合复杂推理')}
+ <div class="pf">此模型的思考不能关闭。选项来自模型目录，换成 DeepSeek 会变成「关闭 / 高 / 最大」。</div></div>`;}
+function popWeb(){return `<div class="pop" style="width:320px;max-width:100%">
+ <div class="ph">联网搜索</div>
+ ${opt('关闭','只用模型自身知识')}${opt('自动','由模型判断是否需要联网',{sel:true,right:cap('默认','acc')})}${opt('强制查证','每次都联网，并要求给出来源')}
+ <div class="pf">联网搜索计入每日搜索配额。</div></div>`;}
+
+/* ---------- inspector ---------- */
+const unk=t=>`<span class="unk">${t||'未知'}</span>`;
+const B='<span class="src be">后端</span>',R='<span class="src br">浏览器</span>';
+function inspRun(){return `<aside class="insp">
+ <div class="ihead"><b>检视器</b><span class="seg"><span class="on">运行</span><span>设置</span></span><span class="ico-btn">${ic('x',16)}</span></div>
+ <div class="ibody">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+   <span class="seg"><span>${ic('chevl',13)}</span><span class="on" style="font-weight:500">第 2 次运行 / 共 2 次</span><span>${ic('chevr',13)}</span></span><span class="tag ok">已完成</span></div>
+  <div class="frozen">${ic('lock',14)}<span>配置快照在发送时生成，之后修改会话设置不会改变它。快照 <span style="font-family:var(--f-mono);font-size:11px">run_8f3a…c1</span></span></div>
+  <div class="isec"><h4>配置<i>请求 与 实际生效 分开记录</i></h4>
+   <div class="grid3"><div class="h">参数</div><div class="h">你的请求</div><div class="h">实际生效</div>
+    <div class="k">模型</div><div class="v">gemini-3.8-flash</div><div class="v">gemini-3.8-flash${B}</div>
+    <div class="k">思考</div><div class="v">中</div><div class="v">中${B}</div>
+    <div class="k">联网</div><div class="v">自动</div><div class="v">返回 2 个来源${B}</div>
+    <div class="k">温度 / Top-P</div><div class="v">未设置</div><div class="v">未发送，模型忽略${B}</div>
+    <div class="k">最大输出</div><div class="v">未设置</div><div class="v">8192，服务端默认${B}</div>
+    <div class="k">内容过滤</div><div class="v">跟随服务器</div><div class="v">BLOCK_MEDIUM_AND_ABOVE${B}</div></div></div>
+  <div class="isec"><h4>耗时<i>来源已标注</i></h4>
+   <div class="kv"><div class="r"><span class="k">发出请求 → 收到首个内容${R}</span><span class="v">0.84 s</span></div>
+    <div class="r"><span class="k">发出请求 → 完成${R}</span><span class="v">6.21 s</span></div>
+    <div class="r"><span class="k">模型处理耗时</span>${unk('后端未上报')}</div></div></div>
+  <div class="isec"><h4>用量</h4>
+   <div class="kv"><div class="r"><span class="k">本次输入 token</span>${unk()}</div><div class="r"><span class="k">本次输出 token</span>${unk()}</div>
+    <div class="r"><span class="k">会话累计 token${B}</span><span class="v">18,402</span></div></div></div>
+  <div class="isec"><h4>结果</h4>
+   <div class="kv"><div class="r"><span class="k">结束原因</span>${unk('未上报')}</div><div class="r"><span class="k">回复长度${R}</span><span class="v">1,086 字</span></div>
+    <div class="r"><span class="k">思考内容</span><span class="v" style="font-family:var(--f-ui);color:var(--accent)">已收到 · 查看</span></div></div></div>
+ </div>
+ <div class="ifoot"><span class="btn pri">${ic('redo',14)}用此配置重新生成</span><span class="btn">${ic('copy',14)}复制请求 JSON</span></div>
+</aside>`;}
+
+function inspSettings(){return `<aside class="insp">
+ <div class="ihead"><b>检视器</b><span class="seg"><span>运行</span><span class="on">设置</span></span><span class="ico-btn">${ic('x',16)}</span></div>
+ <div class="ibody" style="gap:12px">
+  <span class="seg full"><span class="on">此会话</span><span>我的默认</span></span>
+  <div class="fd" style="font-size:12px;color:var(--ink-2);line-height:1.6">此会话的设置会在重新打开时恢复。「我的默认」只用于之后新建的会话。</div>
+  <div>
+   <div class="frow"><div class="fl">模型<i></i></div><div class="field">${MODEL}${ic('chev',14)}</div></div>
+   <div class="frow"><div class="fl">思考<i>与默认不同 · 重置</i></div><span class="seg full"><span>低</span><span class="on">中</span><span>高</span></span></div>
+   <div class="frow"><div class="fl">联网<i></i></div><span class="seg full"><span>关闭</span><span class="on">自动</span><span>强制查证</span></span></div>
+   <div class="frow"><div class="fl">提示词预设</div><div class="field">默认助手${ic('chev',14)}</div></div>
+  </div>
+  <details class="adv" open><summary><span>高级</span>${ic('chevu',14)}</summary><div class="ab">
+   <div class="frow"><div class="fl">温度</div><div class="field off"><span>不可用</span></div><div class="fd">此模型忽略温度和 Top-P，请用思考深度调整推理。</div></div>
+   <div class="frow"><div class="fl">最大输出 token<i>已修改 · 重置</i></div><div class="field">16384</div><div class="fd">范围 1–65536，留空使用服务端默认 8192。实际上限受模型限制。</div></div>
+   <div class="frow"><div class="fl">内容过滤</div><div class="field">跟随服务器策略${ic('chev',14)}</div><div class="fd">可选项由你的账号权限决定，服务端会再次校验。</div></div>
+  </div></details>
+ </div>
+ <div class="ifoot"><span class="btn">将此会话设置存为我的默认</span><span class="btn ghost">与默认不同：2 项</span></div>
+</aside>`;}
+
+
+/* ---------- extra-state builders ---------- */
+const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function hl(line){
+  const re=/(\/\/.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(export|async|function|const|let|for|if|return|throw|new|await|try|catch|interface|import|from|type)\b|\b(\d[\d_]*)\b|\b([A-Z][A-Za-z]+)\b/g;
+  let out='',last=0,m;
+  while((m=re.exec(line))){
+    out+=esc(line.slice(last,m.index));
+    const [x,c,st,kw,num,ty]=m;
+    out+= c?`<span class="c">${esc(x)}</span>`: st?`<span class="s">${esc(x)}</span>`: kw?`<span class="k">${x}</span>`: num?`<span class="n">${x}</span>`:`<span class="t">${x}</span>`;
+    last=m.index+x.length;
+  }
+  return out+esc(line.slice(last));
+}
+const CODE=[
+ 'export interface RetryOptions {','  retries?: number;','  baseDelayMs?: number;','  signal?: AbortSignal;','}','',
+ '// 注意：POST 只有在带幂等键（例如 runId）时才应该自动重试，否则网络抖动可能造成重复提交，这一行故意写得很长，用来展示代码块的横向滚动。',
+ 'const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);','',
+ 'export async function fetchWithRetry(','  input: RequestInfo | URL,','  init: RequestInit = {},','  { retries = 2, baseDelayMs = 400, signal }: RetryOptions = {},',
+ '): Promise<Response> {','  let lastError: unknown;','  for (let attempt = 0; attempt <= retries; attempt++) {',
+ '    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");',
+ '    try {','      const response = await fetch(input, { ...init, signal });',
+ '      if (!RETRYABLE.has(response.status) || attempt === retries) return response;','      lastError = new Error(`HTTP ${response.status}`);',
+ '    } catch (error) {','      if ((error as Error).name === "AbortError") throw error;','      lastError = error;','    }',
+ '    const jitter = Math.random() * baseDelayMs;','    await sleep(baseDelayMs * 2 ** attempt + jitter, signal);','  }',
+ '  throw lastError;','}','',
+ 'function sleep(ms: number, signal?: AbortSignal) {','  return new Promise<void>((resolve, reject) => {','    const timer = setTimeout(resolve, ms);',
+ '    signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });',
+ '  });','}'
+];
+const codeLong=(lines=CODE)=>`<div class="code long"><div class="ch"><span>typescript · ${lines.length} 行</span><span style="display:flex;gap:2px"><span class="act" style="height:22px;margin:0">自动换行</span><span class="act" style="height:22px;margin:0">${ic('copy',13)}复制</span></span></div>
+ <div class="cbody"><pre>${lines.map(l=>`<span class="l">${hl(l)||' '}</span>`).join('')}</pre><div class="fade"></div><div class="rfade"></div></div>
+ <div class="expand">${ic('chev',14)}展开全部 ${lines.length} 行</div></div>`;
+const thumb=(kind,name,size)=>{
+  const art=kind==='chart'
+   ?`<svg class="ti" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice"><rect width="160" height="100" fill="var(--panel-2)"/><g fill="var(--accent)"><rect x="18" y="52" width="16" height="36" rx="3" opacity=".4"/><rect x="48" y="38" width="16" height="50" rx="3" opacity=".6"/><rect x="78" y="46" width="16" height="42" rx="3" opacity=".78"/><rect x="108" y="22" width="16" height="66" rx="3"/></g><path d="M12 90h136" stroke="var(--line-2)"/><path d="M18 20h50" stroke="var(--ink-3)" stroke-width="3" stroke-linecap="round" opacity=".6"/></svg>`
+   :`<svg class="ti" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice"><rect width="160" height="100" fill="var(--panel-2)"/><rect x="12" y="10" width="136" height="80" rx="8" fill="var(--panel)" stroke="var(--line-2)"/><rect x="12" y="10" width="136" height="14" rx="8" fill="var(--line)"/><g stroke="var(--ink-3)" stroke-width="3" stroke-linecap="round" opacity=".6"><path d="M22 38h70M22 50h96M22 62h58"/></g><rect x="22" y="72" width="44" height="10" rx="5" fill="var(--err)" opacity=".8"/></svg>`;
+  return `<div class="thumb">${art}<div class="tc"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span><small>${size}</small></div></div>`;
+};
+const fchip=(name,size,cls='',x=false)=>`<span class="file ${cls}"><span class="fi">${ic('file',14)}</span>${name}<small>${size}</small>${x?`<span class="x">${ic('x',12)}</span>`:''}</span>`;
+const userAttach=()=>`<div class="turn user"><div class="av">你</div><div><div class="who-r"><b>你</b><span class="time">14:20</span><span class="tag">5 个附件</span></div><div class="ubody">
+ <div class="thumbs">${thumb('chart','q4-sales-chart.png','412 KB')}${thumb('shot','报错截图.png','1.8 MB')}</div>
+ <div class="files">${fchip('合同草案.pdf','318 KB','pdf')}${fchip('销售数据.csv','186 KB')}${fchip('评审意见.md','12 KB','md')}</div>
+ <div>对照图表和合同草案，看看第四季度的数据有没有和条款第 6 条冲突，并解释截图里的报错。</div></div></div></div>`;
+const aiAttach=(short)=>aiTurn(`<div class="abody"><p>已查看 2 张图片和 3 个文件。结论：</p><ul><li>图表中 Q4 为全年峰值，与 CSV 的 536.3 万元一致。</li><li>合同第 6 条按季度计，Q4 没有冲突。</li>${short?'':'<li>截图报错是日期列格式不统一，见 <b>销售数据.csv</b> 第 214、215 行。</li>'}</ul></div>`,aiActs('1 / 1'),aiWho().replace('14:02','14:21'));
+const pendingFiles=`${fchip('报错截图.png','1.8 MB','',true)}${fchip('评审意见.md','12 KB','md',true)}${fchip('合同草案.pdf','318 KB','pdf',true)}`;
+const rejectLine=`<div class="reject">${ic('alert',14)}<div><b style="color:var(--err)">年度报告.pdf 未添加</b> <span>超过 512 KB。文件上限 512 KB，图片上限 4 MB，最多 8 个附件。</span></div></div>`;
+const cmpAttach=(w)=>`<div class="composer" style="${w||''}"><div class="cbox"><div class="cfiles">${pendingFiles}</div>${rejectLine}
+ <div class="cin has">再把第 6 条的原文贴出来对比一下。</div>
+ <div class="cbar"><span class="ico-btn">${ic('clip',17)}</span>${modelChip(false)}${thinkChip(false)}${webChip(false)}<span class="ico-btn">${ic('sliders',17)}</span><span class="quota">3/8</span><span class="csp"></span><span class="send">${ic('send',18)}</span></div></div>
+ <div class="cfoot"><span>附件保存在本浏览器草稿中，发送后上传</span><span class="okc">${ic('check',12)}草稿已自动保存</span></div></div>`;
+const turnInterrupted=(withUser=true)=>(withUser?`<div class="turn user"><div class="av">你</div><div><div class="who-r"><b>你</b><span class="time">14:05</span></div><div class="ubody"><div>把第三季度的异常订单列出来。</div></div></div></div>\n `:'')+`<div class="turn ai"><div class="av">球</div><div><div class="who-r"><b>${MODEL}</b><span class="tag err">已中断</span><span class="time">14:05</span></div>
+ <div class="abody"><p>第三季度有 3 类异常订单：退款后重新下单的重复订单（42 笔）、金额为 0 的赠品订单（17 笔）、以及</p>
+ <div class="banner warn">${ic('wifi',16)}<div class="bt"><b>连接中断，已保存已生成的 74 字</b><br><span>服务端已把这部分保存为一条回复。直接发送新消息即可继续，这部分会作为上下文。</span><div class="btns"><span class="btn pri">${ic('redo',13)}同步会话</span></div></div></div>
+ <div class="runid">run_5b1e…09 · 已保存部分内容 · 运行详情</div></div></div></div>`;
+const turnFailed=()=>`<div class="turn user"><div class="av">你</div><div><div class="who-r"><b>你</b><span class="time">14:08</span></div><div class="ubody"><div>继续，并按产品线拆分这些异常订单。</div></div></div></div>
+ <div class="turn ai"><div class="av">球</div><div><div class="who-r"><b>${MODEL}</b><span class="tag err">失败</span><span class="time">14:08</span></div>
+ <div class="abody"><div class="banner err">${ic('alert',16)}<div class="bt"><b>今日请求次数已用尽，请明天再试</b><br><span>你的消息已保存，没有丢失，也没有产生回复。额度恢复后可以重试。</span><div class="btns"><span class="btn" style="opacity:.55">重试</span><span class="btn">查看用量</span></div></div></div>
+ <div class="runid">run_c2d9…e4 · 未调用模型 · 运行详情</div></div></div></div>`;
+const offlineBanner=`<div class="offline"><div class="banner warn" style="padding:8px 12px;align-items:center">${ic('wifi',16)}<div class="bt"><b>网络已断开</b> <span>· 恢复后点「同步会话」，输入框里的内容不会丢失</span></div></div></div>`;
+function deskCustom({title,thread,composerHtml,insp='',extra=''}){return `<div class="app">${rail()}<main class="main">${mhead({title,insp:!!insp})}<div class="scroll"><div class="thread">${thread}</div></div>${extra}${composerHtml}</main>${insp}</div>`;}
+
+/* ---------- desktop frames ---------- */
+function deskFrame({insp='',composerHtml,extra=''}){
+  return `<div class="app">${rail()}<main class="main">${mhead({insp:!!insp})}
+   <div class="scroll"><div class="thread">${userTurn('帮我按季度汇总这份销售数据，给出环比，并指出异常的季度。')}${aiTurn()}</div></div>
+   ${composerHtml}${extra}</main>${insp}</div>`;
+}
+const fit=(w,h,inner,cls='')=>`<div class="fit ${cls}" style="--w:${w};--h:${h}" data-w="${w}" data-h="${h}"><div class="fit-in">${inner}</div></div>`;
+
+document.getElementById('desk-frames').innerHTML=[
+ ['D1 · 默认对话，检视器关闭',deskFrame({composerHtml:composer2()})],
+ ['D2 · 检视器「运行」：选中回复的运行详情',deskFrame({insp:inspRun(),composerHtml:composer2()})],
+ ['D3 · 检视器「设置」：此会话与我的默认',deskFrame({insp:inspSettings(),composerHtml:composer2()})],
+ ['D4 · 长代码：行号、横向滚动、折叠与展开',deskCustom({title:'fetch 重试封装',thread:userTurn('写一个带重试和取消的 fetch 封装，TypeScript。',false,'14:12')+aiTurn(`<div class="abody"><p>下面是一个支持指数退避和取消的封装，只对幂等请求自动重试：</p>${codeLong()}<p>调用时传入 <b>AbortSignal</b> 即可取消，退避等待期间也会立刻响应取消。</p></div>`,aiActs('1 / 1'),aiWho().replace('14:02','14:12')),composerHtml:composer2()})],
+ ['D5 · 附件：已发送的图片与文件，待发送的附件与被拒绝的文件',deskCustom({title:'合同与销量对照',thread:userAttach()+aiAttach(),composerHtml:cmpAttach()})],
+ ['D6 · 错误状态：连接中断（已保存部分内容）、失败（未产生回复）、离线',deskCustom({title:'异常订单排查',thread:turnInterrupted()+turnFailed(),extra:offlineBanner,composerHtml:composer2({draft:'继续，并按产品线拆分这些异常订单。',foot:'<span>这条消息已放回输入框，没有丢失</span><span class="okc">'+ic('check',12)+'草稿已自动保存</span>'})})]
+].map(([c,h])=>`<div><p class="cap">${c}</p>${fit(1280,800,h)}</div>`).join('');
+
+/* ---------- mobile ---------- */
+const sbar=`<div class="status"><span>9:41</span><span style="font-weight:500;font-size:12px">5G ▮▮▮</span></div>`;
+const mtop=(title='销售数据季度汇总')=>`<div class="mtop"><span class="ico-btn" style="width:40px;height:40px">${ic('menu',20)}</span><div class="mt"><b>${title}</b><span class="mm">${MODEL}${ic('chev',12)}</span></div><span class="ico-btn" style="width:40px;height:40px">${ic('more',20)}</span></div>`;
+function mcomp({draft='',send='send',files='',open=''}={}){
+  return `<div class="mcomp"><div class="cbox"><div class="cfiles" style="${files?'':'display:none'}">${files}</div>
+   <div class="cin ${draft?'has':''}">${draft||'输入消息'}</div>
+   <div class="cbar"><span class="ico-btn">${ic('clip',18)}</span>${thinkChip(open==='think')}${webChip(open==='web')}<span class="csp"></span><span class="send ${send==='stop'?'stop':''}">${ic(send==='stop'?'stop':'send',18)}</span></div></div></div><div class="homebar"></div>`;
+}
+const mAnswerShort=`<div class="abody"><p>已读取 <b>销售数据.csv</b>（1,248 行）。按季度汇总：</p>
+ <div class="tbl"><table><thead><tr><th>季度</th><th class="n">销售额</th><th class="n">环比</th></tr></thead><tbody>
+ <tr><td>Q1</td><td class="n">412.6</td><td class="n">—</td></tr><tr><td>Q2</td><td class="n">468.1</td><td class="n pos">+13.5%</td></tr>
+ <tr><td>Q3</td><td class="n">441.9</td><td class="n neg">−5.6%</td></tr><tr><td>Q4</td><td class="n">536.3</td><td class="n pos">+21.4%</td></tr></tbody></table></div>
+ <p>全年 1,858.9 万元，第四季度占 28.9%。</p></div>`;
+const mthread=(ai=aiTurn(mAnswerShort,aiActs()))=>`<div class="mscroll">${userTurn('帮我按季度汇总这份销售数据，给出环比。')}${ai}</div>`;
+const phoneBase=(inner,over='')=>`<div class="phone-app">${sbar}${inner}${over}</div>`;
+
+const mModelSheet=`<div class="dim"></div><div class="sheet"><div class="grab"></div><div class="sh-t"><span>选择模型</span><span class="ico-btn">${ic('x',18)}</span></div>
+ <div class="pop" style="border:0;box-shadow:none;padding:0;max-height:430px;overflow:hidden">
+ ${opt('Gemini 3.8 Flash','快速多模态，适合日常对话',{sel:true,caps:cap('思考 低/中/高')+cap('上下文 1M')})}
+ ${opt('Gemini 4 Argon','能力更强',{caps:cap('思考 低/中/高')+cap('上下文 1M')})}
+ ${opt('DeepSeek V4 Flash','快速，可关闭思考',{caps:cap('思考 关闭/高/最大')+cap('可调温度')})}
+ ${opt('DeepSeek V4 Pro','更强推理',{caps:cap('思考 关闭/高/最大')+cap('可调温度')})}
+ <div class="pf">切换只影响之后发送的消息。</div></div></div>`;
+const mSettingsSheet=`<div class="dim"></div><div class="sheet"><div class="grab"></div><div class="sh-t"><span>对话设置</span><span class="ico-btn">${ic('x',18)}</span></div>
+ <span class="seg full"><span class="on">此会话</span><span>我的默认</span></span>
+ <div class="frow" style="padding:8px 0"><div class="fl">思考<i>重置</i></div><span class="seg full"><span>低</span><span class="on">中</span><span>高</span></span></div>
+ <div class="frow" style="padding:8px 0"><div class="fl">联网</div><span class="seg full"><span>关闭</span><span class="on">自动</span><span>强制查证</span></span></div>
+ <div class="adv"><div class="sm"><span>高级</span>${ic('chevu',14)}</div><div class="ab">
+  <div class="frow" style="padding:8px 0"><div class="fl">温度 / Top-P</div><div class="field off"><span>此模型不可用</span></div></div>
+  <div class="frow" style="padding:8px 0"><div class="fl">最大输出 token</div><div class="field">16384</div></div>
+  <div class="frow" style="padding:8px 0"><div class="fl">内容过滤</div><div class="field">跟随服务器策略${ic('chev',14)}</div></div></div></div>
+ <div class="btns" style="margin:0"><span class="btn" style="flex:1;justify-content:center">存为我的默认</span><span class="btn pri" style="flex:1;justify-content:center">完成</span></div></div>`;
+const mDrawer=`<div class="dim"></div><div class="drawer">
+ <div class="brand"><div class="bmark">球</div><div class="grow"><b>球球布丁</b><span>工作室</span></div></div>
+ <div class="new">${ic('plus',16)}新对话</div><div class="search">${ic('search',15)}搜索会话</div>
+ <div class="clist">
+  <div class="cg">今天</div>
+  <div class="ci on"><div class="ci-main"><div class="ci-t">销售数据季度汇总</div><div class="ci-s">${MODEL} · 14:02</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+  <div class="ci"><div class="ci-main"><div class="ci-t"><span class="dot-run"></span>合同条款审阅</div><div class="ci-s">DeepSeek V4 Pro · 生成中</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+  <div class="ci"><div class="ci-main"><div class="ci-t">周报润色<span class="tag draft">草稿</span></div><div class="ci-s">${MODEL} · 10:15</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+  <div class="cg">昨天</div>
+  <div class="ci"><div class="ci-main"><div class="ci-t">SQL 慢查询排查</div><div class="ci-s">Gemini 4 Argon · 昨天 21:08</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+  <div class="ci"><div class="ci-main"><div class="ci-t">三份访谈稿的长文摘要</div><div class="ci-s">Kimi · 昨天 16:40</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+  <div class="cg">过去 7 天</div>
+  <div class="ci"><div class="ci-main"><div class="ci-t">API 错误码整理</div><div class="ci-s">${MODEL} · 周二</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+ </div>
+ <div class="rfoot"><div class="avatar">T</div><div class="who"><b>you@example.com</b>我的默认设置</div><span class="ico-btn">${ic('sliders',16)}</span></div></div>`;
+const genAi=`<div class="turn ai"><div class="av">球</div><div>${aiWho().replace('<span class="time">14:02</span>','')}<div class="abody"><p>已读取 <b>销售数据.csv</b>（1,248 行）。按季度汇总如下，<span class="caret"></span></p></div>
+ <div class="gen" style="margin-top:10px"><span class="spin"></span>正在生成<span class="mono">0:07 · 已收到 41 字</span></div></div></div>`;
+const mRun=`<div class="full-sheet"><div class="status"><span>9:41</span><span style="font-weight:500;font-size:12px">5G ▮▮▮</span></div>
+ <div class="mtop"><span class="ico-btn" style="width:40px;height:40px">${ic('chevl',20)}</span><div class="mt"><b>运行详情</b><span class="mm" style="color:var(--ink-3)">第 2 次运行 / 共 2 次</span></div><span class="tag ok" style="margin-right:8px">已完成</span></div>
+ <div class="ibody"><div class="frozen">${ic('lock',14)}<span>快照在发送时生成，之后修改设置不会改变它。</span></div>
+  <div class="isec"><h4>配置</h4><div class="grid3"><div class="h">参数</div><div class="h">请求</div><div class="h">实际生效</div>
+   <div class="k">模型</div><div class="v">gemini-3.8-flash</div><div class="v">gemini-3.8-flash${B}</div>
+   <div class="k">思考</div><div class="v">中</div><div class="v">中${B}</div>
+   <div class="k">最大输出</div><div class="v">未设置</div><div class="v">8192 默认${B}</div>
+   <div class="k">温度</div><div class="v">未设置</div><div class="v">模型忽略${B}</div></div></div>
+  <div class="isec"><h4>耗时与用量</h4><div class="kv">
+   <div class="r"><span class="k">首个内容${R}</span><span class="v">0.84 s</span></div><div class="r"><span class="k">总耗时${R}</span><span class="v">6.21 s</span></div>
+   <div class="r"><span class="k">模型处理耗时</span>${unk('未上报')}</div><div class="r"><span class="k">本次 token</span>${unk()}</div>
+   <div class="r"><span class="k">会话累计${B}</span><span class="v">18,402</span></div></div></div></div>
+ <div class="ifoot" style="padding-bottom:22px"><span class="btn pri" style="flex:1;justify-content:center">用此配置重新生成</span><span class="btn">复制 JSON</span></div></div>`;
+
+const phones=[
+ ['M1 · 对话',phoneBase(mtop()+mthread()+mcomp())],
+ ['M2 · 点标题下的模型名，打开模型面板',phoneBase(mtop()+mthread()+mcomp(),mModelSheet)],
+ ['M3 · 点「思考」「联网」或设置，打开对话设置',phoneBase(mtop()+mthread()+mcomp({open:'think'}),mSettingsSheet)],
+ ['M4 · 会话抽屉',phoneBase(mtop()+mthread()+mcomp(),mDrawer)],
+ ['M5 · 生成中：发送变为停止，草稿可继续写',phoneBase(mtop('销售数据季度汇总')+`<div class="mscroll">${userTurn('帮我按季度汇总这份销售数据，给出环比。')}${genAi}</div>`+mcomp({draft:'再按产品线拆一下 Q3',send:'stop'}))],
+ ['M6 · 运行详情（整页）',phoneBase(mtop()+mthread()+mcomp(),mRun)],
+ ['M7 · 长代码：横向滚动与折叠',phoneBase(mtop('fetch 重试封装')+`<div class="mscroll">${userTurn('写一个带重试和取消的 fetch 封装，TypeScript。',false,'14:12')}${aiTurn(`<div class="abody"><p>支持指数退避和取消，只对幂等请求自动重试：</p>${codeLong(CODE.slice(0,22))}</div>`,aiActs('1 / 1'),aiWho().replace('14:02','14:12'))}</div>`+mcomp())],
+ ['M8 · 附件：缩略图与文件、待发送附件、被拒绝的文件',phoneBase(mtop('合同与销量对照')+`<div class="mscroll">${userAttach()}</div>`+`<div class="mcomp"><div class="cbox"><div class="cfiles">${fchip('报错截图.png','1.8 MB','',true)}${fchip('评审意见.md','12 KB','md',true)}</div>${rejectLine}<div class="cin has">再把第 6 条的原文贴出来。</div><div class="cbar"><span class="ico-btn">${ic('clip',18)}</span>${thinkChip(false)}${webChip(false)}<span class="quota">2/8</span><span class="csp"></span><span class="send">${ic('send',18)}</span></div></div></div><div class="homebar"></div>`)],
+ ['M9 · 错误状态：连接中断（已保存部分）、失败（未产生回复）',phoneBase(mtop('异常订单排查')+`<div class="mscroll">${turnInterrupted(false)}${turnFailed()}</div>`+mcomp({draft:'继续，并按产品线拆分这些异常订单。'}))]
+];
+document.getElementById('phones').innerHTML=phones.map(([c,h])=>`<div class="phone-col"><p class="cap">${c}</p>${fit(390,844,h,'phone')}</div>`).join('');
+
+/* ---------- state cards ---------- */
+const card=(t,rule,crop,note='',cls='')=>`<article class="scard ${cls}"><div class="sh"><h3>${t}</h3><p class="rule">${rule}</p></div><div class="crop ${crop.pad===false?'':''}">${crop.html||crop}</div>${note?`<div class="note">${note}</div>`:''}</article>`;
+const wrap=(h)=>`<div style="padding:16px;display:flex;flex-direction:column;gap:18px">${h}</div>`;
+const miniUser=(t)=>userTurn(t,false);
+const anchored=(pop,bar)=>`<div style="padding:16px 16px 12px;display:flex;flex-direction:column;gap:10px;align-items:flex-start">${pop}${bar}</div>`;
+const miniBar=(open)=>`<div class="cbox" style="width:100%"><div class="cbar" style="padding:8px 10px">${modelChip(open==='model')}${thinkChip(open==='think')}${webChip(open==='web')}<span class="csp"></span><span class="send">${ic('send',18)}</span></div></div>`;
+const partial='已读取 <b>销售数据.csv</b>（1,248 行）。按季度汇总如下：Q1 订单 3,204、销售额 412.6 万元；Q2 订单 3,587、销售额 468.1 万元，环比';
+
+const cards=[
+ card('模型选择','点输入框里的模型胶囊展开。每个模型只展示目录里真实存在的信息：思考选项、上下文长度、是否忽略采样参数。',anchored(popModel(400),miniBar('model')),'移动端同一内容以底部面板呈现（见 M2）。'),
+ card('思考与联网','两个胶囊各自展开成短列表。选项由所选模型的目录决定：Gemini 为低 / 中 / 高且不可关闭，DeepSeek 为关闭 / 高 / 最大。',
+  `<div style="padding:16px 16px 12px;display:flex;flex-direction:column;gap:12px;align-items:flex-start"><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">${popThink()}${popWeb()}</div>${miniBar('think')}</div>`),
+ card('生成中','<b>只显示已被证实的信息。</b>发送后统一显示「正在生成」，附浏览器本地计时和已收到的字数。没有后端阶段事件，就不显示「读取附件 / 搜索 / 思考 / 写作」。发送键变为停止键，输入框仍可写下一条草稿但不可发送。',
+  wrap(`${miniUser('帮我按季度汇总这份销售数据，给出环比。')}${genAi}`) + `<div style="padding:0 0 4px">${composer2({draft:'再按产品线拆一下 Q3',send:'stop',hint:'生成中，可先写草稿',foot:'<span>停止后已生成的内容会被保存</span><span class="okc">'+ic('check',12)+'草稿已自动保存</span>'})}</div>`),
+ card('收到后端事件后的生成中','只有当流里确实出现思考内容或引用时，才在回复上方增加对应的一行。这些是已收到的事实，不是预测的步骤。',
+  wrap(`<div class="turn ai"><div class="av">球</div><div>${aiWho().replace('<span class="time">14:02</span>','')}
+   <div class="abody"><div class="think"><div class="th">${ic('spark',14)}已收到思考内容 · 1,204 字<span style="flex:1"></span>${ic('chev',14)}</div><div class="tb">先按日期列提取季度，再对金额列聚合。注意 Q3 有 14 行日期格式不一致，需要先统一……</div></div>
+   <div class="cites"><span class="cite"><i>1</i>国家统计局 · 季度数据口径</span><span class="cite"><i>2</i>行业月报 · 2026 年 Q3</span></div>
+   <p>已读取销售数据，Q3 出现回落，<span class="caret"></span></p></div>
+   <div class="gen" style="margin-top:10px"><span class="spin"></span>正在生成<span class="mono">0:12 · 已收到 18 字</span></div></div></div>`)),
+ card('停止生成','点停止后：浏览器中断请求，后端取消模型调用，<b>已生成的部分保存为一条标记为「已停止」的回复</b>。不当作错误，不弹红框。',
+  wrap(`<div class="turn ai"><div class="av">球</div><div>${aiWho()}<div class="abody"><p>${partial}</p>
+   <div class="banner info" style="padding:8px 12px">${ic('stop',14)}<div class="bt"><b>已停止</b> <span>· 已保存已生成的 74 字，之后的对话会包含这段内容</span></div></div></div>
+   <div class="acts"><span class="act">${ic('copy',14)}复制</span><span class="act">${ic('redo',14)}重新生成</span><span class="act">${ic('trash',14)}删除这条回复</span><span class="act">${ic('sliders',14)}运行详情</span></div></div></div>`),
+  '<b>链路：</b>浏览器 <code>AbortController</code> → Node 代理转发断开 → ASP.NET <code>RequestAborted</code> → 取消模型流 → 编排器保存部分内容与状态 <code>stopped</code>。当前 Node 代理没有传递断开，需要先修。'),
+ card('错误恢复','出错时保留你的消息和附件，把错误放在对应回复里，并说明<b>实际保存了什么</b>。不同原因给不同动作，不统一显示「请求失败」。',
+  wrap(`
+  <div><p class="cap" style="margin-bottom:6px">网络中断（浏览器侧，无法确认服务端状态）</p><div class="banner warn">${ic('wifi',16)}<div class="bt"><b>连接中断，已收到 74 字</b><br><span>服务端可能已保存这条回复。先「同步」确认，再决定是否重试。</span><div class="btns"><span class="btn pri">${ic('redo',13)}同步会话</span><span class="btn">重试</span></div></div></div></div>
+  <div><p class="cap" style="margin-bottom:6px">配额用尽（服务端明确拒绝）</p><div class="banner err">${ic('alert',16)}<div class="bt"><b>今日请求次数已用尽，请明天再试</b><br><span>你的消息已放回输入框，没有丢失。</span><div class="btns"><span class="btn">查看用量</span></div></div></div></div>
+  <div><p class="cap" style="margin-bottom:6px">内容过滤（服务端明确拒绝）</p><div class="banner err">${ic('alert',16)}<div class="bt"><b>当前预设或输入触发了模型安全过滤</b><br><span>可调整内容后重试，或在检视器里查看内容过滤级别。</span><div class="btns"><span class="btn pri">编辑后重试</span><span class="btn">打开设置</span></div></div></div></div>`)),
+ card('草稿保留','输入框的文字和待发送附件按会话保存在本浏览器，切换会话、刷新页面、发送失败后都会恢复。草稿不上传服务器。会话列表上有「草稿」标记。',
+  `<div style="display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);align-items:stretch">
+   <div style="padding:12px 10px;border-right:1px solid var(--line);background:var(--rail)"><div class="ci"><div class="ci-main"><div class="ci-t">周报润色<span class="tag draft">草稿</span></div><div class="ci-s">${MODEL} · 10:15</div></div></div></div>
+   <div style="padding:8px 0">${composer2({draft:'把下面这段改成更正式的口吻，保留数据：本周完成了三项……',files:csv(true),foot:'<span>切换会话再回来，内容仍在</span><span class="okc">'+ic('check',12)+'草稿已保存 · 仅此浏览器</span>',focus:true})}</div></div>`),
+ card('会话操作','整理成一个「更多」菜单：重命名、导出、删除。删除在列表里原位二次确认，不弹窗；本阶段不做批量管理。',
+  `<div style="padding:12px 10px 12px;background:var(--rail);height:290px;position:relative;display:flex;gap:10px;flex-wrap:wrap"><div style="width:240px;display:flex;flex-direction:column;gap:2px">
+   <div class="ci on menu"><div class="ci-main"><div class="ci-t">销售数据季度汇总</div><div class="ci-s">${MODEL} · 14:02</div></div><span class="ico-btn ci-more">${ic('more',16)}</span></div>
+   <div class="ci"><div class="ci-main"><div class="ci-t">周报润色</div><div class="ci-s">${MODEL} · 10:15</div></div></div></div>
+   <div class="menu">${'<div class="mi">'+ic('pen',15)+'重命名</div><div class="mi">'+ic('dl',15)+'导出 Markdown</div><div class="mi">'+ic('dl',15)+'导出 JSON</div><div class="msep"></div><div class="mi dng">'+ic('trash',15)+'删除…</div>'}</div>
+   <div style="width:240px"><div class="banner err" style="flex-direction:column;gap:8px"><div class="bt"><b>删除「周报润色」？</b><br><span>消息和附件会一并删除，无法恢复。</span></div><div class="btns" style="margin:0"><span class="btn">取消</span><span class="btn dng">删除</span></div></div></div></div>`),
+ card('新对话','新对话用「我的默认」初始化，并在输入框上方明示。点「修改」直接跳到检视器的「我的默认」。页面不再放一大片空白，最近的会话就在左侧。',
+  `<div style="padding:34px 24px 6px;display:flex;flex-direction:column;gap:14px;max-width:560px;margin:0 auto"><div class="banner info" style="align-items:center">${ic('info',16)}<div class="bt"><b>新对话将使用你的默认设置</b><br><span>${MODEL} · 思考 中 · 联网 自动</span></div><span class="btn">修改</span></div></div>${composer2({focus:true,foot:'<span>发送第一条消息后创建会话，并保存这些设置</span><span></span>'})}`)
+];
+document.getElementById('cards').innerHTML=cards.join('');
+
+/* semantics cards */
+document.getElementById('sem').innerHTML=[
+ `<article class="scard wide"><div class="sh"><h3>三层设置</h3><p class="rule">三份数据各管一件事，写入时机和可变性不同。检视器的「设置」只改前两层，「运行」只读第三层。</p></div>
+  <div class="crop"><div class="sem">
+   <div><h5>① 我的默认设置</h5>用于<b>创建新会话</b>。用户级，一份。修改后只影响之后新建的会话。
+    <pre>users/{uid}.chatDefaults
+{ providerId, modelName, presetId,
+  searchMode, thinking, advanced }</pre></div>
+   <div><h5>② 此会话设置</h5>重新打开会话时<b>恢复</b>。每次发送前以它为准，可随时修改，不改写历史。
+    <pre>conversations/{id}.settings  (可选)
+{ 同上 + customPrompt,
+  updatedAt }
+旧会话没有该字段：用 providerId /
+modelName / presetId 兜底</pre></div>
+   <div><h5>③ 每次运行的配置快照</h5>发送时由服务端生成，<b>只写一次，不可修改</b>。区分请求值与实际生效值，用于检视和复现。
+    <pre>messages/{id}.run  (可选，助手消息)
+{ requested:{…}, effective:{…},
+  status: completed|stopped|failed,
+  usage?, finishReason?, ... }
+未上报的字段不写，界面显示「未知」</pre></div>
+  </div></div></article>`,
+ `<article class="scard wide"><div class="sh"><h3>重新生成与编辑重发</h3><p class="rule">不追加重复消息，不做分支树。以「轮次」为单位，同一轮保留多个版本，上下文只取当前选中的版本。</p></div>
+  <div class="crop"><div class="sem">
+   <div><h5>重新生成</h5>只对<b>最后一轮</b>可用。同一轮新增一次运行（attempt），不新增用户消息。旧回复保留为版本，可用 ‹ 2/3 › 切换，选中的版本参与后续上下文。
+    <pre>Turn { turnId, userRevisions[],
+       runs[ {runId, status, 内容} ],
+       selectedRunId }</pre></div>
+   <div><h5>编辑重发</h5>只对<b>最后一条用户消息</b>可用。保存时新增一个用户版本并发起新运行，旧的用户版本及其回复归档，可在版本里查看，不删除。更早的消息暂不可编辑。
+    <pre>userRevisions: [ r1(原文), r2(编辑) ]
+runs 归属于某个 revision</pre></div>
+   <div><h5>与旧数据兼容</h5>旧消息没有 turnId。读取时按相邻的「用户 → 模型」配对推导，<b>不迁移、不改写</b>历史。只有新产生的重新生成和编辑才会写入新字段。
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+     <div class="ubody" style="padding:10px 12px"><div style="font-size:13px">帮我按季度汇总……，并指出异常季度。</div><div class="btns" style="margin:0"><span class="btn pri">保存并重新发送</span><span class="btn">取消</span></div></div>
+     <div class="banner info" style="padding:8px 12px">${ic('info',14)}<div class="bt"><span>将生成新版本，原回复保留为 1/2。</span></div></div></div></div>
+  </div></div></article>`
+].join('');
+
+/* ---------- fit to width ---------- */
+function toEnd(){document.querySelectorAll('.scroll,.mscroll').forEach(e=>{e.scrollTop=e.scrollHeight;});}
+function layout(){toEnd();document.querySelectorAll('.fit').forEach(f=>{const w=+f.dataset.w,h=+f.dataset.h,s=Math.min(1,f.clientWidth/w);f.firstElementChild.style.transform='scale('+s+')';f.style.height=(h*s)+'px';});}
+addEventListener('resize',layout);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(layout);
+layout();
+
+/* ---------- theme toggle ---------- */
+(function(){const b=document.getElementById('theme');const modes=['auto','light','dark'];const names={auto:'主题：跟随系统',light:'主题：浅色',dark:'主题：深色'};let i=0;
+ b.addEventListener('click',()=>{i=(i+1)%3;const m=modes[i];if(m==='auto')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',m);b.textContent=names[m];});})();
+</script>
