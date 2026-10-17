@@ -40,7 +40,7 @@ export function ModelPicker({ workspace, settings, onChange, variant }: Props) {
       <div className="model-list" role="listbox" aria-label="模型">
         {workspace.providers.map(group => (
           <div key={group.provider.id} role="group" aria-label={group.provider.name}>
-            {workspace.providers.length > 1 && <h3 className="group">{group.provider.name}</h3>}
+            {workspace.providers.length > 1 && <div className="group" aria-hidden="true">{group.provider.name}</div>}
             {group.models.map(model => {
               const selected = group.provider.id === settings.providerId && model.modelName === settings.modelName;
               return (
