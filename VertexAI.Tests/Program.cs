@@ -36,8 +36,15 @@ var tests = new (string Name, Action Test)[]
     ("Run record: A stopped run keeps a labelled estimate and leaves the rest unknown", RunRecordTests.AStoppedRunKeepsAnEstimateLabelledAsOneAndLeavesTheRestUnknown),
     ("Run record: A run that never reached the provider has no effective, usage or calls", RunRecordTests.ARunThatNeverReachedTheProviderHasNoEffectiveUsageOrCalls),
     ("Run record: A failed run keeps its call count and no invented usage", RunRecordTests.AFailedRunWithPartialTextStillKeepsItsEndingAndCounts),
+    ("Settings: Defaults are stored per account and never carry a prompt", SettingsTests.DefaultsAreStoredPerAccountAndNeverCarryAPrompt),
+    ("Settings: Settings that do not fit the model are refused, not saved", SettingsTests.SettingsThatDoNotFitTheModelAreRefusedNotSaved),
+    ("Settings: A conversation keeps its own settings and only its owner can change them", SettingsTests.AConversationKeepsItsOwnSettingsAndOnlyItsOwner),
+    ("Settings: A run keeps its own copy whatever is changed afterwards", SettingsTests.ARunKeepsItsOwnCopyWhateverIsChangedAfterwards),
+    ("Settings: A conversation from before settings existed falls back to its older columns", SettingsTests.AConversationFromBeforeSettingsExistedFallsBackToItsOlderColumns),
+    ("Settings: Routes are dark until enabled and need a signed-in user", SettingsTests.SettingsRoutesAreDarkUntilEnabledAndNeedASignedInUser),
     ("Run endpoints: Citations are stored with the reply once each and returned on reload", RunEndpointTests.CitationsAreStoredWithTheReplyOnceEachAndReturnedOnReload),
     ("Run lifecycle: Concurrent sends of one run execute exactly once", RunLifecycleTests.ConcurrentSendsOfOneRunExecuteExactlyOnce),
+    ("Run lifecycle: Sends from several instances still execute exactly once", RunLifecycleTests.SendsFromSeveralInstancesStillExecuteExactlyOnce),
     ("Run lifecycle: Replay of a finished run reports it without executing", RunLifecycleTests.ReplayOfAFinishedRunReportsItWithoutExecuting),
     ("Run lifecycle: Conflicting or foreign run ids are refused", RunLifecycleTests.ConflictingOrForeignRunIdsAreRefused),
     ("Run lifecycle: Stop ends the run and keeps what was generated", RunLifecycleTests.StopEndsTheRunAndKeepsWhatWasGenerated),
@@ -119,8 +126,18 @@ var tests = new (string Name, Action Test)[]
 var failures = new List<string>();
 var skippedCount = 0;
 
+// Debug aids: TEST_FILTER runs only tests whose name contains the text; TEST_REPEAT repeats each selected test.
+var filter = Environment.GetEnvironmentVariable("TEST_FILTER");
+var repeat = int.TryParse(Environment.GetEnvironmentVariable("TEST_REPEAT"), out var times) && times > 1 ? times : 1;
+if (!string.IsNullOrEmpty(filter))
+{
+    tests = tests.Where(t => t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+        .SelectMany(t => Enumerable.Repeat(t, repeat)).ToArray();
+}
+
 foreach (var (name, test) in tests)
 {
+    var watch = System.Diagnostics.Stopwatch.StartNew();
     try
     {
         // A wedged call (for example to the emulator) must fail loudly and by name instead of hanging the run.
@@ -138,7 +155,7 @@ foreach (var (name, test) in tests)
         }
 
         if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
-        Console.WriteLine($"PASS {name}");
+        Console.WriteLine($"PASS {name} ({watch.Elapsed.TotalSeconds:F1}s)");
     }
     catch (Exception ex) when (ex is AggregateException { InnerException: TestSkippedException } aggregate)
     {

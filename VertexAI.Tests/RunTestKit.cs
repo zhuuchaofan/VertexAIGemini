@@ -38,18 +38,26 @@ internal sealed class ModelProbe
 internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, IChatRunTelemetrySource
 {
     public ChatRunTelemetry Telemetry { get; } = new();
-    public ChatEffectiveOptions Effective { get; } =
-        new("scripted", "default", true, "medium", null, 1, 0.9, 8192, "BlockMediumAndAbove");
+    public ChatEffectiveOptions Effective => new(_model, _preset, true, "medium", null, 1, 0.9, 8192, "BlockMediumAndAbove");
     private IReadOnlyList<ChatHistoryEntry> _history = [];
 
     public int CurrentTokenCount { get; private set; }
-    public string CurrentModelName => "scripted";
-    public string CurrentPresetId => "default";
-    public string CurrentCustomPrompt => "";
+    private string _model = "scripted";
+    private string _preset = "default";
+    private string _custom = "";
+    public string CurrentModelName => _model;
+    public string CurrentPresetId => _preset;
+    public string CurrentCustomPrompt => _custom;
     public IReadOnlyList<ChatModelOption> ModelOptions { get; } = [new() { Name = "Scripted", ModelName = "scripted" }];
     public IReadOnlyList<PromptPresetConfig> Presets { get; } = [new() { Id = "default", Name = "Default" }];
 
-    public Task ConfigureAsync(ChatSessionOptions? options) => Task.CompletedTask;
+    public Task ConfigureAsync(ChatSessionOptions? options)
+    {
+        if (!string.IsNullOrWhiteSpace(options?.ModelName)) _model = options.ModelName;
+        if (!string.IsNullOrWhiteSpace(options?.PresetId)) _preset = options.PresetId;
+        _custom = _preset == "custom" ? options?.CustomPrompt ?? "" : "";
+        return Task.CompletedTask;
+    }
 
     public Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages)
     {
@@ -135,9 +143,41 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
     }
 }
 
+/// <summary>A provider with three models that differ in what they support, so settings can be validated against them.</summary>
+internal sealed class ScriptedProvider : IChatModelProvider
+{
+    public ChatProviderInfo Info { get; } = new("scripted", "Scripted", "tests");
+    public IReadOnlyList<ChatModelOption> ModelOptions { get; } =
+    [
+        new() { Name = "Scripted", ModelName = "scripted", MaxTokens = 4096 },
+        new()
+        {
+            Name = "Scripted Levels", ModelName = "scripted-levels", SupportsSampling = false, SupportsThinking = true, MaxTokens = 8192,
+            Thinking = new ChatThinkingConfig
+            {
+                Kind = "gemini-level", CanDisable = false, Default = "medium",
+                Options = [new() { Value = "low", Label = "low" }, new() { Value = "medium", Label = "medium" }, new() { Value = "high", Label = "high" }]
+            }
+        },
+        new()
+        {
+            Name = "Scripted Budget", ModelName = "scripted-budget", SupportsThinking = true, MaxTokens = 8192,
+            Thinking = new ChatThinkingConfig { Kind = "qwen-budget", CanDisable = true, Default = "on", Budgets = [500, 2000], DefaultBudget = 2000 }
+        }
+    ];
+    public IReadOnlyList<PromptPresetConfig> Presets { get; } =
+    [
+        new() { Id = "default", Name = "Default" },
+        new() { Id = "custom", Name = "Custom" }
+    ];
+    public string DefaultModelName => "scripted";
+    public string DefaultPresetId => "default";
+    public IChatModelClient CreateClient() => throw new NotSupportedException("the catalog creates clients");
+}
+
 internal sealed class ScriptedCatalog(ModelProbe probe) : IChatProviderCatalog
 {
-    public IReadOnlyList<IChatModelProvider> Providers { get; } = [];
+    public IReadOnlyList<IChatModelProvider> Providers { get; } = [new ScriptedProvider()];
     public string ResolveProviderId(string? providerId) => providerId ?? "scripted";
     public IChatModelClient CreateClient(string? providerId) => new ScriptedModelClient(probe);
 }
@@ -181,7 +221,8 @@ internal sealed class RunHarness
             StopPollMilliseconds = 100,
             DisconnectGraceMilliseconds = 400,
             MaxDurationSeconds = 60,
-            FinalizeTimeoutSeconds = 10
+            FinalizeTimeoutSeconds = 10,
+            AdmitTimeoutSeconds = 5
         };
         configure?.Invoke(Settings);
 

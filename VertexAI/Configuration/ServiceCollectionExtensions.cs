@@ -98,6 +98,7 @@ public static class ServiceCollectionExtensions
         services.Configure<RunSettings>(configuration.GetSection("Runs"));
         services.AddSingleton<RunCancellationRegistry>();
         services.AddScoped<IRunStore, FirestoreRunStore>();
+        services.AddScoped<ISettingsStore, FirestoreSettingsStore>();
         services.AddScoped<RunService>();
 
         return services;

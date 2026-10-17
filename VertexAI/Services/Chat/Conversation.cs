@@ -10,6 +10,9 @@ public sealed class Conversation
     public string PresetId { get; set; } = "default";
     public string? CustomPrompt { get; set; }
     public string? HistorySummary { get; set; }
+
+    /// <summary>The conversation's own settings layer. Absent on conversations created before settings were kept.</summary>
+    public VertexAI.Services.Runs.ChatSettingsDocument? Settings { get; set; }
     public int TokenCount { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

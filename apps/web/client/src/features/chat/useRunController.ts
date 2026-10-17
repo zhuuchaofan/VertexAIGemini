@@ -182,6 +182,12 @@ export function useRunController(options: RunControllerOptions): RunController {
             if (!result.done) dispatch({ type: "streamEnded" });
             return;
           } catch (error) {
+            if (error instanceof ApiError && error.code === "retry_with_same_run_id" && attempt < SEND_RETRIES && !abort.signal.aborted) {
+              // The server could not tell whether it accepted the run; asking again with the same id is exactly what it wants.
+              await sleep(500 * (attempt + 1));
+              continue;
+            }
+
             if (error instanceof ApiError) {
               pending.clear(conversationId);
               dispatch({ type: "apiFailed", status: error.status, error });

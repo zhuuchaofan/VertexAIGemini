@@ -44,6 +44,8 @@ internal static class RunEndpointTests
             builder.Services.AddSingleton<IOptions<RunSettings>>(Options.Create(harness.Settings));
             builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
             builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
+            builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+            builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
             _app = builder.Build();
             _app.MapRunEndpoints();
             _app.StartAsync().GetAwaiter().GetResult();

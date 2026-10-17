@@ -32,6 +32,25 @@ describe("useRunController", () => {
     expect(api.createCalls).toEqual([{ runId: "run-1", conversationId: "conv-1", message: "hi" }]);
   });
 
+  test("a 'cannot tell yet' answer from the server is retried with the same run id", async () => {
+    const api = new FakeRunApi();
+    let calls = 0;
+    api.script = async (_request, handlers) => {
+      calls += 1;
+      if (calls === 1) throw new ApiError(503, "retry_with_same_run_id", "retry", true);
+      handlers.onRun(snapshot());
+      handlers.onDone(snapshot({ status: "completed", hasAssistantMessage: true, outputChars: 2 }));
+      return { started: true, done: true };
+    };
+    const { result } = setup(api);
+
+    await act(() => result.current.send("hi"));
+
+    expect(api.createCalls.map(call => call.runId)).toEqual(["run-1", "run-1"]);
+    expect(result.current.state.phase).toBe("finished");
+    expect(result.current.state.notice).toBeNull();
+  });
+
   test("two clicks in the same tick create exactly one run", async () => {
     const api = new FakeRunApi();
     let release!: () => void;

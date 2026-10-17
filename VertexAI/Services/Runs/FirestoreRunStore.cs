@@ -33,14 +33,16 @@ public sealed class FirestoreRunStore : IRunStore
 
     public async Task<AdmitResult> AdmitAsync(AdmitRequest request, CancellationToken cancellationToken)
     {
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        attempt.CancelAfter(TimeSpan.FromSeconds(_settings.AdmitTimeoutSeconds));
         try
         {
             var decision = await _db.RunTransactionAsync(
-                transaction => DecideAsync(transaction, request, cancellationToken),
-                cancellationToken: cancellationToken);
+                transaction => DecideAsync(transaction, request, attempt.Token),
+                cancellationToken: attempt.Token);
             return decision;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -152,7 +154,13 @@ public sealed class FirestoreRunStore : IRunStore
             var update = new Dictionary<string, object>
             {
                 [FirestoreConversationSchema.LastRunId] = request.RunId,
-                [FirestoreConversationSchema.UpdatedAt] = Timestamp.FromDateTime(now)
+                [FirestoreConversationSchema.UpdatedAt] = Timestamp.FromDateTime(now),
+                // The next time this conversation opens, it opens on what the last send actually used.
+                [FirestoreConversationSchema.SettingsMap] = SettingsMapper.ToMap(ChatSettingsDocument.FromRequested(request.Requested, now), now),
+                [FirestoreConversationSchema.ProviderId] = request.Requested.ProviderId,
+                [FirestoreConversationSchema.ModelName] = request.ModelName,
+                [FirestoreConversationSchema.PresetId] = request.PresetId,
+                [FirestoreConversationSchema.CustomPrompt] = request.CustomPrompt ?? (object)FieldValue.Delete
             };
             if (admitted) update[FirestoreConversationSchema.ActiveRunId] = request.RunId;
             if (!conversationSnapshot.TryGetValue<string>(FirestoreConversationSchema.Title, out var title)
@@ -179,6 +187,7 @@ public sealed class FirestoreRunStore : IRunStore
             };
             var document = FirestoreConversationMapper.ToDocument(conversation, uid);
             document[FirestoreConversationSchema.LastRunId] = request.RunId;
+            document[FirestoreConversationSchema.SettingsMap] = SettingsMapper.ToMap(ChatSettingsDocument.FromRequested(request.Requested, now), now);
             if (admitted) document[FirestoreConversationSchema.ActiveRunId] = request.RunId;
             transaction.Create(conversationRef, document);
         }

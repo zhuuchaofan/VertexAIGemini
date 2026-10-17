@@ -65,6 +65,9 @@ internal static class FirestoreConversationMapper
             PresetId = ReadString(snapshot, FirestoreConversationSchema.PresetId) ?? "default",
             CustomPrompt = ReadString(snapshot, FirestoreConversationSchema.CustomPrompt),
             HistorySummary = ReadString(snapshot, FirestoreConversationSchema.HistorySummary),
+            Settings = snapshot.TryGetValue<Dictionary<string, object>>(FirestoreConversationSchema.SettingsMap, out var settings)
+                ? VertexAI.Services.Runs.SettingsMapper.FromMap(settings)
+                : null,
             TokenCount = ReadInt(snapshot, FirestoreConversationSchema.TokenCount),
             CreatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.CreatedAt),
             UpdatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.UpdatedAt)

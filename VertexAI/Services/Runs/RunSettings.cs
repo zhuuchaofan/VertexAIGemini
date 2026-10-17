@@ -25,6 +25,12 @@ public sealed class RunSettings
 
     public int FinalizeTimeoutSeconds { get; set; } = 15;
 
+    /// <summary>
+    /// Longest one admission attempt may wait on storage. Contended transactions can queue behind each other for a long
+    /// time; past this the attempt is read back and, if it did not commit, reported as retryable with the same run id.
+    /// </summary>
+    public int AdmitTimeoutSeconds { get; set; } = 20;
+
     /// <summary>The newest N completed turns are sent to the model as context.</summary>
     public int MaxHistoryTurns { get; set; } = 10;
 

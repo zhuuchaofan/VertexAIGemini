@@ -21,6 +21,58 @@ public static class RunEndpoints
         group.MapPost("/runs/{runId}/stop", StopRunAsync);
         group.MapGet("/runs/{runId}", GetRunAsync);
         group.MapGet("/conversations/{conversationId:guid}", GetConversationAsync);
+        group.MapGet("/me/settings", GetDefaultsAsync);
+        group.MapPut("/me/settings", PutDefaultsAsync);
+        group.MapPut("/conversations/{conversationId:guid}/settings", PutConversationSettingsAsync);
+    }
+
+    // ------------------------------------------------------------------------------------------------ settings
+
+    private static async Task GetDefaultsAsync(
+        HttpContext context, IUserContext users, ISettingsStore store, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var defaults = await store.GetDefaultsAsync(user, context.RequestAborted);
+        await context.Response.WriteAsJsonAsync(new { defaults }, Json);
+    }
+
+    private static async Task PutDefaultsAsync(
+        ChatSettingsDocument? body, HttpContext context, IUserContext users, ISettingsStore store,
+        IChatProviderCatalog catalog, GeminiSafetyPolicy safety, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var (settings, error) = SettingsValidator.Validate(body, catalog, safety, user, includeCustomPrompt: false);
+        if (settings == null) { await Error(context, StatusCodes.Status400BadRequest, "invalid_settings", error ?? "invalid settings"); return; }
+
+        await store.SetDefaultsAsync(user, settings, context.RequestAborted);
+        await context.Response.WriteAsJsonAsync(new { defaults = await store.GetDefaultsAsync(user, context.RequestAborted) }, Json);
+    }
+
+    private static async Task PutConversationSettingsAsync(
+        Guid conversationId, ChatSettingsDocument? body, HttpContext context, IUserContext users, ISettingsStore store,
+        IChatProviderCatalog catalog, GeminiSafetyPolicy safety, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var (settings, error) = SettingsValidator.Validate(body, catalog, safety, user, includeCustomPrompt: true);
+        if (settings == null) { await Error(context, StatusCodes.Status400BadRequest, "invalid_settings", error ?? "invalid settings"); return; }
+
+        if (!await store.SetConversationSettingsAsync(user, conversationId, settings, context.RequestAborted))
+        {
+            // Not yours and not there look the same.
+            await Error(context, StatusCodes.Status404NotFound, "not_found", "Conversation not found.");
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
     internal sealed record ApiRunRequest(
@@ -283,6 +335,10 @@ public static class RunEndpoints
             createdAt = conversation.CreatedAt,
             updatedAt = conversation.UpdatedAt,
             activeRunId = active?.RunId,
+            // The conversation's own settings, or what the older columns say for a conversation made before they existed.
+            settings = conversation.Settings ?? new ChatSettingsDocument(
+                conversation.ProviderId, conversation.ModelName, conversation.PresetId,
+                conversation.PresetId == "custom" ? conversation.CustomPrompt : null, null!, null, null),
             messages = conversation.Messages.OrderBy(m => m.CreatedAt).Select(m => new
             {
                 id = m.Id,

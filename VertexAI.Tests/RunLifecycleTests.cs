@@ -60,6 +60,33 @@ internal static class RunLifecycleTests
         Assert.Equal(1L, await h.UsageAsync("requests"));
     }
 
+    public static void SendsFromSeveralInstancesStillExecuteExactlyOnce() => Wait(AsyncAcross());
+    private static async Task AsyncAcross()
+    {
+        // Separate service objects share no in-process lock: only the storage transaction decides between them.
+        var h = new RunHarness();
+        var runId = RunHarness.NewRunId();
+        var conversation = Guid.NewGuid();
+        var instances = Enumerable.Range(0, 3).Select(_ => h.NewService(new RunCancellationRegistry())).ToArray();
+
+        async Task<RunOutcome> SendWithRetry(RunService service)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try { return await h.SendAsync("/ok hello", runId, conversation, service: service); }
+                catch (RunAdmissionUnavailableException) when (attempt < 10) { await Task.Delay(Random.Shared.Next(20, 250)); }
+            }
+        }
+
+        var outcomes = await Task.WhenAll(instances.SelectMany(service => Enumerable.Range(0, 2).Select(_ => Task.Run(() => SendWithRetry(service)))));
+
+        Assert.Equal(1, outcomes.Count(o => o.Result is AdmitResult.Admitted));
+        Assert.Equal(5, outcomes.Count(o => o.Result is AdmitResult.Replay));
+        Assert.Equal(1, h.Probe.StreamCalls);
+        Assert.Equal(2, (await h.MessagesAsync(conversation)).Count);
+        Assert.Equal(1L, await h.UsageAsync("requests"));
+    }
+
     public static void ReplayOfAFinishedRunReportsItWithoutExecuting() => Wait(Async2());
     private static async Task Async2()
     {

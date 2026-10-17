@@ -39,6 +39,7 @@ public sealed class RunService
     private readonly IReadOnlyList<IChatRequestAugmenter> _augmenters;
     private readonly ILogger<RunService> _logger;
     private readonly RunTestHooks? _hooks;
+    private readonly KeyedLock _admissions = new();
 
     public RunService(
         IChatProviderCatalog providers,
@@ -142,6 +143,7 @@ public sealed class RunService
         {
             try
             {
+                using var turn = await _admissions.AcquireAsync(admit.RunId, cancellationToken);
                 return await _store.AdmitAsync(admit, cancellationToken);
             }
             catch (RunAdmissionUnavailableException) when (attempt < 4)
