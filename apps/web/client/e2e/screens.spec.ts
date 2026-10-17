@@ -22,8 +22,10 @@ async function open(browser: Browser, size: keyof typeof sizes, scheme: Scheme, 
     viewport: sizes[size],
     colorScheme: scheme,
     deviceScaleFactor: 1,
-    extraHTTPHeaders: { "x-forwarded-for": `10.8.${Math.floor(Math.random() * 250)}.${tag.length}` }
+    extraHTTPHeaders: { "x-forwarded-for": `10.8.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` }
   });
+  // A clean person for each screenshot, so the history shows only what the scene itself made.
+  await context.addInitScript(name => localStorage.setItem("e2e:user", name), `shot-${tag}-${Date.now().toString(36)}`);
   const page = await context.newPage();
   await page.goto("/app/");
   await expect(composer(page)).toBeVisible();

@@ -79,3 +79,62 @@ describe("chat settings", () => {
     expect(thinkingLabel(fixed, {})).toBe("始终开启");
   });
 });
+
+import { differences, fromStored, resetSetting, toStored } from "./chatSettings";
+
+describe("stored layers", () => {
+  it("reads a stored layer over the fallback, and falls back wholesale for a model that no longer exists", () => {
+    const fallback = defaultSettings(workspace);
+    expect(fromStored(workspace, { providerId: "gone", modelName: "x" }, fallback)).toBe(fallback);
+    expect(fromStored(workspace, null, fallback)).toBe(fallback);
+
+    const read = fromStored(workspace, {
+      providerId: "other", modelName: "q", presetId: "custom", customPrompt: "be brief", searchMode: "force",
+      thinking: { enabled: false, budget: 500 }, advanced: { temperature: 0.2, maxOutputTokens: 1000 }
+    }, fallback);
+    expect(read).toMatchObject({
+      providerId: "other", modelName: "q", presetId: "custom", customPrompt: "be brief", searchMode: "force",
+      thinking: { enabled: false, budget: 500 }, advanced: { temperature: 0.2, maxOutputTokens: 1000 }
+    });
+  });
+
+  it("ignores stored options the model does not support and tolerates a layer from before settings existed", () => {
+    const fallback = defaultSettings(workspace);
+    const read = fromStored(workspace, {
+      providerId: "gemini", modelName: "g-flash", searchMode: null, presetId: null,
+      thinking: { level: "extreme" }, advanced: { temperature: 0.9, topP: 0.5, maxOutputTokens: 999999 }
+    }, fallback);
+    expect(read.searchMode).toBe("auto"); // unknown stays the default
+    expect(read.thinking).toEqual({ level: "medium" }); // a level the model does not offer
+    expect(read.advanced).toEqual({ maxOutputTokens: 65536 }); // no sampling on this model; the limit is clamped
+  });
+
+  it("stores only what the model supports, and keeps the prompt out of the defaults", () => {
+    const settings = { ...withModel(workspace, defaultSettings(workspace), "other", "q"), presetId: "custom", customPrompt: "secret", advanced: { temperature: 0.3 } };
+    const forConversation = toStored(workspace, settings, { includePrompt: true });
+    expect(forConversation).toMatchObject({ providerId: "other", modelName: "q", customPrompt: "secret", thinking: { enabled: true, budget: 2000 }, advanced: { temperature: 0.3 } });
+    expect(toStored(workspace, settings, { includePrompt: false }).customPrompt).toBeUndefined();
+
+    const onGemini = toStored(workspace, { ...defaultSettings(workspace), advanced: { temperature: 0.7 } }, { includePrompt: true });
+    expect(onGemini.advanced).toBeUndefined();
+    expect(onGemini.thinking).toEqual({ level: "medium", enabled: true });
+  });
+
+  it("lists what differs from the defaults and puts one setting back at a time", () => {
+    const defaults = defaultSettings(workspace);
+    expect(differences(workspace, defaults, defaults)).toEqual([]);
+
+    const changed = { ...defaults, searchMode: "off" as const, thinking: { level: "high" }, advanced: { maxOutputTokens: 100 } };
+    expect(differences(workspace, changed, defaults)).toEqual(["thinking", "searchMode", "maxOutputTokens"]);
+
+    const partly = resetSetting(workspace, changed, defaults, "searchMode");
+    expect(partly.searchMode).toBe("auto");
+    expect(partly.thinking).toEqual({ level: "high" });
+    expect(resetSetting(workspace, changed, defaults, "maxOutputTokens").advanced).toEqual({});
+    expect(resetSetting(workspace, changed, defaults, "thinking").thinking).toEqual({ level: "medium" });
+
+    const otherModel = withModel(workspace, defaults, "other", "q");
+    expect(differences(workspace, otherModel, defaults)).toContain("model");
+    expect(resetSetting(workspace, otherModel, defaults, "model").modelName).toBe("g-flash");
+  });
+});

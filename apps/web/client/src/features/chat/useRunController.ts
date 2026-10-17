@@ -15,10 +15,14 @@ export interface PendingStore {
   clear(conversationId: string): void;
 }
 
+/**
+ * Kept per tab (session storage), not per browser: a reload of this tab must find its own unfinished send, but another
+ * tab or window looking at the same conversation must not mistake that send for its own.
+ */
 export const localPendingStore: PendingStore = {
   load(conversationId) {
     try {
-      const raw = localStorage.getItem(`run:pending:${conversationId}`);
+      const raw = sessionStorage.getItem(`run:pending:${conversationId}`);
       return raw ? (JSON.parse(raw) as PendingRun) : null;
     } catch {
       return null;
@@ -26,14 +30,14 @@ export const localPendingStore: PendingStore = {
   },
   save(pending) {
     try {
-      localStorage.setItem(`run:pending:${pending.conversationId}`, JSON.stringify(pending));
+      sessionStorage.setItem(`run:pending:${pending.conversationId}`, JSON.stringify(pending));
     } catch {
       // storage unavailable: the run still works, it just cannot be recovered after a reload
     }
   },
   clear(conversationId) {
     try {
-      localStorage.removeItem(`run:pending:${conversationId}`);
+      sessionStorage.removeItem(`run:pending:${conversationId}`);
     } catch {
       // ignore
     }

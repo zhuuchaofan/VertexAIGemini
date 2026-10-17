@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The whole chain for real: browser -> Node proxy -> API (run service, Firestore emulator) -> mock model.
 // "/slow" makes the mock model stream a numbered line every 100 ms until it is cancelled.
@@ -13,9 +14,7 @@ async function ask(page: Page, text: string) {
   await send(page).click();
 }
 
-// Every test is a different caller as far as the rate limiter is concerned, as if they were different people.
-test.beforeEach(async ({ page }, info) => {
-  await page.context().setExtraHTTPHeaders({ "x-forwarded-for": `10.0.${info.workerIndex}.${info.testId.length}${Math.floor(Math.random() * 250)}` });
+test.beforeEach(async ({ page }) => {
   await page.goto("/app/");
   await expect(composer(page)).toBeVisible();
 });
@@ -93,7 +92,7 @@ test("a double click sends one request and creates one run", async ({ page }) =>
   await expect(page.locator(".bubble.user")).toHaveCount(1);
 });
 
-test("a second window cannot start a run in a conversation that is busy", async ({ browser, page }) => {
+test("a second window cannot start a run in a conversation that is busy", async ({ context, page }) => {
   // Make a conversation first, so it has an address the second window can open.
   await ask(page, "hello");
   await expect(page).toHaveURL(/\/app\/c\/[0-9a-f-]{36}$/);
@@ -103,13 +102,17 @@ test("a second window cannot start a run in a conversation that is busy", async 
   await ask(page, "/slow go");
   await expect(page.locator(".bubble.model").last()).toContainText("line 2", { timeout: 15_000 });
 
-  const second = await browser.newPage();
+  const second = await context.newPage(); // the same person, a second window
   await second.goto(conversationUrl);
+  await expect(second.getByRole("status")).toContainText("另一个窗口"); // it knows who is generating, not "connection lost"
   await ask(second, "second window");
   await expect(second.getByRole("alert")).toContainText("正在生成");
   await expect(composer(second)).toHaveValue("second window"); // nothing was lost
 
   await page.getByRole("button", { name: "停止" }).click();
   await expect(notes(page, "stopped")).toBeVisible();
+  // The second window picks the result up by itself once the other window's run has ended.
+  await expect(notes(second, "stopped")).toBeVisible({ timeout: 15_000 });
+  await expect(second.locator(".status")).toHaveCount(0);
   await second.close();
 });

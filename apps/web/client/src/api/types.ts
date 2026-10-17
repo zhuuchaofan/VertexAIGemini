@@ -52,6 +52,7 @@ export interface ConversationDetail {
   providerId: string;
   modelName: string;
   activeRunId: string | null;
+  settings?: StoredSettings | null;
   messages: StoredMessage[];
   runs: RunSnapshot[];
 }
@@ -144,6 +145,17 @@ export interface WorkspaceConfig {
   defaultProviderId: string;
 }
 
+/** A settings layer as the server stores it. Fields can be missing on older conversations. */
+export interface StoredSettings {
+  providerId: string;
+  modelName: string;
+  presetId?: string | null;
+  customPrompt?: string | null;
+  searchMode?: SearchMode | null;
+  thinking?: { level?: string | null; enabled?: boolean | null; budget?: number | null } | null;
+  advanced?: AdvancedOptions | null;
+}
+
 export interface AuthStatus {
   email: string;
   safetyThresholds: string[];
@@ -193,4 +205,7 @@ export interface RunApi {
   listConversations(cursor?: string | null): Promise<ConversationPage>;
   getWorkspace(): Promise<WorkspaceConfig>;
   getAuthStatus(): Promise<AuthStatus>;
+  getDefaults(): Promise<StoredSettings | null>;
+  putDefaults(settings: StoredSettings): Promise<StoredSettings | null>;
+  putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void>;
 }

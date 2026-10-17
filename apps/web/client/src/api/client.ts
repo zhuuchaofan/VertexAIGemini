@@ -12,6 +12,7 @@ import {
   type RunSnapshot,
   type RunStreamHandlers,
   type RunStreamResult,
+  type StoredSettings,
   type WorkspaceConfig
 } from "./types";
 
@@ -115,6 +116,31 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       const response = await request("/api/workspace/config");
       if (!response.ok) await fail(response);
       return (await response.json()) as WorkspaceConfig;
+    },
+
+    async getDefaults(): Promise<StoredSettings | null> {
+      const response = await request("/api/v2/me/settings");
+      if (!response.ok) await fail(response);
+      return ((await response.json()) as { defaults: StoredSettings | null }).defaults;
+    },
+
+    async putDefaults(settings: StoredSettings): Promise<StoredSettings | null> {
+      const response = await request("/api/v2/me/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settings)
+      });
+      if (!response.ok) await fail(response);
+      return ((await response.json()) as { defaults: StoredSettings | null }).defaults;
+    },
+
+    async putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void> {
+      const response = await request(`/api/v2/conversations/${conversationId}/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settings)
+      });
+      if (!response.ok) await fail(response);
     },
 
     async getAuthStatus(): Promise<AuthStatus> {

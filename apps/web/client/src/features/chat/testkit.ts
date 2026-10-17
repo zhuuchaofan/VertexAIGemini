@@ -43,6 +43,12 @@ export class FakeRunApi implements RunApi {
   async listConversations() { return { items: [], hasMore: false, nextCursor: null }; }
   async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
   async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
+  defaults: import("../../api/types").StoredSettings | null = null;
+  savedDefaults: import("../../api/types").StoredSettings[] = [];
+  savedConversationSettings: { id: string; settings: import("../../api/types").StoredSettings }[] = [];
+  async getDefaults() { return this.defaults; }
+  async putDefaults(settings: import("../../api/types").StoredSettings) { this.savedDefaults.push(settings); this.defaults = settings; return settings; }
+  async putConversationSettings(id: string, settings: import("../../api/types").StoredSettings) { this.savedConversationSettings.push({ id, settings }); }
 }
 
 // A macrotask, not a microtask: events scheduled earlier by the fake server must get to run first.

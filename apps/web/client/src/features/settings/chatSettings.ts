@@ -3,6 +3,7 @@ import type {
   ModelOption,
   RunOptions,
   SearchMode,
+  StoredSettings,
   WorkspaceConfig,
   WorkspaceProvider
 } from "../../api/types";
@@ -154,3 +155,106 @@ export function thinkingLabel(model: ModelOption | undefined, choice: ThinkingCh
 }
 
 export const searchLabels: Record<SearchMode, string> = { off: "关闭", auto: "自动", force: "强制查证" };
+
+// ---- conversion between what the server stores and what the composer works with ----
+
+
+function clean<T extends object>(value: T): T | undefined {
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined && v !== null && v !== "");
+  return entries.length > 0 ? (Object.fromEntries(entries) as T) : undefined;
+}
+
+/**
+ * Reads a stored layer on top of a fallback. A layer written by an older version, or one naming a model that no
+ * longer exists, never breaks the page: whatever is missing or unknown comes from the fallback.
+ */
+export function fromStored(workspace: WorkspaceConfig, stored: StoredSettings | null | undefined, fallback: ChatSettings): ChatSettings {
+  if (!stored || !findModel(workspace, stored.providerId, stored.modelName)) return fallback;
+  const model = findModel(workspace, stored.providerId, stored.modelName);
+  const provider = findProvider(workspace, stored.providerId);
+  const base = withModel(workspace, fallback, provider?.provider.id ?? stored.providerId, stored.modelName);
+
+  const thinking: ThinkingChoice = {
+    ...(stored.thinking?.level ? { level: stored.thinking.level } : {}),
+    ...(stored.thinking?.enabled != null ? { enabled: stored.thinking.enabled } : {}),
+    ...(stored.thinking?.budget != null ? { budget: stored.thinking.budget } : {})
+  };
+  const caps = capabilities(model);
+  const usableThinking =
+    caps.thinkingKind === "level" ? (caps.thinkingChoices.some(c => c.value === thinking.level) ? { level: thinking.level } : base.thinking)
+    : caps.thinkingKind === "toggle-budget" ? { ...base.thinking, ...thinking }
+    : base.thinking;
+
+  const presetKnown = provider?.presets.some(p => p.id === stored.presetId) ?? false;
+  return {
+    ...base,
+    presetId: presetKnown && stored.presetId ? stored.presetId : base.presetId,
+    customPrompt: stored.customPrompt ?? "",
+    searchMode: stored.searchMode === "off" || stored.searchMode === "auto" || stored.searchMode === "force" ? stored.searchMode : base.searchMode,
+    thinking: usableThinking,
+    advanced: {
+      ...(caps.sampling && stored.advanced?.temperature != null ? { temperature: stored.advanced.temperature } : {}),
+      ...(caps.sampling && stored.advanced?.topP != null ? { topP: stored.advanced.topP } : {}),
+      ...(stored.advanced?.maxOutputTokens != null ? { maxOutputTokens: Math.min(stored.advanced.maxOutputTokens, caps.maxOutputTokens) } : {}),
+      ...(stored.advanced?.safetyThreshold ? { safetyThreshold: stored.advanced.safetyThreshold } : {})
+    }
+  };
+}
+
+/** What the server is sent to store. Nothing the model does not support is included; "my defaults" carry no prompt text. */
+export function toStored(workspace: WorkspaceConfig, settings: ChatSettings, options: { includePrompt: boolean }): StoredSettings {
+  const run = toRunOptions(workspace, settings);
+  const thinking = clean({
+    level: run.thinkingLevel ?? undefined,
+    enabled: run.thinkingEnabled ?? undefined,
+    budget: run.thinkingBudget ?? undefined
+  });
+  return {
+    providerId: settings.providerId,
+    modelName: settings.modelName,
+    presetId: settings.presetId,
+    searchMode: settings.searchMode,
+    ...(options.includePrompt && settings.presetId === "custom" ? { customPrompt: settings.customPrompt } : {}),
+    ...(thinking ? { thinking } : {}),
+    ...(run.advanced ? { advanced: run.advanced } : {})
+  };
+}
+
+export type SettingKey = "model" | "thinking" | "searchMode" | "preset" | "temperature" | "topP" | "maxOutputTokens" | "safetyThreshold";
+
+/** Which settings differ from the defaults, so the panel can say so and offer to put each one back. */
+export function differences(workspace: WorkspaceConfig, settings: ChatSettings, defaults: ChatSettings): SettingKey[] {
+  const keys: SettingKey[] = [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  if (settings.providerId !== defaults.providerId || settings.modelName !== defaults.modelName) keys.push("model");
+  const mine = toRunOptions(workspace, settings);
+  const theirs = toRunOptions(workspace, withModel(workspace, defaults, settings.providerId, settings.modelName));
+  if (!same([mine.thinkingEnabled, mine.thinkingLevel, mine.thinkingBudget], [theirs.thinkingEnabled, theirs.thinkingLevel, theirs.thinkingBudget])) keys.push("thinking");
+  if (settings.searchMode !== defaults.searchMode) keys.push("searchMode");
+  if (settings.presetId !== defaults.presetId || (settings.presetId === "custom" && settings.customPrompt !== "")) keys.push("preset");
+  if (!same(settings.advanced.temperature, defaults.advanced.temperature)) keys.push("temperature");
+  if (!same(settings.advanced.topP, defaults.advanced.topP)) keys.push("topP");
+  if (!same(settings.advanced.maxOutputTokens, defaults.advanced.maxOutputTokens)) keys.push("maxOutputTokens");
+  if (!same(settings.advanced.safetyThreshold, defaults.advanced.safetyThreshold)) keys.push("safetyThreshold");
+  return keys;
+}
+
+/** Puts one setting back to the defaults' value, leaving the rest alone. */
+export function resetSetting(workspace: WorkspaceConfig, settings: ChatSettings, defaults: ChatSettings, key: SettingKey): ChatSettings {
+  switch (key) {
+    case "model":
+      return withModel(workspace, settings, defaults.providerId, defaults.modelName);
+    case "thinking":
+      return { ...settings, thinking: withModel(workspace, defaults, settings.providerId, settings.modelName).thinking };
+    case "searchMode":
+      return { ...settings, searchMode: defaults.searchMode };
+    case "preset":
+      return { ...settings, presetId: defaults.presetId, customPrompt: "" };
+    default: {
+      const advanced = { ...settings.advanced };
+      if (defaults.advanced[key] === undefined) delete advanced[key];
+      else (advanced as Record<string, unknown>)[key] = defaults.advanced[key];
+      return { ...settings, advanced };
+    }
+  }
+}

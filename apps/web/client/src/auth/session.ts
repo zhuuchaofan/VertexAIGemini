@@ -25,12 +25,26 @@ interface FirebaseAuthModule {
 }
 
 /**
+ * The development user, only in a build made for one (VITE_DEV_USER set). End-to-end tests give each test its own
+ * user through local storage, so they cannot see each other's conversations or settings. Production builds never read it.
+ */
+function readDevUser(): string | undefined {
+  const fixed = import.meta.env.VITE_DEV_USER as string | undefined;
+  if (!fixed) return undefined;
+  try {
+    return localStorage.getItem("e2e:user") ?? fixed;
+  } catch {
+    return fixed;
+  }
+}
+
+/**
  * Signs the user in and supplies request credentials. The browser only ever holds a Firebase ID token;
  * model credentials never leave the server. A development build with VITE_DEV_USER set talks to an API that runs
  * with Dev:FakeUser instead of Firebase.
  */
 export function useSession(): Session {
-  const devUser = import.meta.env.VITE_DEV_USER as string | undefined;
+  const devUser = readDevUser();
   const [status, setStatus] = useState<SessionStatus>(devUser ? "signed-in" : "loading");
   const [email, setEmail] = useState<string | null>(devUser ? `${devUser}@dev.local` : null);
   const [error, setError] = useState<string | null>(null);

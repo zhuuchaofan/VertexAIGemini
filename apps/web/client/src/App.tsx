@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { createApiClient } from "./api/client";
+import type { WorkspaceConfig } from "./api/types";
 import { useSession } from "./auth/session";
 import { ChatView } from "./features/chat/ChatView";
 import { Sidebar } from "./features/conversations/Sidebar";
+import { useDefaults } from "./features/workspace/useDefaults";
 import { useWorkspace } from "./features/workspace/useWorkspace";
 import { LoginForm } from "./LoginForm";
 import { useRoute } from "./route";
@@ -65,14 +67,29 @@ interface WorkbenchProps {
   setDrawer: (open: boolean) => void;
 }
 
-function Workbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer }: WorkbenchProps) {
-  const state = useWorkspace(api);
+function Workbench(props: WorkbenchProps) {
+  const state = useWorkspace(props.api);
 
   if (state.status === "loading") {
     return <main className="boot"><p>正在读取工作台配置…</p></main>;
   }
   if (state.status === "error") {
     return <main className="boot"><h1>球球布丁工作室</h1><p className="note err" role="alert">{state.error}</p></main>;
+  }
+
+  return <ReadyWorkbench {...props} workspace={state.workspace} safetyThresholds={state.auth.safetyThresholds} accountEmail={state.auth.email} />;
+}
+
+interface ReadyProps extends WorkbenchProps {
+  workspace: WorkspaceConfig;
+  safetyThresholds: string[];
+  accountEmail: string;
+}
+
+function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
+  const defaults = useDefaults(api, workspace);
+  if (defaults.status === "loading") {
+    return <main className="boot"><p>正在读取你的默认设置…</p></main>;
   }
 
   const conversationId = route.conversationId ?? fresh;
@@ -83,7 +100,7 @@ function Workbench({ api, email, onSignOut, route, theme, fresh, onNew, listVers
         api={api}
         activeId={route.conversationId}
         version={listVersion}
-        email={state.auth.email || email}
+        email={accountEmail || email}
         theme={theme.choice}
         onCycleTheme={theme.cycle}
         onOpen={route.openConversation}
@@ -97,7 +114,10 @@ function Workbench({ api, email, onSignOut, route, theme, fresh, onNew, listVers
           key={conversationId}
           api={api}
           conversationId={conversationId}
-          workspace={state.workspace}
+          workspace={workspace}
+          defaults={defaults.defaults}
+          onSaveDefaults={defaults.save}
+          safetyThresholds={safetyThresholds}
           onMenu={() => setDrawer(true)}
           onRunAdmitted={() => {
             if (!route.conversationId) route.openConversation(conversationId);

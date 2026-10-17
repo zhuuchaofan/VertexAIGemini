@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The workbench itself: model and option choices reach the server, markdown and code behave, sources are kept,
 // the phone layout can reach its history, and the theme sticks.
@@ -9,8 +10,7 @@ const ask = async (p: Page, text: string) => {
   await p.getByRole("button", { name: "发送" }).click();
 };
 
-test.beforeEach(async ({ page }, info) => {
-  await page.context().setExtraHTTPHeaders({ "x-forwarded-for": `10.1.${info.workerIndex}.${info.line % 250}${Math.floor(Math.random() * 9)}` });
+test.beforeEach(async ({ page }) => {
   await page.goto("/app/");
   await expect(composer(page)).toBeVisible();
 });
@@ -101,11 +101,13 @@ test("the theme can be chosen and is remembered", async ({ page }) => {
 });
 
 test("a model without thinking shows no thinking control, and the model list is keyboard reachable", async ({ page }) => {
-  await expect(page.getByRole("button", { name: /^思考/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^思考/ })).toBeVisible(); // Mock Fast has levels
   await page.locator(".model-picker .chip").focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("listbox", { name: "模型" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.getByRole("option", { name: /Mock Detailed/ }).focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("listbox", { name: "模型" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^思考/ })).toHaveCount(0); // Mock Detailed has none
   await expect(page.locator(".model-picker .chip")).toBeFocused();
 });
