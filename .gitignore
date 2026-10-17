@@ -9,3 +9,8 @@ logs/
 *.key
 appsettings.*.json
 GCPKey/
+
+# Node / Vite
+node_modules/
+apps/web/client/dist/
+apps/web/client/coverage/

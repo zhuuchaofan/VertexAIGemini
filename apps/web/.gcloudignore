@@ -3,3 +3,6 @@ npm-debug.log
 .env
 .env.*
 .DS_Store
+client/node_modules
+client/dist
+client/coverage

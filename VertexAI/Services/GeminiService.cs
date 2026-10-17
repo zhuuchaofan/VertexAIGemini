@@ -65,7 +65,9 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         _client = new Client(
             project: _projectId,
             location: config.Location,
-            vertexAI: true
+            vertexAI: true,
+            httpOptions: GeminiHttpOptions.Create(),
+            clientOptions: GeminiHttpOptions.CreateClientOptions()
         );
 
         // 初始化历史管理器

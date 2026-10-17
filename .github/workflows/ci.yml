@@ -35,8 +35,50 @@ jobs:
       - name: Run service tests
         run: dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build
 
+  api-firestore-emulator:
+    # Runs the whole API test suite against the Firestore emulator so the run-lifecycle contract tests
+    # (single-winner admission, compare-and-set finalization, lease fencing) are not skipped.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build tests
+        run: |
+          dotnet restore VertexAI.Tests/VertexAI.Tests.csproj
+          dotnet build VertexAI.Tests/VertexAI.Tests.csproj --no-restore --disable-build-servers
+
+      - name: Run service tests against the Firestore emulator
+        run: >
+          npx --yes firebase-tools@14 emulators:exec
+          --only firestore
+          --project demo-contract-tests
+          --config VertexAI.Tests/firebase.emulator.json
+          "dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build"
+
   web-test:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22, 24]
 
     steps:
       - name: Checkout
@@ -45,8 +87,56 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
 
-      - name: Run web unit tests
+      - name: Run web proxy and legacy UI tests
         working-directory: apps/web
         run: npm test
+
+  web-client:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web/client
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/client/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  web-docker:
+    # The same Dockerfile the deployment builds. Builds only, never pushes or deploys.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build web image
+        run: docker build --tag vertex-ai-web:ci apps/web
+
+      - name: Smoke test the image
+        run: |
+          docker run --detach --name web-smoke --publish 18080:8080 \
+            --env BACKEND_URL=http://127.0.0.1:9 --env DISABLE_SERVERLESS_AUTH=true vertex-ai-web:ci
+          for i in $(seq 1 20); do
+            curl --silent --fail http://127.0.0.1:18080/ >/dev/null && break
+            sleep 1
+          done
+          curl --silent --fail http://127.0.0.1:18080/ >/dev/null
+          curl --silent --fail http://127.0.0.1:18080/app/ | grep -q "球球布丁工作室"
+          docker logs web-smoke
+          docker rm --force web-smoke

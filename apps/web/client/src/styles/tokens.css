@@ -1,0 +1,63 @@
+:root {
+  --bg:#E9EDF3; --app:#F8F9FB; --rail:#EEF1F6; --panel:#FFFFFF; --panel-2:#F0F3F8; --line:#DDE3EC; --line-2:#C9D1DE;
+  --ink:#111827; --ink-2:#465169; --ink-3:#7B879D;
+  --accent:#2A4BD0; --accent-ink:#FFFFFF; --accent-soft:#E4EAFD; --accent-line:#BCC9F6;
+  --ok:#1B7F55; --ok-soft:#E2F4EB; --warn:#9A5F0B; --warn-soft:#FBF0DA; --err:#B3321F; --err-soft:#FBE7E3;
+  --font-ui: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#080B10; --app:#0E131A; --rail:#0B1016; --panel:#151B25; --panel-2:#1B2330; --line:#252F41; --line-2:#344158;
+    --ink:#E8EDF5; --ink-2:#A7B2C6; --ink-3:#74809A;
+    --accent:#8AA2FF; --accent-ink:#0A1126; --accent-soft:#1B2547; --accent-line:#33427A;
+    --ok:#5FD3A0; --ok-soft:#12291F; --warn:#E5B35C; --warn-soft:#2E2412; --err:#FF8E7C; --err-soft:#33191A;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:#080B10; --app:#0E131A; --rail:#0B1016; --panel:#151B25; --panel-2:#1B2330; --line:#252F41; --line-2:#344158;
+  --ink:#E8EDF5; --ink-2:#A7B2C6; --ink-3:#74809A;
+  --accent:#8AA2FF; --accent-ink:#0A1126; --accent-soft:#1B2547; --accent-line:#33427A;
+  --ok:#5FD3A0; --ok-soft:#12291F; --warn:#E5B35C; --warn-soft:#2E2412; --err:#FF8E7C; --err-soft:#33191A;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--app);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.boot {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.boot h1 { margin: 0; font-size: 18px; }
+.boot p { margin: 0; color: var(--ink-2); }

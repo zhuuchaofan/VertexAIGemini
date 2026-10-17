@@ -19,6 +19,15 @@ var tests = new (string Name, Action Test)[]
     ("Gemini advanced options validate ranges", GeminiAdvancedTests.ValidatesRanges),
     ("Gemini safety overrides enforce permissions", GeminiAdvancedTests.EnforcesSafetyPermissions),
     ("Gemini model catalog includes requested models", GeminiAdvancedTests.IncludesRequestedModels),
+    ("Firestore emulator: create fails when the document exists", FirestoreEmulatorContractTests.CreateFailsWhenTheDocumentAlreadyExists),
+    ("Firestore emulator: concurrent admission has exactly one winner", FirestoreEmulatorContractTests.ConcurrentAdmissionHasExactlyOneWinner),
+    ("Firestore emulator: lost acknowledgement is recognised as admitted", FirestoreEmulatorContractTests.AdmissionRetryWithTheSameExecutorIsRecognisedAsAdmitted),
+    ("Firestore emulator: concurrent finalizers are compare-and-set", FirestoreEmulatorContractTests.ConcurrentFinalizersAreCompareAndSet),
+    ("Firestore emulator: lease owner fences stale writers", FirestoreEmulatorContractTests.LeaseOwnerFencesStaleWriters),
+    ("Gemini client options allow exactly one attempt", GeminiRetryTests.ProductionOptionsAllowExactlyOneAttempt),
+    ("Gemini SDK issues exactly one upstream request per call", GeminiRetryTests.EveryCallIssuesExactlyOneUpstreamRequest),
+    ("Gemini retry harness detects retries when enabled", GeminiRetryTests.HarnessDetectsRetriesWhenTheyAreEnabled),
+    ("Gemini SDK cancellation stops the stream and closes the upstream request", GeminiRetryTests.CancellingTheTokenStopsTheStreamAndClosesTheUpstreamRequest),
     ("Gemini SDK serializes current wire values", GeminiSdkCompatibilityTests.SerializesWireValues),
     ("Gemini internal testing exposes every filter level to signed-in users", GeminiSdkCompatibilityTests.AllowsInternalTestingOverrides),
     ("Gemini current models never send disabled thinking budgets", GeminiSdkCompatibilityTests.KeepsRequiredThinkingEnabled),
@@ -56,6 +65,7 @@ var tests = new (string Name, Action Test)[]
 };
 
 var failures = new List<string>();
+var skippedCount = 0;
 
 foreach (var (name, test) in tests)
 {
@@ -63,6 +73,11 @@ foreach (var (name, test) in tests)
     {
         test();
         Console.WriteLine($"PASS {name}");
+    }
+    catch (TestSkippedException skipped)
+    {
+        skippedCount++;
+        Console.WriteLine($"SKIP {name} ({skipped.Message})");
     }
     catch (Exception ex)
     {
@@ -85,7 +100,7 @@ if (failures.Count > 0)
 }
 
 Console.WriteLine();
-Console.WriteLine($"{tests.Length} tests passed.");
+Console.WriteLine($"{tests.Length - skippedCount} tests passed, {skippedCount} skipped.");
 return 0;
 
 internal static class GeminiPartFactoryTests

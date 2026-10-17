@@ -1,3 +1,15 @@
+# Build the Vite client (served under /app/). The legacy UI in public/ needs no build.
+FROM node:24-alpine AS client-build
+
+WORKDIR /build
+
+COPY client/package.json client/package-lock.json ./
+RUN npm ci
+
+COPY client/ ./
+RUN npm run build
+
+
 FROM node:24-alpine AS runtime
 
 WORKDIR /app
@@ -5,6 +17,7 @@ WORKDIR /app
 COPY package.json ./
 COPY server.mjs ./
 COPY public ./public
+COPY --from=client-build /build/dist ./client/dist
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

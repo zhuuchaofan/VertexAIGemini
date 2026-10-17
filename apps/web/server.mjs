@@ -2,25 +2,47 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const backendUrl = resolveBackendUrl();
 const publicDir = new URL("./public/", import.meta.url);
+// The new Vite client is served under /app/. CLIENT_DIST_DIR overrides the location (used by tests).
+const clientDir = process.env.CLIENT_DIST_DIR
+  ? pathToFileURL(`${resolve(process.env.CLIENT_DIST_DIR)}/`)
+  : new URL("./client/dist/", import.meta.url);
 let serverlessTokenCache = null;
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8"
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8"
 };
 
 createServer(async (req, res) => {
   try {
     if (req.url?.startsWith("/api/")) {
       await proxyApi(req, res);
+      return;
+    }
+
+    const pathname = new URL(req.url ?? "/", "https://cloud-run.invalid").pathname;
+    if (pathname === "/app") {
+      res.writeHead(308, { location: "/app/" });
+      res.end();
+      return;
+    }
+
+    if (pathname.startsWith("/app/")) {
+      await serveStatic(req, res, clientDir, "/app");
       return;
     }
 
@@ -60,39 +82,63 @@ async function proxyApi(req, res) {
       headers.set(name, value);
     }
   }
-  await addServerlessAuthorization(headers);
 
-  const response = await fetch(target, {
-    method: req.method,
-    headers,
-    body: ["GET", "HEAD"].includes(req.method ?? "GET") ? undefined : req,
-    duplex: "half",
-    redirect: "manual"
-  });
+  // Cancel the upstream request as soon as the browser goes away, so the API sees a cancelled
+  // request (and can stop the model call) instead of writing into a dead socket until it finishes.
+  const upstream = new AbortController();
+  const abortUpstream = () => {
+    if (!res.writableFinished) upstream.abort();
+  };
+  res.on("close", abortUpstream);
 
-  res.statusCode = response.status;
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  response.headers.forEach((value, name) => {
-    if (name === "transfer-encoding" || name === "content-encoding" || name === "set-cookie") {
+  try {
+    await addServerlessAuthorization(headers);
+
+    const response = await fetch(target, {
+      method: req.method,
+      headers,
+      body: ["GET", "HEAD"].includes(req.method ?? "GET") ? undefined : req,
+      duplex: "half",
+      redirect: "manual",
+      signal: upstream.signal
+    });
+
+    res.statusCode = response.status;
+    const setCookies = response.headers.getSetCookie?.() ?? [];
+    response.headers.forEach((value, name) => {
+      if (name === "transfer-encoding" || name === "content-encoding" || name === "set-cookie") {
+        return;
+      }
+
+      res.setHeader(name, value);
+    });
+    if (setCookies.length > 0) {
+      res.setHeader("set-cookie", setCookies);
+    }
+
+    if (!response.body) {
+      res.end();
       return;
     }
 
-    res.setHeader(name, value);
-  });
-  if (setCookies.length > 0) {
-    res.setHeader("set-cookie", setCookies);
-  }
+    // Send headers now so event streams start immediately, then relay chunks as they arrive.
+    res.flushHeaders();
+    for await (const chunk of response.body) {
+      if (res.destroyed) break;
+      res.write(chunk);
+    }
 
-  if (!response.body) {
     res.end();
-    return;
+  } catch (error) {
+    // A browser disconnect is not an error: the upstream was cancelled on purpose.
+    if (upstream.signal.aborted || res.destroyed) {
+      if (!res.destroyed) res.destroy();
+      return;
+    }
+    throw error;
+  } finally {
+    res.off("close", abortUpstream);
   }
-
-  for await (const chunk of response.body) {
-    res.write(chunk);
-  }
-
-  res.end();
 }
 
 async function addServerlessAuthorization(headers) {
@@ -135,13 +181,14 @@ async function getServerlessIdentityToken() {
   }
 }
 
-async function serveStatic(req, res) {
-  const requestPath = new URL(req.url ?? "/", "https://cloud-run.invalid").pathname;
+async function serveStatic(req, res, root = publicDir, prefix = "") {
+  const fullPath = new URL(req.url ?? "/", "https://cloud-run.invalid").pathname;
+  const requestPath = prefix && fullPath.startsWith(prefix) ? fullPath.slice(prefix.length) || "/" : fullPath;
   const safePath = normalize(decodeURIComponent(requestPath)).replace(/^(\.\.[/\\])+/, "");
   const relativePath = safePath === "/" ? "index.html" : safePath.slice(1);
-  const fileUrl = new URL(join(publicDir.pathname, relativePath), "file://");
+  const fileUrl = new URL(join(root.pathname, relativePath), "file://");
 
-  if (!fileUrl.pathname.startsWith(publicDir.pathname)) {
+  if (!fileUrl.pathname.startsWith(root.pathname)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -159,19 +206,26 @@ async function serveStatic(req, res) {
       res.end("Not found");
       return;
     }
-    body = await readFile(new URL("index.html", publicDir));
+    try {
+      body = await readFile(new URL("index.html", root));
+    } catch {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
     type = contentTypes[".html"];
   }
 
-  sendStatic(req, res, body, type);
+  // Vite fingerprints everything under assets/, so those files can be cached forever.
+  sendStatic(req, res, body, type, prefix && relativePath.startsWith("assets/"));
 }
 
 // Always revalidate (ES module imports carry no version query), but answer 304 via ETag and gzip text.
-function sendStatic(req, res, body, type) {
+function sendStatic(req, res, body, type, immutable = false) {
   const etag = `"${createHash("sha1").update(body).digest("base64url")}"`;
   const headers = {
     "content-type": type,
-    "cache-control": "no-cache",
+    "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
     "etag": etag,
     "vary": "Accept-Encoding",
     "x-content-type-options": "nosniff",
