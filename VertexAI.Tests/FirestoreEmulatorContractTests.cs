@@ -124,16 +124,37 @@ internal static class FirestoreEmulatorContractTests
         // Terminal writers (executor, stop, reconciler) all use "only if still running".
         var outcomes = new[] { "completed", "stopped", "interrupted", "failed", "completed", "interrupted" };
         var winners = new System.Collections.Concurrent.ConcurrentBag<string>();
-        Task.WaitAll(outcomes.Select(outcome => Task.Run(async () =>
+        Task.WaitAll(outcomes.Select((outcome, writer) => Task.Run(async () =>
         {
-            var won = await db.RunTransactionAsync(async transaction =>
+            // Under contention the emulator may give up on a transaction ("lock timeout"). That says nothing about whether
+            // it committed, so, like the real protocol, the writer reads the state back and tries again. Each writer
+            // signs its write, so "did mine land?" has an answer.
+            for (var attempt = 0; ; attempt++)
             {
-                var snapshot = await transaction.GetSnapshotAsync(doc);
-                if (snapshot.GetValue<string>("status") != "running") return false;
-                transaction.Update(doc, new Dictionary<string, object> { ["status"] = outcome });
-                return true;
-            });
-            if (won) winners.Add(outcome);
+                try
+                {
+                    var won = await db.RunTransactionAsync(async transaction =>
+                    {
+                        var snapshot = await transaction.GetSnapshotAsync(doc);
+                        if (snapshot.GetValue<string>("status") != "running") return false;
+                        transaction.Update(doc, new Dictionary<string, object> { ["status"] = outcome, ["by"] = writer });
+                        return true;
+                    });
+                    if (won) winners.Add(outcome);
+                    return;
+                }
+                catch (Exception) when (attempt < 8)
+                {
+                    var current = await doc.GetSnapshotAsync();
+                    if (current.TryGetValue<long>("by", out var by) && by == writer)
+                    {
+                        winners.Add(outcome);
+                        return;
+                    }
+
+                    await Task.Delay(Random.Shared.Next(30, 200));
+                }
+            }
         })).ToArray());
 
         Assert.Equal(1, winners.Count);

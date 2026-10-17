@@ -41,6 +41,7 @@ internal static class SettingsTests
             builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
             builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
             builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+            builder.Services.AddSingleton<VertexAI.Services.Attachments.IChatAttachmentStore>(harness.Attachments);
             builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
             _app = builder.Build();
             _app.MapRunEndpoints();

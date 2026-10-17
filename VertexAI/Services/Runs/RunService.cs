@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VertexAI.Services.Attachments;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Quota;
@@ -20,10 +21,15 @@ public sealed record RunStartRequest(
     Guid ConversationId,
     string Message,
     string? SearchMode,
-    ChatSessionOptions Options);
+    ChatSessionOptions Options,
+    IReadOnlyCollection<ChatAttachment>? Attachments = null);
 
 /// <summary>The outcome of admission plus what execution needs. Only an <c>Admitted</c> result can be executed.</summary>
-public sealed record RunAdmission(AdmitResult Result, RunStartRequest Request, IChatModelClient? Model);
+public sealed record RunAdmission(
+    AdmitResult Result,
+    RunStartRequest Request,
+    IChatModelClient? Model,
+    IReadOnlyList<PlannedAttachment>? Attachments = null);
 
 /// <summary>
 /// The run lifecycle: admit once, check the right to call the provider, stream, and finish in exactly one terminal
@@ -39,6 +45,7 @@ public sealed class RunService
     private readonly IReadOnlyList<IChatRequestAugmenter> _augmenters;
     private readonly ILogger<RunService> _logger;
     private readonly RunTestHooks? _hooks;
+    private readonly IChatAttachmentStore _attachments;
     private readonly KeyedLock _admissions = new();
 
     public RunService(
@@ -49,9 +56,11 @@ public sealed class RunService
         ILogger<RunService> logger,
         IOptions<GeminiSettings>? gemini = null,
         IEnumerable<IChatRequestAugmenter>? augmenters = null,
-        RunTestHooks? hooks = null)
+        RunTestHooks? hooks = null,
+        IChatAttachmentStore? attachments = null)
     {
         _hooks = hooks;
+        _attachments = attachments ?? new NoOpChatAttachmentStore();
         _providers = providers;
         _store = store;
         _settings = settings.Value;
@@ -88,6 +97,9 @@ public sealed class RunService
             request.Options.ThinkingBudget,
             request.Options.Advanced);
 
+        // Planning only reads the request: nothing is written to storage before admission has chosen a winner.
+        var planned = AttachmentPlanner.Plan(request.RunId, request.ConversationId, request.Attachments, _attachments.IsEnabled);
+
         var admit = new AdmitRequest(
             request.User,
             request.RunId,
@@ -98,13 +110,14 @@ public sealed class RunService
             model.CurrentPresetId,
             requested.CustomPrompt,
             ExecutorId: Guid.NewGuid().ToString("N"),
-            RunFingerprint.Compute(request.ConversationId, request.Message, requested),
+            RunFingerprint.Compute(request.ConversationId, request.Message, requested, AttachmentPlanner.FingerprintPart(planned)),
             new ChatQuotaRequest(
                 request.User,
                 RequestCount: 1,
-                EstimatedTokens: Math.Max(1, request.Message.Length / 4),
+                EstimatedTokens: Math.Max(1, request.Message.Length / 4) + planned.Sum(p => (int)Math.Min(int.MaxValue / 8, p.Recorded.SizeBytes ?? 0) / 4),
                 SearchCount: SearchModes.EnablesWebSearch(requested.SearchMode) ? 1 : 0,
-                AttachmentBytes: 0));
+                AttachmentBytes: planned.Sum(p => p.Recorded.SizeBytes ?? 0)),
+            planned.Select(p => p.Recorded).ToList());
 
         try
         {
@@ -118,10 +131,10 @@ public sealed class RunService
                     continue;
                 }
 
-                return new RunAdmission(result, request, model);
+                return new RunAdmission(result, request, model, planned);
             }
 
-            return new RunAdmission(new AdmitResult.Busy("unknown"), request, model);
+            return new RunAdmission(new AdmitResult.Busy("unknown"), request, model, planned);
         }
         catch (OperationCanceledException)
         {
@@ -202,7 +215,7 @@ public sealed class RunService
         try
         {
             await send.Emit(new RunEvent.Started(run.Record, Replayed: false));
-            final = await RunToTerminalAsync(run, request, model, state, stop, limit, lost, linked, requestAborted, send);
+            final = await RunToTerminalAsync(run, request, model, admission.Attachments ?? [], state, stop, limit, lost, linked, requestAborted, send);
         }
         finally
         {
@@ -217,6 +230,7 @@ public sealed class RunService
         AdmittedRun run,
         RunStartRequest request,
         IChatModelClient model,
+        IReadOnlyList<PlannedAttachment> planned,
         StreamState state,
         RunCancellationRegistry.Registration stop,
         CancellationTokenSource limit,
@@ -243,6 +257,20 @@ public sealed class RunService
                 return await FinishCancelledAsync(run, state, stop, limit, lost, requestAborted, providerStarted: false);
             }
 
+            // Attachments reach storage only now, after admission chose this run's owner and before any provider contact.
+            // A failure here ends the run without ever calling the model, and gives the quota reservation back.
+            if (planned.Any(p => p.ObjectName != null))
+            {
+                var failure = await StoreAttachmentsAsync(run, planned, linked.Token);
+                if (failure != null)
+                {
+                    return await FinalizeAsync(run, state, RunStatus.Failed, RunReasons.Storage,
+                        new RunError(RunReasons.Storage, failure, true), model);
+                }
+            }
+
+            history = await WithAttachmentContentAsync(history, linked.Token);
+
             // The execution-right check. After this returns true the provider may be contacted; before it, never.
             var searchModeForRun = SearchModes.Normalize(request.SearchMode);
             var effective = DescribeEffective(model, request.Options.ProviderId, searchModeForRun);
@@ -266,7 +294,8 @@ public sealed class RunService
                 augmentation = await augmenter.AugmentAsync(context, augmentation, linked.Token);
             }
 
-            var modelRequest = new ChatModelRequest(augmentation.Message, [], searchMode);
+            var modelRequest = new ChatModelRequest(
+                augmentation.Message, AttachmentPlanner.ForModel(planned, request.Attachments), searchMode);
             await foreach (var chunk in model.StreamChatAsync(modelRequest, linked.Token))
             {
                 var offset = state.Append(chunk.Text, chunk.IsThinking);
@@ -364,6 +393,104 @@ public sealed class RunService
     }
 
     private enum BeginOutcome { Allowed, Refused, Unavailable }
+
+    /// <summary>
+    /// Writes each attachment under its content-hash name, create-only. Returns null when all are stored (and recorded as
+    /// such), or a message when one could not be: then the objects this run created are removed again.
+    /// </summary>
+    private async Task<string?> StoreAttachmentsAsync(AdmittedRun run, IReadOnlyList<PlannedAttachment> planned, CancellationToken cancellationToken)
+    {
+        var created = new List<ChatAttachment>();
+        var states = new Dictionary<int, string>();
+        string? failure = null;
+        try
+        {
+            for (var index = 0; index < planned.Count; index++)
+            {
+                var item = planned[index];
+                if (item.ObjectName == null || item.Bytes == null) continue;
+                if (await _attachments.SaveCreateOnlyAsync(item.ObjectName, item.Recorded.MimeType, item.Bytes, cancellationToken))
+                {
+                    created.Add(item.Recorded);
+                }
+
+                states[index] = AttachmentStates.Stored;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Run {RunId} could not store its attachments", run.RunId);
+            failure = "附件保存失败，没有调用模型，你的消息已保存，可以重试。";
+        }
+
+        if (failure != null)
+        {
+            // Only what this run wrote is removed; an object that was already there was never ours.
+            foreach (var attachment in created)
+            {
+                try { await _attachments.DeleteAsync(attachment, CancellationToken.None); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not remove attachment {Object}", attachment.StorageObjectName); }
+            }
+
+            for (var index = 0; index < planned.Count; index++) states[index] = AttachmentStates.Failed;
+        }
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(_settings.FinalizeTimeoutSeconds));
+            await _store.SetAttachmentStatesAsync(run, states, timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            // Unreadable state is shown as unavailable and never sent to a model; the run's own outcome stands.
+            _logger.LogWarning(ex, "Could not record attachment states for run {RunId}", run.RunId);
+            if (failure == null) failure = "附件保存状态无法确认，没有调用模型，你的消息已保存，可以重试。";
+        }
+
+        return failure;
+    }
+
+    /// <summary>Earlier turns keep their attachments as context. One that cannot be read is left out, not fatal.</summary>
+    private async Task<IReadOnlyList<ChatHistoryEntry>> WithAttachmentContentAsync(
+        IReadOnlyList<ChatHistoryEntry> history, CancellationToken cancellationToken)
+    {
+        if (history.All(entry => entry.Attachments is not { Count: > 0 })) return history;
+
+        var result = new List<ChatHistoryEntry>(history.Count);
+        foreach (var entry in history)
+        {
+            if (entry.Attachments is not { Count: > 0 })
+            {
+                result.Add(entry);
+                continue;
+            }
+
+            var loaded = new List<ChatAttachment>();
+            foreach (var attachment in entry.Attachments)
+            {
+                try
+                {
+                    loaded.Add(string.IsNullOrWhiteSpace(attachment.Base64Data) ? await _attachments.LoadAsync(attachment, cancellationToken) : attachment);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Skipping an earlier attachment that could not be read ({Object})", attachment.StorageObjectName);
+                }
+            }
+
+            result.Add(entry with { Attachments = loaded });
+        }
+
+        return result;
+    }
 
     private RunEffective? DescribeEffective(IChatModelClient model, string? providerId, string searchMode)
     {
@@ -622,6 +749,36 @@ public sealed class RunService
                 new RunError(RunReasons.ServerLost, "服务端在生成过程中中断，已保存最近一次检查点的内容。", false), 0),
             cancellationToken);
         return result.Record;
+    }
+
+    // ------------------------------------------------------------------------------------------------ reads
+
+    public Task<Conversation?> GetConversationViewAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken) =>
+        _store.GetConversationForViewAsync(user, conversationId, cancellationToken);
+
+    /// <summary>
+    /// The bytes of one attachment, or null when there is nothing to serve: not yours, not there, or not (yet) in storage.
+    /// Stored objects are checked against the hash recorded when they were written.
+    /// </summary>
+    public async Task<(ChatAttachment Attachment, byte[] Bytes)?> GetAttachmentAsync(
+        AuthenticatedUser user, Guid conversationId, Guid messageId, int index, CancellationToken cancellationToken)
+    {
+        var message = await _store.GetMessageAsync(user, conversationId, messageId, cancellationToken);
+        if (message == null) return null;
+        var attachments = ChatAttachmentSerializer.Deserialize(message.AttachmentsJson);
+        if (index < 0 || index >= attachments.Count) return null;
+
+        var attachment = attachments[index];
+        if (attachment.State == AttachmentStates.Pending && message.RunId != null)
+        {
+            // A pending attachment of a finished run never made it; it is not served.
+            return null;
+        }
+
+        if (!AttachmentStates.IsUsable(attachment.State)) return null;
+        var loaded = string.IsNullOrWhiteSpace(attachment.Base64Data) ? await _attachments.LoadAsync(attachment, cancellationToken) : attachment;
+        if (string.IsNullOrWhiteSpace(loaded.Base64Data)) return null;
+        return (attachment, Convert.FromBase64String(loaded.Base64Data));
     }
 
     // ------------------------------------------------------------------------------------------------ helpers

@@ -8,6 +8,13 @@ namespace VertexAI.Services.Runs;
 /// </summary>
 public static class RunContextSelector
 {
+    /// <summary>Attachments that reached storage (or are inline). Pending and failed ones were never available to a model.</summary>
+    private static IReadOnlyCollection<ChatAttachment>? UsableAttachments(Message message)
+    {
+        var usable = ChatAttachmentSerializer.Deserialize(message.AttachmentsJson).Where(a => AttachmentStates.IsUsable(a.State)).ToList();
+        return usable.Count > 0 ? usable : null;
+    }
+
     public static IReadOnlyList<ChatHistoryEntry> Select(IReadOnlyList<Message> messagesOldestFirst, int maxTurns)
     {
         var turns = new List<(Message User, Message Reply)>();
@@ -35,7 +42,7 @@ public static class RunContextSelector
             .TakeLast(Math.Max(1, maxTurns))
             .SelectMany(turn => new[]
             {
-                new ChatHistoryEntry(turn.User.Role, turn.User.Content),
+                new ChatHistoryEntry(turn.User.Role, turn.User.Content, null, UsableAttachments(turn.User)),
                 new ChatHistoryEntry(turn.Reply.Role, turn.Reply.Content, turn.Reply.ThinkingContent)
             })
             .ToList();

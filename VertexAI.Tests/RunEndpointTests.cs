@@ -45,6 +45,7 @@ internal static class RunEndpointTests
             builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
             builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
             builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+            builder.Services.AddSingleton<VertexAI.Services.Attachments.IChatAttachmentStore>(harness.Attachments);
             builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
             _app = builder.Build();
             _app.MapRunEndpoints();
@@ -210,8 +211,8 @@ internal static class RunEndpointTests
         await ErrorAsync(await PostAsync(host, new
         {
             runId = RunHarness.NewRunId(), conversationId = Guid.NewGuid(), message = "x",
-            attachments = new[] { new { base64Data = "AAAA", mimeType = "image/png", fileName = "a.png" } }
-        }), HttpStatusCode.BadRequest, "attachments_not_supported");
+            attachments = new[] { new { base64Data = "AAAA", mimeType = "application/x-msdownload", fileName = "a.exe" } }
+        }), HttpStatusCode.BadRequest, "invalid_attachments");
         await ErrorAsync(await PostAsync(host, new
         {
             runId = RunHarness.NewRunId(), conversationId = Guid.NewGuid(), message = "x",

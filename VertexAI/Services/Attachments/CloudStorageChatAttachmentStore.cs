@@ -70,7 +70,41 @@ public sealed class CloudStorageChatAttachmentStore : IChatAttachmentStore
             stream,
             cancellationToken: cancellationToken);
 
-        return attachment with { Base64Data = Convert.ToBase64String(stream.ToArray()) };
+        var bytes = stream.ToArray();
+        if (!string.IsNullOrWhiteSpace(attachment.Sha256)
+            && !string.Equals(AttachmentNames.Sha256Hex(bytes), attachment.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Attachment object {attachment.StorageObjectName} does not match its recorded hash.");
+        }
+
+        return attachment with { Base64Data = Convert.ToBase64String(bytes) };
+    }
+
+    public async Task<bool> SaveCreateOnlyAsync(
+        string objectName,
+        string mimeType,
+        byte[] bytes,
+        CancellationToken cancellationToken = default)
+    {
+        using var stream = new MemoryStream(bytes);
+        try
+        {
+            // IfGenerationMatch = 0 means "only if the object does not exist": a second writer gets 412 instead of overwriting.
+            await _storage.UploadObjectAsync(
+                _bucket,
+                objectName,
+                mimeType,
+                stream,
+                new UploadObjectOptions { IfGenerationMatch = 0 },
+                cancellationToken);
+            return true;
+        }
+        catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+        {
+            var existing = await _storage.GetObjectAsync(_bucket, objectName, cancellationToken: cancellationToken);
+            if (existing.Size == (ulong)bytes.Length) return false;
+            throw new InvalidOperationException($"Attachment object {objectName} already exists with different content.");
+        }
     }
 
     public async Task DeleteAsync(
@@ -100,32 +134,11 @@ public sealed class CloudStorageChatAttachmentStore : IChatAttachmentStore
         int index,
         ChatAttachment attachment)
     {
-        var extension = GetExtension(attachment);
+        var extension = AttachmentNames.Extension(attachment.FileName, attachment.MimeType);
         return string.Join('/',
             "chat-attachments",
             conversationId.ToString("D"),
             messageId.ToString("D"),
             $"{index:D2}{extension}");
-    }
-
-    private static string GetExtension(ChatAttachment attachment)
-    {
-        var fileExtension = Path.GetExtension(attachment.FileName);
-        if (!string.IsNullOrWhiteSpace(fileExtension) && fileExtension.Length <= 12)
-        {
-            return fileExtension.ToLowerInvariant();
-        }
-
-        return attachment.MimeType.ToLowerInvariant() switch
-        {
-            "image/jpeg" => ".jpg",
-            "image/png" => ".png",
-            "image/webp" => ".webp",
-            "image/gif" => ".gif",
-            "application/pdf" => ".pdf",
-            "application/json" => ".json",
-            "text/plain" => ".txt",
-            _ => ".bin"
-        };
     }
 }

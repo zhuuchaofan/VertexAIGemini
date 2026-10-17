@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using VertexAI.Services;
+using VertexAI.Services.Attachments;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Runs;
@@ -21,6 +22,7 @@ public static class RunEndpoints
         group.MapPost("/runs/{runId}/stop", StopRunAsync);
         group.MapGet("/runs/{runId}", GetRunAsync);
         group.MapGet("/conversations/{conversationId:guid}", GetConversationAsync);
+        group.MapGet("/conversations/{conversationId:guid}/messages/{messageId:guid}/attachments/{index:int}", GetAttachmentAsync);
         group.MapGet("/me/settings", GetDefaultsAsync);
         group.MapPut("/me/settings", PutDefaultsAsync);
         group.MapPut("/conversations/{conversationId:guid}/settings", PutConversationSettingsAsync);
@@ -96,7 +98,8 @@ public static class RunEndpoints
         IUserContext users,
         RunService runs,
         IOptions<RunSettings> settings,
-        GeminiSafetyPolicy safety)
+        GeminiSafetyPolicy safety,
+        IChatAttachmentStore attachmentStore)
     {
         if (!settings.Value.Enabled)
         {
@@ -123,18 +126,23 @@ public static class RunEndpoints
             return;
         }
 
-        if (request.Attachments is { Count: > 0 })
-        {
-            await Error(context, StatusCodes.Status400BadRequest, "attachments_not_supported",
-                "Attachments are not supported on this endpoint yet.");
-            return;
-        }
-
+        var attachments = request.Attachments ?? [];
         var message = request.Message?.Trim() ?? "";
-        if (message.Length == 0)
+        if (message.Length == 0 && attachments.Count == 0)
         {
             await Error(context, StatusCodes.Status400BadRequest, "message_required", "Message is required.");
             return;
+        }
+
+        if (attachments.Count > 0)
+        {
+            var problem = ChatAttachmentValidator.Validate(attachments)
+                ?? (attachmentStore.IsEnabled ? null : ChatAttachmentValidator.ValidateInlineFirestorePayload(attachments));
+            if (problem != null)
+            {
+                await Error(context, StatusCodes.Status400BadRequest, "invalid_attachments", problem);
+                return;
+            }
         }
 
         if (request.Advanced?.Validate() is { } validationError)
@@ -158,7 +166,8 @@ public static class RunEndpoints
                     user, runId, conversationId, message, request.SearchMode,
                     new ChatSessionOptions(
                         request.ProviderId, request.ModelName, request.PresetId, request.CustomPrompt,
-                        request.ThinkingEnabled, request.ThinkingLevel, request.ThinkingBudget, request.Advanced)),
+                        request.ThinkingEnabled, request.ThinkingLevel, request.ThinkingBudget, request.Advanced),
+                    attachments),
                 context.RequestAborted);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
@@ -297,7 +306,6 @@ public static class RunEndpoints
         HttpContext context,
         IUserContext users,
         RunService runs,
-        IConversationStore conversations,
         IOptions<RunSettings> settings)
     {
         if (!settings.Value.Enabled)
@@ -312,7 +320,7 @@ public static class RunEndpoints
             return;
         }
 
-        var conversation = await conversations.GetConversationAsync(conversationId, user);
+        var conversation = await runs.GetConversationViewAsync(user, conversationId, context.RequestAborted);
         if (conversation == null)
         {
             await Error(context, StatusCodes.Status404NotFound, "not_found", "Conversation not found.");
@@ -348,10 +356,76 @@ public static class RunEndpoints
                 runId = m.RunId,
                 status = m.Status,
                 citations = ParseCitations(m.CitationsJson),
+                attachments = AttachmentViews(m, records),
                 createdAt = m.CreatedAt
             }),
             runs = records.Select(run => RunSnapshot.From(run))
         }, Json);
+    }
+
+    /// <summary>
+    /// What the browser may know about a message's attachments: never the content (that is fetched one at a time), and
+    /// "pending" is only shown while its run is still going: after that the attachment never arrived.
+    /// </summary>
+    private static IReadOnlyList<object> AttachmentViews(Message message, IReadOnlyList<RunRecord> runs)
+    {
+        var attachments = ChatAttachmentSerializer.Deserialize(message.AttachmentsJson);
+        if (attachments.Count == 0) return [];
+
+        var run = message.RunId == null ? null : runs.FirstOrDefault(r => r.RunId == message.RunId);
+        var views = new List<object>(attachments.Count);
+        for (var index = 0; index < attachments.Count; index++)
+        {
+            var attachment = attachments[index];
+            var state = attachment.State ?? AttachmentStates.Stored;
+            if (state == AttachmentStates.Pending && run is { Status: not RunStatus.Running }) state = AttachmentStates.Failed;
+            views.Add(new
+            {
+                index,
+                fileName = attachment.FileName ?? "attachment",
+                mimeType = attachment.MimeType,
+                sizeBytes = attachment.SizeBytes ?? DecodedLength(attachment.Base64Data),
+                state
+            });
+        }
+
+        return views;
+    }
+
+    private static long DecodedLength(string? base64) =>
+        string.IsNullOrEmpty(base64) ? 0 : (long)base64.Length * 3 / 4 - (base64.EndsWith("==", StringComparison.Ordinal) ? 2 : base64.EndsWith('=') ? 1 : 0);
+
+    internal static async Task GetAttachmentAsync(
+        Guid conversationId, Guid messageId, int index, HttpContext context, IUserContext users, RunService runs, IOptions<RunSettings> settings)
+    {
+        if (!settings.Value.Enabled) { Results404(context); return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        (ChatAttachment Attachment, byte[] Bytes)? found;
+        try
+        {
+            found = await runs.GetAttachmentAsync(user, conversationId, messageId, index, context.RequestAborted);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or Google.GoogleApiException or InvalidOperationException)
+        {
+            // Missing or altered in storage: nothing is served.
+            found = null;
+        }
+
+        if (found == null) { await Error(context, StatusCodes.Status404NotFound, "not_found", "Attachment not found."); return; }
+
+        var (attachment, bytes) = found.Value;
+        var inline = attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+            && !attachment.MimeType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase);
+        context.Response.ContentType = attachment.MimeType;
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["Cache-Control"] = "private, max-age=3600";
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; sandbox";
+        var name = Uri.EscapeDataString(attachment.FileName ?? "attachment");
+        context.Response.Headers["Content-Disposition"] = $"{(inline ? "inline" : "attachment")}; filename*=UTF-8''{name}";
+        context.Response.ContentLength = bytes.Length;
+        await context.Response.Body.WriteAsync(bytes, context.RequestAborted);
     }
 
     private static IReadOnlyList<SearchCitation> ParseCitations(string? json)

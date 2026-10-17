@@ -41,6 +41,7 @@ public static class RunReasons
     public const string EmptyResponse = "empty_response";
     public const string Timeout = "timeout";
     public const string Internal = "internal";
+    public const string Storage = "storage";
 }
 
 public sealed record RunError(string Code, string Message, bool Retryable);
@@ -128,6 +129,7 @@ public sealed record RunRecord
     public int ThinkingChars { get; init; }
     public int CitationCount { get; init; }
     public DateTime? FirstOutputAt { get; init; }
+    public IReadOnlyList<ChatAttachment> Attachments { get; init; } = [];
 }
 
 public sealed record AdmitRequest(
@@ -141,7 +143,8 @@ public sealed record AdmitRequest(
     string? CustomPrompt,
     string ExecutorId,
     string Fingerprint,
-    ChatQuotaRequest Quota);
+    ChatQuotaRequest Quota,
+    IReadOnlyList<ChatAttachment>? Attachments = null);
 
 /// <summary>
 /// The only proof that a request may call the model. It can only be produced by <see cref="IRunStore.AdmitAsync"/>

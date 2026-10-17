@@ -24,6 +24,20 @@ public interface IRunStore
     /// Marks that the provider is about to be called, once, by the lease holder. <paramref name="effective"/> is what was
     /// resolved for the request; it is stored in the same write so a run that dies mid-call still says what it was asking for.
     /// </summary>
+    /// <summary>
+    /// Records, on the user message, which attachments reached storage ("stored") or did not ("failed"), by index. Only the
+    /// lease holder of a still-running run may write them.
+    /// </summary>
+    Task<bool> SetAttachmentStatesAsync(AdmittedRun run, IReadOnlyDictionary<int, string> states, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A conversation with its messages for display. Attachment content is not loaded: messages carry metadata (or the
+    /// inline content, which the caller must not pass on) and the bytes are fetched one at a time on request.
+    /// </summary>
+    Task<Conversation?> GetConversationForViewAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken);
+
+    Task<Message?> GetMessageAsync(AuthenticatedUser user, Guid conversationId, Guid messageId, CancellationToken cancellationToken);
+
     Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken, RunEffective? effective = null);
 
     Task<RunLeaseState> PollAsync(AdmittedRun run, CancellationToken cancellationToken);

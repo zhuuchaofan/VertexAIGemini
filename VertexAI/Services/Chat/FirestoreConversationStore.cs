@@ -326,7 +326,8 @@ public sealed class FirestoreConversationStore : IConversationStore
         var loaded = new List<ChatAttachment>(attachments.Count);
         foreach (var attachment in attachments)
         {
-            loaded.Add(await _attachments.LoadAsync(attachment));
+            // An attachment that never reached storage has nothing to load and must not break reading the conversation.
+            loaded.Add(AttachmentStates.IsUsable(attachment.State) ? await _attachments.LoadAsync(attachment) : attachment);
         }
 
         return ChatAttachmentSerializer.Serialize(loaded);

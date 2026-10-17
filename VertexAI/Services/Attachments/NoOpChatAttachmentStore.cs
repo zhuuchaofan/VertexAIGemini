@@ -19,6 +19,13 @@ public sealed class NoOpChatAttachmentStore : IChatAttachmentStore
         CancellationToken cancellationToken = default) =>
         Task.FromResult(attachment);
 
+    public Task<bool> SaveCreateOnlyAsync(
+        string objectName,
+        string mimeType,
+        byte[] bytes,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("No attachment bucket is configured.");
+
     public Task DeleteAsync(
         ChatAttachment attachment,
         CancellationToken cancellationToken = default) =>

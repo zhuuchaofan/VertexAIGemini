@@ -113,6 +113,7 @@ public sealed class FirestoreRunStore : IRunStore
             [Fields.Fingerprint] = request.Fingerprint,
             [Fields.ProviderCall] = "not_started",
             [Fields.Requested] = RequestedToMap(request.Requested),
+            [Fields.Attachments] = (request.Attachments ?? []).Select(AttachmentToMap).ToList(),
             [Fields.CreatedAt] = FieldValue.ServerTimestamp,
             [Fields.UpdatedAt] = FieldValue.ServerTimestamp,
             [Fields.OutputChars] = 0,
@@ -143,7 +144,8 @@ public sealed class FirestoreRunStore : IRunStore
             Role = "user",
             Content = request.Message,
             CreatedAt = now,
-            RunId = request.RunId
+            RunId = request.RunId,
+            AttachmentsJson = ChatAttachmentSerializer.Serialize(request.Attachments)
         };
         transaction.Create(
             Messages.Document(userMessageId.ToString("D")),
@@ -272,6 +274,35 @@ public sealed class FirestoreRunStore : IRunStore
     }
 
     // ------------------------------------------------------------------------------------------------ lease
+
+    public async Task<bool> SetAttachmentStatesAsync(
+        AdmittedRun run, IReadOnlyDictionary<int, string> states, CancellationToken cancellationToken)
+    {
+        var runRef = Runs.Document(run.RunId);
+        var messageRef = Messages.Document(run.Record.UserMessageId.ToString("D"));
+        return await _db.RunTransactionAsync(async transaction =>
+        {
+            var runSnapshot = await transaction.GetSnapshotAsync(runRef, cancellationToken);
+            if (!runSnapshot.Exists) return false;
+            var record = ToRecord(runSnapshot);
+            if (record.Status != RunStatus.Running || record.LeaseOwner != run.ExecutorId) return false;
+
+            var messageSnapshot = await transaction.GetSnapshotAsync(messageRef, cancellationToken);
+            if (!messageSnapshot.Exists) return false;
+            messageSnapshot.TryGetValue<string>(FirestoreConversationSchema.AttachmentsJson, out var json);
+            var attachments = ChatAttachmentSerializer.Deserialize(json).ToList();
+            foreach (var (index, state) in states)
+            {
+                if (index >= 0 && index < attachments.Count) attachments[index] = attachments[index] with { State = state };
+            }
+
+            transaction.Update(messageRef, new Dictionary<string, object>
+            {
+                [FirestoreConversationSchema.AttachmentsJson] = ChatAttachmentSerializer.Serialize(attachments)!
+            });
+            return true;
+        }, cancellationToken: cancellationToken);
+    }
 
     public async Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken, RunEffective? effective = null)
     {
@@ -508,6 +539,42 @@ public sealed class FirestoreRunStore : IRunStore
         return snapshot.Documents.Select(ToRecord).ToList();
     }
 
+    public async Task<Conversation?> GetConversationForViewAsync(
+        AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken)
+    {
+        var conversationSnapshot = await Conversations.Document(conversationId.ToString("D")).GetSnapshotAsync(cancellationToken);
+        var conversation = FirestoreConversationMapper.ToConversation(conversationSnapshot);
+        if (conversation == null || !FirestoreConversationSchema.OwnsConversation(conversationSnapshot, user)) return null;
+
+        var messages = await Messages
+            .WhereEqualTo(FirestoreConversationSchema.Uid, Uid(user))
+            .WhereEqualTo(FirestoreConversationSchema.ConversationId, conversationId.ToString("D"))
+            .OrderBy(FirestoreConversationSchema.CreatedAt)
+            .GetSnapshotAsync(cancellationToken);
+        conversation.Messages = messages.Documents
+            .Select(FirestoreConversationMapper.ToMessage)
+            .Where(message => message != null)
+            .Cast<Message>()
+            .ToList();
+        return conversation;
+    }
+
+    public async Task<Message?> GetMessageAsync(
+        AuthenticatedUser user, Guid conversationId, Guid messageId, CancellationToken cancellationToken)
+    {
+        var snapshot = await Messages.Document(messageId.ToString("D")).GetSnapshotAsync(cancellationToken);
+        if (!snapshot.Exists
+            || !snapshot.TryGetValue<string>(FirestoreConversationSchema.Uid, out var owner)
+            || owner != Uid(user)
+            || !snapshot.TryGetValue<string>(FirestoreConversationSchema.ConversationId, out var conversation)
+            || conversation != conversationId.ToString("D"))
+        {
+            return null;
+        }
+
+        return FirestoreConversationMapper.ToMessage(snapshot);
+    }
+
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         AuthenticatedUser user, Guid conversationId, int take, CancellationToken cancellationToken)
     {
@@ -568,6 +635,29 @@ public sealed class FirestoreRunStore : IRunStore
 
         return map;
     }
+
+    /// <summary>The run keeps metadata only; the content is on the message (inline) or in the bucket.</summary>
+    private static Dictionary<string, object> AttachmentToMap(ChatAttachment attachment)
+    {
+        var map = new Dictionary<string, object>
+        {
+            ["fileName"] = attachment.FileName ?? "attachment",
+            ["mimeType"] = attachment.MimeType,
+            ["sizeBytes"] = attachment.SizeBytes ?? 0L
+        };
+        if (attachment.Sha256 != null) map["sha256"] = attachment.Sha256;
+        if (attachment.StorageObjectName != null) map["storageObjectName"] = attachment.StorageObjectName;
+        return map;
+    }
+
+    private static IReadOnlyList<ChatAttachment> ReadAttachments(List<object>? items) =>
+        (items ?? []).OfType<Dictionary<string, object>>().Select(map => new ChatAttachment(
+            null,
+            map.GetValueOrDefault("mimeType") as string ?? "",
+            map.GetValueOrDefault("fileName") as string,
+            map.GetValueOrDefault("storageObjectName") as string,
+            map.TryGetValue("sizeBytes", out var size) && size is not null ? Convert.ToInt64(size) : null,
+            map.GetValueOrDefault("sha256") as string)).ToList();
 
     private static Dictionary<string, object> EffectiveToMap(RunEffective effective)
     {
@@ -711,7 +801,8 @@ public sealed class FirestoreRunStore : IRunStore
             ProviderCalls = ReadProviderCalls(Read<Dictionary<string, object>>(Fields.ProviderCalls)),
             ThinkingChars = (int)(Read<long?>(Fields.ThinkingChars) ?? 0),
             CitationCount = (int)(Read<long?>(Fields.CitationCount) ?? 0),
-            FirstOutputAt = Time(Fields.FirstOutputAt)
+            FirstOutputAt = Time(Fields.FirstOutputAt),
+            Attachments = ReadAttachments(Read<List<object>>(Fields.Attachments))
         };
     }
 
@@ -724,6 +815,7 @@ public sealed class FirestoreRunStore : IRunStore
 
     private static class Fields
     {
+        public const string Attachments = "attachments";
         public const string Effective = "effective";
         public const string Usage = "usage";
         public const string FinishReason = "finishReason";

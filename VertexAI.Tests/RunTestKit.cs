@@ -6,6 +6,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using VertexAI.Configuration;
 using VertexAI.Services.Attachments;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using VertexAI.Api;
+using VertexAI.Services;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Quota;
@@ -19,6 +25,7 @@ internal sealed class ModelProbe
 
     public int StreamCalls => Volatile.Read(ref _streamCalls);
     public ConcurrentQueue<IReadOnlyList<ChatHistoryEntry>> Histories { get; } = new();
+    public ConcurrentQueue<ChatModelRequest> Requests { get; } = new();
     public ConcurrentQueue<int> ProviderMarkersAtCall { get; } = new();
     public SemaphoreSlim Gate { get; } = new(0);
     public Func<Task<int>>? CountStartedMarkers { get; set; }
@@ -74,6 +81,7 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         probe.RecordStreamCall();
+        probe.Requests.Enqueue(request);
         Telemetry.GenerateCalls++;
         if (probe.CountStartedMarkers is { } count) probe.ProviderMarkersAtCall.Enqueue(await count());
 
@@ -202,8 +210,11 @@ internal sealed class RunHarness
     public FirestoreConversationStore Conversations { get; }
     public AuthenticatedUser User { get; } = new(Guid.NewGuid(), "uid-" + Guid.NewGuid().ToString("N"), "tester@example.test");
 
-    public RunHarness(int dailyRequestLimit = 1000, Action<RunSettings>? configure = null)
+    public FakeAttachmentStore Attachments { get; }
+
+    public RunHarness(int dailyRequestLimit = 1000, Action<RunSettings>? configure = null, bool attachmentStorage = true)
     {
+        Attachments = new FakeAttachmentStore(attachmentStorage);
         if (string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("FIRESTORE_EMULATOR_HOST")))
             throw new TestSkippedException("FIRESTORE_EMULATOR_HOST is not set");
 
@@ -236,7 +247,7 @@ internal sealed class RunHarness
             AdminBypassEnabled = false
         }));
         Store = new FirestoreRunStore(Db, Quota, Options.Create(Settings));
-        Conversations = new FirestoreConversationStore(Db, new NoOpChatAttachmentStore());
+        Conversations = new FirestoreConversationStore(Db, Attachments);
         Service = NewService(new RunCancellationRegistry());
 
         Probe.CountStartedMarkers = async () =>
@@ -249,7 +260,7 @@ internal sealed class RunHarness
     /// <summary>Another instance of the API: same storage, its own in-process stop registry.</summary>
     public RunService NewService(RunCancellationRegistry registry) => new(
         new ScriptedCatalog(Probe), Store, Options.Create(Settings), registry,
-        NullLogger<RunService>.Instance, hooks: Hooks);
+        NullLogger<RunService>.Instance, hooks: Hooks, attachments: Attachments);
 
     public static string NewRunId() => Guid.NewGuid().ToString("D");
 
@@ -303,5 +314,83 @@ internal sealed class RunHarness
         }
 
         return condition();
+    }
+}
+
+/// <summary>
+/// An in-memory bucket with the one property that matters here: a write never replaces an existing object.
+/// It counts attempts, can be told to fail, and keeps what was written.
+/// </summary>
+internal sealed class FakeAttachmentStore(bool enabled) : IChatAttachmentStore
+{
+    private int _writeAttempts;
+    private int _deletes;
+
+    public bool IsEnabled => enabled;
+    public ConcurrentDictionary<string, byte[]> Objects { get; } = new();
+    public Func<string, bool>? FailWrite { get; set; }
+    public int WriteAttempts => Volatile.Read(ref _writeAttempts);
+    public int Deletes => Volatile.Read(ref _deletes);
+
+    public Task<ChatAttachment> SaveAsync(ChatAttachment attachment, Guid conversationId, Guid messageId, int index, CancellationToken cancellationToken = default) =>
+        Task.FromResult(attachment); // the older path, not used by runs
+
+    public Task<ChatAttachment> LoadAsync(ChatAttachment attachment, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(attachment.Base64Data) || string.IsNullOrWhiteSpace(attachment.StorageObjectName)) return Task.FromResult(attachment);
+        if (!Objects.TryGetValue(attachment.StorageObjectName, out var bytes)) throw new FileNotFoundException(attachment.StorageObjectName);
+        if (attachment.Sha256 != null && !string.Equals(AttachmentNames.Sha256Hex(bytes), attachment.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("hash mismatch");
+        return Task.FromResult(attachment with { Base64Data = Convert.ToBase64String(bytes) });
+    }
+
+    public Task<bool> SaveCreateOnlyAsync(string objectName, string mimeType, byte[] bytes, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _writeAttempts);
+        if (FailWrite?.Invoke(objectName) == true) throw new IOException("the bucket is unavailable");
+        if (Objects.TryAdd(objectName, bytes)) return Task.FromResult(true);
+        if (Objects[objectName].Length == bytes.Length) return Task.FromResult(false);
+        throw new InvalidOperationException("exists with different content");
+    }
+
+    public Task DeleteAsync(ChatAttachment attachment, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _deletes);
+        if (attachment.StorageObjectName != null) Objects.TryRemove(attachment.StorageObjectName, out _);
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>The run API on real HTTP over the harness: real run service and stores, scripted model, fake bucket.</summary>
+internal sealed class ApiTestHost : IDisposable
+{
+    private readonly WebApplication _app;
+    public RunHarness Harness { get; }
+    public HttpClient Http { get; }
+
+    public ApiTestHost(RunHarness harness, AuthenticatedUser? user)
+    {
+        Harness = harness;
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddSingleton<IUserContext>(new FakeUserContext(user));
+        builder.Services.AddSingleton(harness.Service);
+        builder.Services.AddSingleton<IOptions<RunSettings>>(Options.Create(harness.Settings));
+        builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
+        builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
+        builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+        builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
+        builder.Services.AddSingleton<IChatAttachmentStore>(harness.Attachments);
+        _app = builder.Build();
+        _app.MapRunEndpoints();
+        _app.StartAsync().GetAwaiter().GetResult();
+        Http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()), Timeout = TimeSpan.FromSeconds(60) };
+    }
+
+    public void Dispose()
+    {
+        Http.Dispose();
+        _app.StopAsync().GetAwaiter().GetResult();
     }
 }
