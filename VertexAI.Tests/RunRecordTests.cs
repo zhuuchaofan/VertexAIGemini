@@ -17,6 +17,11 @@ internal static class RunRecordTests
         var outcome = await h.SendAsync("/usage go", runId);
         Assert.Equal(RunStatus.Completed, outcome.Final!.Status);
 
+        // The terminal snapshot streamed to the browser carries the same facts as the stored record.
+        Assert.Equal("provider", outcome.Final!.Usage!.Source);
+        Assert.Equal("STOP", outcome.Final.FinishReason!);
+        Assert.Equal(1, outcome.Final.ProviderCalls!.Generate);
+
         var record = (await h.Store.GetAsync(h.User, runId, default))!;
         Assert.Equal("provider", record.Usage!.Source);
         Assert.Equal(11, record.Usage.InputTokens!.Value);

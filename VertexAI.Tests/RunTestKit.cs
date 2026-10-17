@@ -269,6 +269,11 @@ internal sealed class RunHarness
         new ScriptedCatalog(Probe), Store, Options.Create(Settings), registry,
         NullLogger<RunService>.Instance, hooks: Hooks, attachments: Attachments);
 
+    /// <summary>Another run service on the same storage, but talking to a different provider catalog.</summary>
+    public RunService NewService(IChatProviderCatalog catalog) => new(
+        catalog, Store, Options.Create(Settings), new RunCancellationRegistry(),
+        NullLogger<RunService>.Instance, hooks: Hooks, attachments: Attachments);
+
     public static string NewRunId() => Guid.NewGuid().ToString("D");
 
     public RunStartRequest Request(string message, string? runId = null, Guid? conversationId = null, AuthenticatedUser? user = null) =>
@@ -375,19 +380,19 @@ internal sealed class ApiTestHost : IDisposable
     public RunHarness Harness { get; }
     public HttpClient Http { get; }
 
-    public ApiTestHost(RunHarness harness, AuthenticatedUser? user)
+    public ApiTestHost(RunHarness harness, AuthenticatedUser? user, IChatProviderCatalog? catalog = null)
     {
         Harness = harness;
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton<IUserContext>(new FakeUserContext(user));
-        builder.Services.AddSingleton(harness.Service);
+        builder.Services.AddSingleton(catalog == null ? harness.Service : harness.NewService(catalog));
         builder.Services.AddSingleton<IOptions<RunSettings>>(Options.Create(harness.Settings));
         builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
         builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
         builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
-        builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
+        builder.Services.AddSingleton<IChatProviderCatalog>(catalog ?? new ScriptedCatalog(harness.Probe));
         builder.Services.AddSingleton<IChatAttachmentStore>(harness.Attachments);
         _app = builder.Build();
         _app.MapRunEndpoints();
@@ -400,4 +405,46 @@ internal sealed class ApiTestHost : IDisposable
         Http.Dispose();
         _app.StopAsync().GetAwaiter().GetResult();
     }
+}
+
+/// <summary>An upstream that streams server-sent events slowly and notices when its client goes away.</summary>
+internal sealed class SlowSseHandler : HttpMessageHandler
+{
+    private long _closedAt;
+    public string? RequestBody { get; private set; }
+    public int Requests { get; private set; }
+    public long ClosedTicks => Interlocked.Read(ref _closedAt);
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        RequestBody = request.Content == null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        var pipe = new System.IO.Pipelines.Pipe();
+        _ = Task.Run(async () =>
+        {
+            for (var n = 1; n <= 300; n++)
+            {
+                var line = $"data: {{\"choices\":[{{\"delta\":{{\"content\":\"word{n} \"}}}}]}}\n\n";
+                var result = await pipe.Writer.WriteAsync(System.Text.Encoding.UTF8.GetBytes(line));
+                if (result.IsCompleted || result.IsCanceled)
+                {
+                    Interlocked.CompareExchange(ref _closedAt, Stopwatch.GetTimestamp(), 0);
+                    return;
+                }
+
+                await Task.Delay(50);
+            }
+
+            await pipe.Writer.CompleteAsync();
+        });
+
+        var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(pipe.Reader.AsStream()) };
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/event-stream");
+        return response;
+    }
+}
+
+internal sealed class SingleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
 }

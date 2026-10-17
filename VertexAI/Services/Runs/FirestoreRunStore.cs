@@ -563,7 +563,15 @@ public sealed class FirestoreRunStore : IRunStore
                 OutputChars = content?.Length ?? 0,
                 HasAssistantMessage = hasContent,
                 PartialContent = null,
-                PartialThinking = null
+                PartialThinking = null,
+                Usage = request.Meta?.Usage,
+                FinishReason = request.Meta?.FinishReason,
+                ModelVersion = request.Meta?.ModelVersion,
+                ResponseId = request.Meta?.ResponseId,
+                ProviderCalls = request.Meta?.ProviderCalls,
+                ThinkingChars = request.Meta?.ThinkingChars ?? 0,
+                CitationCount = request.Meta?.CitationCount ?? 0,
+                FirstOutputAt = request.Meta?.FirstOutputAt
             };
             return new FinalizeResult(true, finalRecord);
         }, cancellationToken: cancellationToken);
