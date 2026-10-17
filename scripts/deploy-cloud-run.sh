@@ -36,7 +36,7 @@ API_MAX_INSTANCES="${API_MAX_INSTANCES:-10}"
 WEB_CPU="${WEB_CPU:-1}"
 WEB_MEMORY="${WEB_MEMORY:-512Mi}"
 WEB_CONCURRENCY="${WEB_CONCURRENCY:-80}"
-WEB_TIMEOUT="${WEB_TIMEOUT:-60s}"
+WEB_TIMEOUT="${WEB_TIMEOUT:-300s}"
 WEB_MIN_INSTANCES="${WEB_MIN_INSTANCES:-0}"
 WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-5}"
 
@@ -105,6 +105,25 @@ if [[ -z "$FIREBASE_API_KEY" || -z "$FIREBASE_APP_ID" ]]; then
   exit 1
 fi
 
+# A generation streams through the web proxy to the API, so the smaller of the two request timeouts is
+# the real limit. The API ends a run itself 30 seconds before that, so a timeout is reported as a timeout
+# (partial output saved) instead of looking like a dropped connection.
+timeout_seconds() {
+  local value="${1%s}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] Unsupported timeout '$1'; use whole seconds, for example 300s." >&2
+    exit 1
+  fi
+  echo "$value"
+}
+API_TIMEOUT_SECONDS="$(timeout_seconds "$API_TIMEOUT")"
+WEB_TIMEOUT_SECONDS="$(timeout_seconds "$WEB_TIMEOUT")"
+RUN_MAX_DURATION_SECONDS=$(( (API_TIMEOUT_SECONDS < WEB_TIMEOUT_SECONDS ? API_TIMEOUT_SECONDS : WEB_TIMEOUT_SECONDS) - 30 ))
+if (( RUN_MAX_DURATION_SECONDS < 60 )); then
+  echo "[ERROR] WEB_TIMEOUT=${WEB_TIMEOUT} and API_TIMEOUT=${API_TIMEOUT} leave only ${RUN_MAX_DURATION_SECONDS}s for a generation (minimum 60s). Raise the smaller timeout, for example WEB_TIMEOUT=300s." >&2
+  exit 1
+fi
+
 API_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${IMAGE_TAG}"
 WEB_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-web:${IMAGE_TAG}"
 
@@ -154,7 +173,7 @@ gcloud run deploy "$API_SERVICE" \
   --timeout="$API_TIMEOUT" \
   --min-instances="$API_MIN_INSTANCES" \
   --max-instances="$API_MAX_INSTANCES" \
-  --update-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
+  --update-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET},Runs__MaxDurationSeconds=${RUN_MAX_DURATION_SECONDS}"
 
 gcloud run services add-iam-policy-binding "$API_SERVICE" \
   --project="$PROJECT_ID" \

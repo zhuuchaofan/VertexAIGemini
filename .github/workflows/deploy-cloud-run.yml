@@ -50,7 +50,7 @@ env:
   WEB_CPU: ${{ vars.WEB_CPU || '1' }}
   WEB_MEMORY: ${{ vars.WEB_MEMORY || '512Mi' }}
   WEB_CONCURRENCY: ${{ vars.WEB_CONCURRENCY || '80' }}
-  WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT || '60s' }}
+  WEB_TIMEOUT: ${{ vars.WEB_TIMEOUT || '300s' }}
   WEB_MIN_INSTANCES: ${{ vars.WEB_MIN_INSTANCES || '0' }}
   WEB_MAX_INSTANCES: ${{ vars.WEB_MAX_INSTANCES || '5' }}
 
@@ -107,6 +107,24 @@ jobs:
               exit 1
             fi
           done
+
+          # A generation streams through the web proxy to the API, so the smaller request timeout is the
+          # real limit. The API ends a run 30 seconds before it so a timeout is reported as a timeout.
+          api_seconds="${API_TIMEOUT%s}"
+          web_seconds="${WEB_TIMEOUT%s}"
+          for value in "${api_seconds}" "${web_seconds}"; do
+            if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+              echo "::error::Request timeouts must be whole seconds such as 300s (got API_TIMEOUT=${API_TIMEOUT}, WEB_TIMEOUT=${WEB_TIMEOUT})"
+              exit 1
+            fi
+          done
+          smaller=$(( api_seconds < web_seconds ? api_seconds : web_seconds ))
+          run_max=$(( smaller - 30 ))
+          if (( run_max < 60 )); then
+            echo "::error::WEB_TIMEOUT=${WEB_TIMEOUT} and API_TIMEOUT=${API_TIMEOUT} leave only ${run_max}s for a generation (minimum 60s). Raise the smaller timeout."
+            exit 1
+          fi
+          echo "RUN_MAX_DURATION_SECONDS=${run_max}" >> "${GITHUB_ENV}"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -167,7 +185,7 @@ jobs:
             --timeout="${API_TIMEOUT}" \
             --min-instances="${API_MIN_INSTANCES}" \
             --max-instances="${API_MAX_INSTANCES}" \
-            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET}"
+            --set-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET},Runs__MaxDurationSeconds=${RUN_MAX_DURATION_SECONDS}"
 
           gcloud run services add-iam-policy-binding "${API_SERVICE}" \
             --project="${PROJECT_ID}" \

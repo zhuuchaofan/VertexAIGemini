@@ -245,7 +245,7 @@ gcloud run deploy vertex-ai-web \
   --cpu=1 \
   --memory=512Mi \
   --concurrency=80 \
-  --timeout=60s \
+  --timeout=300s \
   --min-instances=0 \
   --max-instances=5 \
   --set-env-vars=BACKEND_URL=https://vertex-ai-api-xxxxx-REGION.a.run.app

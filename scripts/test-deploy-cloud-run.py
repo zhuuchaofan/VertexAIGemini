@@ -73,6 +73,39 @@ class DeployTests(unittest.TestCase):
                 self.assertFalse(any(arg.startswith("--set-env-vars=")
                                      for call in calls for arg in call))
 
+    def test_api_receives_the_generation_time_limit(self):
+        result, calls = self.run_script(
+            "", (), SERVICE_ACCOUNT="api@example.test",
+            FIREBASE_API_KEY="public-web-config", FIREBASE_APP_ID="web-app")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        api = next(call for call in calls if call[1:3] == ["run", "deploy"] and "vertex-ai-api" in call)
+        env = next(arg for arg in api if arg.startswith("--update-env-vars="))
+        self.assertIn("Runs__MaxDurationSeconds=270", env)
+        web = next(call for call in calls if call[1:3] == ["run", "deploy"] and "vertex-ai-web" in call)
+        self.assertIn("--timeout=300s", web)
+
+    def test_short_web_timeout_is_rejected_before_any_mutation(self):
+        result, calls = self.run_script(
+            "", (), SERVICE_ACCOUNT="api@example.test", WEB_TIMEOUT="60s",
+            FIREBASE_API_KEY="public-web-config", FIREBASE_APP_ID="web-app")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("leave only 30s", result.stderr)
+        self.assertEqual(len(calls), 1)  # only the service lookup; nothing built, created or deployed
+
+    def test_unparseable_timeout_is_rejected(self):
+        result, calls = self.run_script(
+            "", (), SERVICE_ACCOUNT="api@example.test", API_TIMEOUT="5m",
+            FIREBASE_API_KEY="public-web-config", FIREBASE_APP_ID="web-app")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("whole seconds", result.stderr)
+        self.assertEqual(len(calls), 1)
+
+    def test_image_only_deployment_does_not_validate_or_change_live_timeouts(self):
+        # Live settings are preserved; the script defaults must not be able to block an image update.
+        result, calls = self.run_script("vertex-ai-api\nvertex-ai-web", WEB_TIMEOUT="60s")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(arg.startswith("--timeout") for call in calls for arg in call))
+
     def test_lookup_failure_stops_before_mutations(self):
         result, calls = self.run_script(LOOKUP_EXIT="1")
         self.assertNotEqual(result.returncode, 0)

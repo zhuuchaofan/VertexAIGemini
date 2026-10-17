@@ -1,16 +1,18 @@
 # 聊天工作台重构：实现方案
 
-状态：待确认。本文只是方案，没有任何实现代码，也没有部署任何东西。
+状态：**批次 0 的本地可验证部分已完成（证据见 [`batch-0-report.md`](batch-0-report.md)）；批次 1 之前的四项修正已写入本文。** 没有部署任何东西，没有改动任何云资源。
 视觉稿：[`docs/design/design-board.html`](../design/design-board.html)，实际尺寸截图见 [`docs/design/screenshots/`](../design/screenshots/)。
+备份与恢复手册：[`backup-and-restore.md`](backup-and-restore.md)。
 
 ## 0. 摘要
 
-1. **运行（Run）是一等对象。** 每次发送先由浏览器生成 `runId`，服务端以它做幂等键，并以它派生所有 ID。「至多调用一次模型」**不靠幂等键承诺，靠一个单赢家的 Firestore 准入事务加租约**：只有赢得准入事务的那个请求才有权调用模型，之后任何路径（重放、对账、重试、崩溃恢复）都没有调用模型的能力。状态不确定时一律不自动重新调用，见 2.3 与 2.4。
-2. **终态四种：** `completed`、`stopped`（用户主动）、`interrupted`（连接中断或服务端丢失）、`failed`。终态一经写入不再改变。
-3. **停止是显式的。** 浏览器先调用 `POST …/stop`，再中断流。后端取消模型请求，把已生成的部分保存为助手消息（`status=partial`）。
+1. **运行（Run）是一等对象。** 每次发送先由浏览器生成 `runId`，服务端以它做幂等键，并以它派生所有 ID。「至多一次模型会话」**不靠幂等键承诺**，靠三层：①单赢家的 Firestore 准入事务；②**调用供应商之前的执行权复核**（一个持久化的 `providerCall` 标记，只有仍持有租约的执行者才能把它从 `not_started` 改为 `started`）；③租约与围栏。之后任何路径（重放、对账、重试、崩溃恢复）都没有调用模型的能力，状态不确定时一律不自动重新调用，见 2.3 到 2.4。
+2. **终态四种：** `completed`、`stopped`（用户主动）、`interrupted`（连接中断或服务端丢失）、`failed`。终态一经写入不再改变（唯一例外是失败运行上一次性写入的 `retriedByRunId` 链接，见第 4 节）。
+3. **停止是显式的。** 浏览器先调用 `POST …/stop`，再中断流。后端取消模型请求，把已生成的部分保存为助手消息（`status=partial`）。取消后供应商连接在毫秒级关闭（已实测，见 2.3.4）。
 4. **运行记录独立于消息。** 存在新集合 `runs`，保存请求、实际生效配置、状态、耗时、用量和错误。助手消息只保存内容。
 5. **第一批交付是一条垂直链路：** 创建运行、流式、停止、中断、重新查询、幂等，从 API 到一个最小的新前端壳，而不是重写所有页面。旧界面和旧接口在第一批里不动。
-6. **回滚靠开关和叠加式数据。** 所有 Firestore 变更都是可选字段或新集合，旧代码读到会忽略。
+6. **回滚靠开关和叠加式数据。** 所有 Firestore 变更都是可选字段或新集合，旧代码读到会忽略。启用 v2 之前必须先完成备份与恢复演练（D8）。
+7. **合并到 `main` 会立即触发线上部署**（`deploy-cloud-run.yml` 在 `push` 到 `main` 或 `master` 时无条件构建并部署两个服务），所以这个分支在你明确要求之前不会合并。
 
 ### 需要你确认的决策（附默认值）
 
@@ -18,12 +20,12 @@
 |---|---|---|
 | D1 | 新前端路径用 `/app/`，上线后 `/` 重定向到 `/app/`，旧界面移到 `/legacy/` | 同意 |
 | D2 | 用户主动停止之外，连接中断一律不继续生成（取消模型请求，保存部分内容） | 同意 |
-| D3 | **单次生成的服务端上限由两个 Cloud Run 服务的较小超时决定**。脚本、工作流和文档里 Web 默认是 **60 秒**，API 是 300 秒，所以按现有配置上限只有约 30 秒。方案：把 `WEB_TIMEOUT` 提到 300 秒（需要你确认，我不会自行改动或发布），部署脚本自动算出 `Runs__MaxDurationSeconds = min(WEB_TIMEOUT, API_TIMEOUT) − 30`，并在小于 60 时报错。详见 2.10。**线上实际值已由你核对：Web 60 秒、API 300 秒**，所以现在的上限约 30 秒 | 需你决定是否把 Web 提到 300 秒 |
+| D3 | **Web 与 API 的请求超时都设为 300 秒，应用上限 270 秒。** 线上实际值已由你核对：Web 60 秒、API 300 秒，所以现状上限只有约 30 秒。仓库侧已改好（脚本、工作流、文档默认值，以及 `Runs__MaxDurationSeconds = min(Web, API) − 30` 的计算与「小于 60 即报错」，有测试）；**线上变更尚未执行**，命令与顺序见 2.10，由你确认后单独执行 | 仓库侧已完成；线上变更待你确认 |
 | D4 | 一个会话同时只允许一个进行中的运行，第二个返回 409 | 同意 |
 | D5 | 已失败且没有产生内容的运行允许「重试」；已有部分内容（停止或中断）的运行本阶段**不提供重试**，用户直接发新消息继续，部分内容作为上下文 | 同意（这是与上一版视觉稿的差异，已更新截图） |
 | D6 | 旧接口 `/api/chat/stream` 在第三批改为调用新的运行服务（只维护一套内部实现），第四批评估后下线 | 同意 |
 | D7 | 本地开发：新增仅开发环境、需显式开关的假用户上下文和 Mock 提供商注册（Mock 客户端现在没有在 DI 中注册，只用于测试） | 同意 |
-| D8 | 首次在生产启用 v2 之前，是否先做一次 Firestore 托管导出作为备份（只增不删，不是必需，但成本很低） | 建议做，需你确认 |
+| D8 | **启用 v2 之前必须先备份并演练恢复**。步骤、命令、验证清单、恢复分级见 [`backup-and-restore.md`](backup-and-restore.md)，其第 7 节是启用门槛。手册里的命令一个都还没运行 | 已按你的要求安排为启用门槛；执行时逐项确认 |
 
 ## 1. 已核实的现状事实
 
@@ -31,20 +33,23 @@
 
 | 事实 | 位置 | 影响 |
 |---|---|---|
-| 模型客户端接口没有取消令牌：`StreamChatAsync(ChatModelRequest)`。OpenAI 兼容客户端内部有带令牌的私有重载，但公开入口传的是 `CancellationToken.None`。Gemini 的流式调用没有传令牌 | `IChatModelClient.cs`、`OpenAICompatibleChatModelClient.cs:64`、`GeminiService.cs:222` | 必须扩展接口并贯穿，这是停止生成的前提 |
+| 模型客户端接口没有取消令牌：`StreamChatAsync(ChatModelRequest)`。OpenAI 兼容客户端内部有带令牌的私有重载，但公开入口传的是 `CancellationToken.None`。Gemini 的流式调用没有传令牌。**SDK 本身支持**：`GenerateContentStreamAsync(model, contents, config, CancellationToken)`（已在 1.26.1 上反射确认并实测） | `IChatModelClient.cs`、`OpenAICompatibleChatModelClient.cs:64`、`GeminiService.cs:222` | 必须扩展接口并贯穿，这是停止生成的前提 |
+| **一次运行里不止一次供应商调用**：`ChatHistoryManager.TrimIfNeededAsync` 在主生成之前会调用 `CountTokensAsync`，超过阈值时还会调用 `GenerateContentAsync` 生成历史摘要；之后 `UpdateTokenCountAsync` 又调用一次 `CountTokensAsync` | `ChatHistoryManager.cs:112-230` | 「至多一次」必须按**模型会话**定义，而不是按 HTTP 请求。这些辅助调用也必须带取消令牌，并且都发生在执行权标记之后（2.3.3），见 2.3.4 |
 | 模型客户端是**有状态的**，每次请求新建，`LoadHistoryAsync` 灌入历史 | `ChatOrchestrator.SendAsync` | 上下文选取在加载前完成，客户端本身不改 |
 | 先写用户消息，再调模型；失败时不保存已生成内容；用户消息会成为没有回复的孤儿 | `ChatOrchestrator.cs` | 孤儿用户消息现在会进入后续历史，新方案按运行状态排除 |
 | 新会话的 `conversationId` 由服务端在请求中生成，浏览器要等 `final` 才知道 | `EnsureConversationAsync` | 重试首条消息无法幂等，新方案改为浏览器生成 |
 | 配额在模型调用前预留（事务），之后记录 token，没有释放机制 | `FirestoreChatQuotaService.cs` | 重复提交会重复扣额度，必须在配额之前做幂等 |
 | `update` 事件每次发送累计全文，不是增量 | `ChatEndpoints.cs` | v2 改为增量 `delta` |
 | Node 代理转发请求时没有传递客户端断开：`fetch` 没有 `signal`，用 `for await` 一直写 | `apps/web/server.mjs` `proxyApi` | 停止和断开不会到达后端，必须修 |
-| 全局限流：每个令牌或 IP 每分钟 30 次，作用于所有接口 | `ServiceCollectionExtensions.cs:46` | 轮询运行状态和停止会被限流，需要单独策略 |
+| 全局限流：每个令牌或 IP 每分钟 30 次，作用于所有接口。**实测（真实 ASP.NET 中间件）：命名的端点策略与全局限流叠加，不能放宽；`DisableRateLimiting()` 会移除包括全局在内的全部限制** | `ServiceCollectionExtensions.cs:46`、`RateLimitStackingTests.cs` | 轮询和停止必须在全局限流器内部分类并给独立预算，见 2.9 |
 | API 请求超时 300 秒，最小实例 0，CPU 在请求之外会被限制 | `scripts/deploy-cloud-run.sh` | 请求结束后不能指望后台继续生成 |
+| **`push` 到 `main` 或 `master` 会触发 `deploy-cloud-run.yml`：构建、并以 `--set-env-vars` 与 `--timeout` 完整重新配置两个服务** | `.github/workflows/deploy-cloud-run.yml:3-8` | 合并 `main` 等于上线。本分支不合并；工作流里的默认值改动会在下一次合并后生效 |
 | Firestore 集合：`conversations`、`messages`、`usageQuotas`。没有用户设置集合 | 代码检索 | 用户默认设置需要新集合 |
 | 历史按 `uid + conversationId + createdAt` 索引，取最近 N 条 | `firestore.indexes.json` | 新索引只增不删 |
-| **请求超时：Web 默认 60 秒，API 默认 300 秒**。三处一致：`scripts/deploy-cloud-run.sh`（`WEB_TIMEOUT` 默认 `60s`）、`.github/workflows/deploy-cloud-run.yml`（`vars.WEB_TIMEOUT \|\| '60s'`）、`docs/cloud-run.md`。Node 代理自身没有任何超时设置 | 部署脚本、工作流、`docs/cloud-run.md`、`server.mjs` | 经过代理的流式生成现在就最长 60 秒；这是已存在的限制，不是新方案引入的。**线上实际值我无法核对**（没有访问你项目的凭据），见 2.10 的核对命令 |
-| OpenAI 兼容客户端用普通 `HttpClient`，没有重试或弹性处理器；`HttpClient.Timeout` 默认 100 秒，但读取响应头即返回，不限制流式正文。Gemini SDK 是否内部重试**未验证** | `OpenAICompatibleChatModelClient.cs:83`、`ServiceCollectionExtensions.cs:82` | 「一次调用」必须保证没有传输层的隐式重试，批次 0 验证 |
-| 当前沙箱**没有 .NET SDK** | `which dotnet` | 后端验证依赖 CI，或先在沙箱安装 SDK，见第 8 节批次 0 |
+| **请求超时：Web 60 秒，API 300 秒**。仓库默认值（脚本、工作流、`docs/cloud-run.md`）原为 60 与 300，**线上实际值由你在 Cloud Shell 核对，同为 60 与 300**（项目 `zhumyproject`，区域 `asia-east1`）。Node 代理自身没有任何超时设置。仓库默认值现已改为 300 与 300，线上尚未变更 | 部署脚本、工作流、`docs/cloud-run.md`、`server.mjs` | 经过代理的流式生成现在就最长 60 秒，这是已存在的限制，不是新方案引入的。见 2.10 |
+| OpenAI 兼容客户端用普通 `HttpClient`，没有重试或弹性处理器；`HttpClient.Timeout` 默认 100 秒，但读取响应头即返回，不限制流式正文。**.NET 的 `SocketsHttpHandler.ResponseDrainTimeout` 默认 2 秒**：取消一个未读完的 HTTP/1.1 响应后，连接还会保持最多 2 秒继续接收 | `OpenAICompatibleChatModelClient.cs:83`、`ServiceCollectionExtensions.cs:82` | 取消后供应商侧仍会生成约 2 秒。Gemini 侧已在批次 0 修复并实测；OpenAI 兼容侧在批次 1 配置同样的处理器 |
+| **Gemini SDK 1.26.1 实测（本地假上游，API Key 模式，传输层与 Vertex 模式共用）**：默认配置对 503、429、500、连接重置各只发 1 个请求（不重试）；显式 `RetryOptions.Attempts=1` 同样为 1；开到 3 则确实会重试（用来证明测试不是空转）；取消令牌后枚举在约 4 毫秒内结束；`GenerateContentResponse.UsageMetadata` 存在（含提示、候选、思考、总 token 数） | `GeminiRetryTests.cs`、批次 0 报告 | 「总尝试一次、零自动重试」已固化为代码和测试。**Vertex 模式下的行为仍需第一次真实调用时再确认一次** |
+| 沙箱现已安装 .NET SDK 10.0.112（来自 Ubuntu 软件源），现有 40 个测试在本地通过；新增后共 57 个（使用 Firestore 模拟器时全部运行，否则 10 个被标为跳过） | 批次 0 报告 | 后端改动可以本地编译与测试 |
 
 ## 2. 运行生命周期
 
@@ -63,8 +68,9 @@
 | 存在，同一用户，指纹相同 | 不执行任何东西。返回 `run` 快照事件，再返回 `end{replayed:true}`；终态则带 `done`。客户端改用轮询 |
 | 存在，同一用户，指纹不同 | 409 `idempotency_mismatch` |
 | 存在，属于其他用户 | 409 `conflict`，不泄露 |
+| 准入事务本身失败（锁超时、被中止、截止时间） | **视为「未知」，不是「没抢到」**：立即按 `runId` 读回，`leaseOwner` 等于自己则为 `Admitted`，等于别人则为 `Replay`，读不到则返回 503 `retry_with_same_run_id`（可安全用同一个 `runId` 重试）。已在模拟器上复现：50 个并发准入时事务可能整体被中止，读回协议下仍恰好 1 个赢家 |
 
-- **同一 `runId` 至多调用一次模型，但可能是零次。** 这条保证的机制是 2.3 的准入事务和 2.4 的租约，不是幂等键本身。歧义（响应丢了、不知道成没成）只能靠查询状态消除，不会靠静默重新执行消除。
+- **同一 `runId` 至多一次模型会话，但可能是零次。** 这条保证的机制是 2.3 的准入事务、执行权复核标记和 2.4 的租约，不是幂等键本身。歧义（响应丢了、不知道成没成）只能靠查询状态消除，不会靠静默重新执行消除。
 - 双击和多标签：前端按会话维度做进行中锁，服务端靠幂等和「单会话单运行」兜底（D4）。
 - 浏览器自动重试：只在**收到首个字节之前**的网络错误上重试，最多 2 次，沿用同一个 `runId`。收到 `run` 事件之后不再自动重试，改走对账。
 
@@ -94,56 +100,107 @@ admit(准入事务) ──► running ──► completed
 
 ### 2.3 准入事务与「至多一次」的边界
 
-**谁有权调用模型。** 只有一种请求：在 `IRunStore.AdmitAsync` 的**已提交**事务里拿到 `Admitted` 结果的那个 HTTP 请求，且只在该请求进程内调用一次。除此之外没有任何路径能调用模型：重放、`GET`、对账器、重试循环、后台任务都不能。结构上用类型强制：模型调用入口只接受 `AdmittedRun`，而这个类型只能由 `AdmitAsync` 构造；测试里用计数的 Mock 客户端断言重放、对账、停止路径的调用次数为 0。
+**谁有权调用模型。** 只有一种请求：在 `IRunStore.AdmitAsync` 的**已提交**事务里拿到 `Admitted` 结果、并且随后成功把 `providerCall` 标记改为 `started`（2.3.3）的那个 HTTP 请求，且只在该请求进程内调用。除此之外没有任何路径能调用模型：重放、`GET`、对账器、重试循环、后台任务都不能。结构上用类型强制：模型调用入口只接受 `AdmittedRun`，而这个类型只能由 `AdmitAsync` 构造；测试里用计数的 Mock 客户端断言重放、对账、停止路径的调用次数为 0。
 
 **准入事务（一个 Firestore 事务，内含全部决定）：**
 
-1. 前置（事务之外）：校验认证、请求体、附件、`Advanced.Validate`、安全阈值权限，失败直接返回 4xx，不创建运行；附件上传到 GCS，对象名由 `conversationId/userMessageId/index` 确定，重放会覆盖同名对象，事务被拒则尽力删除。生成本次请求的 `executorId`（随机 UUID）。
+1. 前置（事务之外）：校验认证、请求体、附件格式与大小、`Advanced.Validate`、安全阈值权限，失败直接返回 4xx，不创建运行。**此时不写任何外部存储，包括附件**（原因见 2.3.2）。生成本次请求的 `executorId`（随机 UUID）。
 2. 事务内读取：`runs/{runId}`、`conversations/{id}`（可能不存在）、`conversations.activeRunId` 指向的运行、当天的 `usageQuotas` 文档。
-3. 事务内决策，**事务回调必须没有副作用**（SDK 会在冲突时重跑回调，所以不调用模型、不发请求、不写日志之外的任何东西）：
+3. 事务内决策，**事务回调必须没有副作用**（SDK 会在冲突时重跑回调，所以不调用模型、不上传、不发请求）：
 
 | 读到的情况 | 事务写入 | 结果 |
 |---|---|---|
-| 运行已存在且 `leaseOwner == executorId` | 无 | `Admitted`（上一次提交已成功、只是应答丢了，见下文） |
+| 运行已存在且 `leaseOwner == executorId` | 无 | `Admitted`（上一次提交已成功、只是应答丢了） |
 | 运行已存在，其他情况（同一用户，指纹相同） | 无 | `Replay` |
 | 运行已存在，指纹不同或不属于当前用户 | 无 | `Conflict` |
 | 会话属于他人 | 无 | `Conflict` |
 | 会话有进行中的运行且租约未过期 | 无 | `Busy`（409 `run_in_progress`） |
 | 会话有进行中的运行但租约已过期 | 无（对账在事务之外先做，然后重新准入） | 重试准入 |
-| 配额超额 | 创建运行（`failed(quota)`，终态）、写入用户消息、必要时创建会话 | `Rejected` |
-| 其余 | 创建运行（`running`、`leaseOwner = executorId`、`admittedAt`、`heartbeatAt`、指纹、`requested`）、写入用户消息、必要时创建会话与 `settings`、设置 `activeRunId`、**在同一个事务里扣减配额**（读写 `usageQuotas`） | `Admitted` |
+| 配额超额 | 创建运行（`failed(quota)`，终态，`providerCall=not_started`）、写入用户消息（附件元数据，状态 `failed`）、必要时创建会话 | `Rejected` |
+| 其余 | 创建运行（`running`、`providerCall=not_started`、`leaseOwner = executorId`、`admittedAt`、`heartbeatAt`、指纹、`requested`）、写入用户消息（附件**元数据**与 `sha256`，状态 `pending`）、必要时创建会话与 `settings`、设置 `activeRunId`、**在同一个事务里扣减配额** | `Admitted` |
 
    配额预留与准入在同一事务里，因此不存在「配额扣了但不知道有没有被准入」的窗口。这要求 `IChatQuotaService` 提供可在外部事务内调用的预留方法（现在它自己开事务），见 6.1。
-4. 事务提交后，如果结果是 `Admitted`：构建模型客户端、选取上下文、开始流式，此时才第一次可能产生模型请求。
-5. 若这时请求令牌已被取消（浏览器在准入期间断开）：**不调用模型**，直接终结为 `interrupted(connection)` 或 `stopped`，没有内容。
+4. 事务提交后，如果结果是 `Admitted`：立即启动心跳（租约从准入时刻开始计时），然后依次：附件落盘（2.3.2）、执行权复核（2.3.3）、选取上下文、开始流式。**在执行权复核成功之前不会产生任何供应商请求。**
+5. 若这时请求令牌已被取消（浏览器在准入期间断开）：不调用模型，直接终结为 `interrupted(connection)` 或 `stopped`，没有内容；`providerCall` 仍是 `not_started`，所以配额会被退还（2.5）。
 
-**应答丢失的情形。** 事务已提交，但 SDK 没收到应答、重跑了回调：这一次回调读到运行已存在，且 `leaseOwner` 等于自己的 `executorId`，判为 `Admitted`，不会误判成 `Replay` 而导致没人执行。如果进程在此之前就死了，则按下面的崩溃表处理。
+**准入事务本身失败或应答丢失。** 事务抛出任何异常（锁超时、被中止、截止时间）都按「**未知**」处理，立即读回运行文档：`leaseOwner == executorId` 则是上一次提交成功，判为 `Admitted`；是别人则 `Replay`；读不到则返回 503，客户端用同一个 `runId` 重试。已在 Firestore 模拟器上复现并固化为测试：50 个并发准入时，事务可能整体以 `Transaction lock timeout` 中止，读回协议下仍恰好 1 个赢家，并且「应答丢失」的重试被识别为 `Admitted` 而不是 `Replay`（否则没人执行）。
 
 ### 2.3.1 崩溃与不确定状态的处理边界
 
-规则：**状态不确定时，只做「对账为终态」，永远不自动再次调用模型。** 想再来一次必须是用户的显式操作，产生新的 `runId`，界面要写明上一次「可能已向模型发出请求，并可能已计费」。
+规则：**状态不确定时，只做「对账为终态」，永远不自动再次调用模型。** 想再来一次必须是用户的显式操作，产生新的 `runId`（失败且无内容时见第 4 节的重试规则），界面要写明上一次「可能已向模型发出请求，并可能已计费」。
 
-| 崩溃或故障点 | 持久化状态 | 处理 | 模型调用次数 | 数据后果 |
+有了 `providerCall` 标记，对账器可以区分两种完全不同的情况：**`not_started` 是「从未调用过供应商」的确定性证据**（标记先于任何供应商请求写入），`started` 才表示「可能已调用」。
+
+| 崩溃或故障点 | 持久化状态 | 处理 | 供应商调用 | 数据后果 |
 |---|---|---|---|---|
 | P0 准入事务提交之前 | 无 | 客户端用同一 `runId` 重发，会被正常准入 | 0 或 1（后续那次） | 无 |
-| P1 事务已提交，进程在发出模型请求之前死亡 | `running`，心跳过期 | 对账器写 `interrupted(server_lost)`，无内容 | **0** | 配额已扣、不退还（保守） |
-| P2 流式期间进程死亡 | `running`，最近检查点 | 对账器写 `interrupted(server_lost)`，用检查点内容写部分助手消息 | 1（供应商侧可能仍在生成直到连接断开） | 丢失检查点之后至多约 5 秒的内容 |
-| P3 模型已生成完，终结事务提交前死亡或失败 | 同 P2 | 同 P2（终结事务先重试 15 秒） | 1 | 完整回复的尾部可能丢失，只保留检查点内容。这是已知的数据损失，会在运行里标注 `statusReason=server_lost` |
+| P1 已准入，附件落盘或标记写入之前死亡 | `running`，`providerCall=not_started`，心跳过期 | 对账器写 `interrupted(server_lost)`，**并退还配额**（确定没调用过） | **0（确定）** | 用户消息保留，附件状态 `pending` 视为不可用 |
+| P1' 标记已写为 `started`，供应商请求发出之前死亡 | `started` | 对账器写 `interrupted(server_lost)`，不退还 | 0 或 1（不确定，按已调用处理） | 配额已扣 |
+| P2 流式期间进程死亡 | `started`，最近检查点 | 对账器写 `interrupted(server_lost)`，用检查点内容写部分助手消息 | 1（供应商侧可能仍在生成，直到连接断开） | 丢失检查点之后至多约 5 秒的内容 |
+| P3 模型已生成完，终结事务提交前死亡或失败 | 同 P2 | 同 P2（终结事务先重试 15 秒） | 1 | 完整回复的尾部可能丢失，只保留检查点内容，运行里标注 `server_lost` |
 | P4 终结事务已提交，给客户端的应答丢了 | 终态 | 客户端 `GET` 对账 | 1 | 无 |
 | P5 重复点击、代理或网络层重复发送 | 已有运行 | `Replay`，不执行 | 不增加 | 无 |
-| P6 两个实例同时收到同一 `runId` | 事务串行化 | 只有一个 `Admitted`，另一个 `Replay` | 1 | 无 |
+| P6 两个实例同时收到同一 `runId` | 事务串行化 | 只有一个 `Admitted`，另一个 `Replay`（事务失败者读回） | 1 | 无 |
 | P7 停止请求落在另一个实例 | `stopRequestedAt` | 执行实例 1 秒内轮询到并取消 | 不变 | 无 |
 | P8 执行实例与 Firestore 失联（网络分区、长时间暂停） | 执行实例看不到自己的租约 | 见 2.4：自己先停（自我围栏），对账器在租约过期后接管 | 不变 | 同 P2 |
 | P9 对账器已经终结，旧执行实例（僵尸）恢复运行 | 终态 | 它的下一次心跳或终结事务发现已终态，**取消模型调用并丢弃输出**，向客户端发送真实终态 | 不变 | 无 |
+| P10 标记事务本身失败（Firestore 故障） | 未知 | 读回：已是 `started` 且租约属于自己则继续；仍是 `not_started` 则最多重试 3 次（5 秒内）；仍失败就终结为 `failed(internal)`，**不调用供应商**，退还配额 | 0 | 无 |
+| P11 附件落盘失败 | `pending` | 删除本次已写的自己的对象，附件状态置 `failed`，终结为 `failed(storage)`，**不调用供应商**，退还配额 | 0 | 用户消息保留，可重试 |
 
-没有任何一行会导致第二次调用模型。
+没有任何一行会导致第二次模型会话。
 
-**还需要关闭的隐式重试。** 「一次调用」只在**我们的代码**里成立。Google.GenAI SDK 或底层 `HttpClient` 如果在传输层对 5xx 或超时自动重试，一次逻辑调用就会变成多个供应商请求。OpenAI 兼容客户端使用普通 `HttpClient`、没有弹性处理器，我已核对；**Gemini SDK 是否重试未验证**，批次 0 必须验证并显式把重试次数设为 1，验证方式是用本地假上游统计收到的请求数。
+### 2.3.2 附件：覆盖与清理
 
-### 2.3.2 其余创建细节
+**问题。** 现有存储实现用 `chat-attachments/{conversationId}/{messageId}/{index}.ext` 作为对象名，并且 `UploadObjectAsync` 没有任何前提条件，同名对象会被直接覆盖。旧流程里 `messageId` 每次都是随机的，所以没出过事；新方案里 `messageId` 由 `runId` 派生，如果仍然「先上传、后准入」，会出现三种危险：
 
-- 客户端自动重试只发生在收到首字节之前，沿用同一个 `runId`；这在上述协议下是安全的，因为准入是单赢家。
-- 新会话的 `conversationId` 由浏览器生成，规则见 2.1。
+1. 同一个 `runId` 带着不同的附件内容重放，在被识别为 `idempotency_mismatch` 之前就**覆盖了原运行的附件**；
+2. 重放或被拒绝的请求（`Conflict`、`Busy`、配额超额）已经写了对象；
+3. 请求带着别人的 `conversationId`，在所有权校验之前就写进了别人的路径。
+
+**规则（四条，缺一不可）：**
+
+1. **先准入，后落盘。** 附件只在 `Admitted` 之后由唯一的赢家上传。重放、冲突、忙、配额拒绝都不触碰存储。
+2. **对象名带内容哈希，创建时带「不存在才写」前提。** 名称改为 `chat-attachments/{conversationId}/{messageId}/{index:D2}-{sha256前16位}{ext}`，上传用 `ifGenerationMatch=0`。不同内容得到不同的名字；已存在则返回 412，此时如果对象的 `sha256` 与元数据一致就视为成功（同一赢家的重复上传），否则失败。**任何路径都不会覆盖已存在的对象。**
+3. **准入事务只写元数据**（文件名、类型、大小、`sha256`、对象名、状态 `pending`），落盘成功后把消息的附件状态更新为 `stored`，失败则为 `failed`。读取时：状态不是 `stored` 的附件显示为「不可用」，并且**不会被发给模型**；一个已终态的运行里仍是 `pending` 的附件视为 `failed`。读取对象时校验 `sha256`。
+4. **清理的边界。** (a) 自己写的对象，在自己失败时（P11）尽力删除；(b) 删除会话仍按现有逻辑，按消息里的元数据逐个删除，`NotFound` 视为成功（现有实现已经如此）；(c) 不依赖对象生命周期规则自动删除，因为元数据引用的对象不能被误删；(d) 崩溃后可能留下「元数据引用了但从未写入」的情形，读取时按不可用处理，没有无主对象；(e) 批次 3 提供一个只读的审计脚本，对比桶内对象和消息元数据，**只报告不删除**。
+
+**测试（批次 1，与实现同时提交）：**
+
+- 同一 `runId` 不同附件内容重放：返回 409，`Fake` 对象存储的写入次数为 0，原对象字节不变。
+- 他人的 `conversationId`、`Busy`、配额超额：对象存储写入次数为 0。
+- 同名对象已存在且哈希一致：视为成功；哈希不一致：失败，原对象不变。
+- 准入后、落盘前崩溃：附件为 `pending`，对账后不可用，模型调用 0 次，配额退还。
+- 落盘失败：不调用模型，自己写的对象被删除，运行 `failed(storage)`。
+- 删除会话：元数据引用的对象全部被删除，包括从未写入的（`NotFound` 容忍）。
+- 重试（第 4 节）复用原消息的附件，不重新上传，不产生新对象。
+
+### 2.3.3 执行权复核
+
+**问题。** 准入成功不等于仍然有权调用。从准入到真正发出供应商请求之间有一段时间（附件落盘、选取上下文），期间进程可能被暂停、租约可能过期、对账器可能已经把运行终结为 `interrupted(server_lost)`。如果执行者不重新确认就调用，就会出现「运行已经终态，供应商却被调用了」的僵尸调用。
+
+**做法。** 在**第一个供应商请求之前**，执行者在一个事务里做复核，并同时留下持久化证据：
+
+```
+事务：读 runs/{runId}
+  条件：status == running  且  leaseOwner == 我的 executorId  且  providerCall == not_started
+  写入：providerCall = started，providerCallStartedAt = 服务端时间
+成功 → 才允许创建任何供应商请求
+失败 → 终结（若运行已被别人终结则什么都不写），供应商调用 0 次
+```
+
+- 该事务与终结事务、对账事务互相串行化。无论谁先到：执行者先成功，则对账器随后看到 `started`（按「可能已调用」处理）；对账器先终结，则执行者的复核失败，**供应商调用 0 次，且文档里是 `not_started` 作为证据**。
+- 「供应商请求」包括主生成流、历史摘要调用和令牌计数调用（2.3.4）。**它们都在标记之后。**
+- 标记只能被租约持有者从 `not_started` 改为 `started` 一次；第二次尝试一定失败。
+- 事务本身失败按 P10 处理。
+- 已在 Firestore 模拟器上作为契约测试固化：只有租约持有者能设置、只能设置一次；对账器先赢则调用 0 次且标记仍是 `not_started`；复核与终结并发 10 轮，**「复核成功当且仅当最终标记为 started」始终成立**。
+
+### 2.3.4 供应商调用的定义与取消
+
+- **按「模型会话」定义「至多一次」。** 一次运行至多发起一次**模型会话**：一个主生成流，加上该流所需的有限辅助调用（令牌计数、必要时一次历史摘要，见第 1 节事实）。我们的代码从不重复发起主生成。运行里记录 `providerCalls: {generate, summarize, countTokens}`（我们自己的计数），检视器如实显示，不显示的就是没有。
+- **辅助调用也带取消令牌**，并且受同一个时长上限约束；用户停止时它们立即取消，不会在停止后继续生成摘要。
+- **SDK 只尝试一次，零自动重试。** 所有 Gemini 客户端使用 `GeminiHttpOptions`：`RetryOptions.Attempts = 1`。实测：对 503、429、500、连接重置，三类调用（流式生成、非流式生成、令牌计数）各只发 1 个请求；同一套测试在 `Attempts=3` 时会看到多次请求，所以测试不是空转。
+- **取消后立即关闭供应商连接。** .NET 默认会在丢弃未读完的 HTTP/1.1 响应时继续接收最多 2 秒（`ResponseDrainTimeout`），期间供应商继续生成并计费。实测默认处理器在取消后 2004 毫秒才关闭连接、服务端多写了 64 个分片；`ResponseDrainTimeout = 0` 后在 1 到 3 毫秒内关闭。所有 Gemini 客户端共用这个处理器；OpenAI 兼容客户端在批次 1 用 `ConfigurePrimaryHttpMessageHandler` 做同样配置。
+- **尚未验证的部分：** 以上都是针对本地假上游在 API Key 模式下测得的，传输层与 Vertex 模式共用，但真实 Vertex 端点（HTTP/2 与否、认证头、`UsageMetadata` 实际内容）要在第一次真实调用时再确认一次。这次调用需要你授权，到时会单独说明。
 
 ### 2.4 流式期间
 
@@ -160,7 +217,7 @@ admit(准入事务) ──► running ──► completed
 - 终结用 `CancellationToken.None` 并设 15 秒上限，**不能**用已取消的请求令牌，否则取消后写不进去。
 - 终结者有两种：持有租约的执行实例，和租约已过期后的对账器；二者用同一个事务，以 `status == running` 为条件，只有一个会写成功。
 - 单个事务内：读运行（已终态则无操作）；写助手消息（确定的 ID，有内容才写，`status=final|partial`）；写运行终态字段（状态、原因、耗时、用量、错误、`output` 统计）并清除 `partial`；更新会话的 `updatedAt`、`tokenCount`，并在 `activeRunId == runId` 时清除它。
-- Token 记录**在同一个终结事务里**写入 `usageQuotas`（增量），所以只会记录一次，并且和终态原子一致，不会出现「状态已终态但 token 没记」或「记了两次」。已完成沿用现有计数，中断、停止、失败按已生成内容估算，运行里标记 `usage.source = "estimate"`。对账器写终态时同样走这条路径。**配额不退还**：模型调用可能已开始，供应商可能已计费；准入时就被配额拒绝的运行没有预留，也无需退还。
+- Token 记录**在同一个终结事务里**写入 `usageQuotas`（增量），所以只会记录一次，并且和终态原子一致，不会出现「状态已终态但 token 没记」或「记了两次」。已完成沿用现有计数，中断、停止、失败按已生成内容估算，运行里标记 `usage.source = "estimate"`。对账器写终态时同样走这条路径。**配额退还只看 `providerCall`：** 终结时 `providerCall == not_started`（确定没有调用过供应商，例如 P1、P10、P11、准入后立即取消）则在**同一个终结事务**里按运行上记录的 `quotaReservation{requests, estimatedTokens, searches, attachmentBytes}` 原样退还；`started`（可能已调用，供应商可能已计费）则不退还。准入时就被配额拒绝的运行没有预留，也无需退还。
 
 ### 2.6 重新查询与对账
 
@@ -208,35 +265,49 @@ admit(准入事务) ──► running ──► completed
 
 ### 2.9 限流
 
-现有全局限流每个令牌每分钟 30 次，会让轮询和停止失败。新增命名策略 `runs-control`（每分钟 120 次，按用户），应用于 `GET /runs/{id}`、`POST …/stop`。`POST /runs` 仍受原策略约束。
+现有全局限流每个令牌每分钟 30 次，作用于所有接口。**实测了真实的 ASP.NET 限流中间件**（`RateLimitStackingTests`）：
+
+| 做法 | 结果 |
+|---|---|
+| 给轮询和停止接口加命名策略 `runs-control`（120 次） | **不能放宽**：命名策略与全局限流叠加，第 4 次仍被全局限流拒绝 |
+| 给轮询和停止接口加 `DisableRateLimiting()` | 全局限流也被绕过，**完全不限流**，轮询变成无上限 |
+| 在全局限流器内部按路由分类，控制类走独立分区和更大预算 | 控制类 10 次（测试用小数）全部通过，且用完后不影响其他接口的预算；创建运行仍受原限制 |
+
+所以采用第三种：全局限流器的分区函数里把 `GET /api/v2/runs/{id}` 和 `POST /api/v2/runs/{id}/stop` 归为「控制类」，同一个令牌哈希下独立计数，每分钟 120 次（客户端对账轮询间隔 1、1、2、2、4 秒，单个运行每分钟不超过约 30 次）。`POST /api/v2/runs`、会话列表等其余接口保持每分钟 30 次，**没有被放宽**。分类函数是纯函数，批次 1 里直接替换测试里的复刻版本并对真实实现重跑这三条测试。
 
 ### 2.10 超时：两个 Cloud Run 服务都要够
 
-一次生成要同时受两个服务的请求超时约束：浏览器到 Web 服务的请求，和 Web 代理到 API 的请求，**二者中较小的那个**决定实际上限。
+一次生成要同时受两个服务的请求超时约束：浏览器到 Web 服务的请求，和 Web 代理到 API 的请求，**二者中较小的那个**决定实际上限。Node 代理本身没有设置任何超时。
 
-核对结果（来自仓库，不是线上）：
+**已核实的线上值**（2026-10-17，由你在 Cloud Shell 对项目 `zhumyproject`、区域 `asia-east1` 查询）：`vertex-ai-web` = 60 秒，`vertex-ai-api` = 300 秒。与仓库原默认值一致，所以**现状上限约 30 秒**（60 减去 30 秒收尾余量），较长的高思考级别回复现在就会被截断。
 
-| 服务 | 脚本默认 | 工作流默认 | `docs/cloud-run.md` |
-|---|---|---|---|
-| Web（Node 代理） | `WEB_TIMEOUT=60s` | `vars.WEB_TIMEOUT \|\| '60s'` | `--timeout=60s` |
-| API | `API_TIMEOUT=300s` | `vars.API_TIMEOUT \|\| '300s'` | `--timeout=300s` |
+**目标：Web 与 API 都是 300 秒，应用上限 270 秒。**
 
-Node 代理本身没有设置任何超时，所以约束来自 Cloud Run 的请求超时。结论：
+仓库侧（已完成，有测试，没有执行任何部署）：
 
-- **按这些默认值，经过 Web 代理的流式回复现在就最长 60 秒**，不是 270 秒。上一版方案里「270 秒上限」的前提不成立，已撤回。
-- 部署脚本使用「镜像更新只更新镜像、保留已有配置」的方式，所以**线上实际值可能被人改过**。请用下面的命令核对：
-  ```bash
-  gcloud run services describe vertex-ai-web --region=REGION --format='value(spec.template.spec.timeoutSeconds)'
-  gcloud run services describe vertex-ai-api --region=REGION --format='value(spec.template.spec.timeoutSeconds)'
-  ```
-- **线上实际值（2026-10-17，由你在 Cloud Shell 核对，项目 `zhumyproject`，区域 `asia-east1`）：`vertex-ai-web` = 60 秒，`vertex-ai-api` = 300 秒**，与仓库默认值一致。所以现在经过代理的单次生成最长 60 秒，扣掉 30 秒收尾余量后，`Runs__MaxDurationSeconds` 只有 30。
-- 方案：
-  1. 新增配置 `Runs__MaxDurationSeconds`，API 在这个时间点自己终结运行（`failed(timeout)`，已生成内容照常保存），这样超时被正确归类，而不是被 Web 层掐断后看起来像连接中断。
-  2. 部署脚本和工作流计算 `min(WEB_TIMEOUT, API_TIMEOUT) − 30` 作为它的值（预留 30 秒给终结事务和收尾），**小于 60 时直接报错**，不静默部署。
-  3. 建议把 `WEB_TIMEOUT` 提到 300 秒，上限就是 270 秒。这是改线上配置，**需要你确认，我不会自行修改或发布**。
-- 如果仍保持 Web 60 秒：上限为 30 秒，会截断较长的高思考级别回复。截断后的行为是确定的：保存已生成部分，状态 `failed(timeout)`，提示「达到时长上限」。
-- 即使 Web 层先掐断，API 也能通过 2.7 的断开传播收到取消，运行会终结为 `interrupted(connection)`，不会遗留悬空的 `running`。
-- 「Cloud Run 请求超时是否包含流式响应的整个持续时间」按官方文档应当包含；批次 0 在无流量的标签修订上用慢速假上游实测一次，确认后再把数字写死。
+- `scripts/deploy-cloud-run.sh`、`.github/workflows/deploy-cloud-run.yml`、`docs/cloud-run.md`：`WEB_TIMEOUT` 默认值 60 秒改为 300 秒。
+- 脚本与工作流计算 `Runs__MaxDurationSeconds = min(WEB_TIMEOUT, API_TIMEOUT) − 30`，写入 API 的环境变量；**小于 60 时在任何构建或变更之前报错退出**；无法解析的超时值（如 `5m`）同样报错。当前默认值得到 270。
+- 镜像更新路径（保留线上配置）**不做这个校验**，也不会改变线上超时，避免默认值挡住只更新镜像的发布。
+- `scripts/test-deploy-cloud-run.py` 新增 4 条测试：默认值得到 270 且 Web 为 300；Web 60 秒被拒绝且只做了一次服务查询；`5m` 被拒绝；镜像更新不带任何 `--timeout`。该文件共 10 条测试全部通过。
+- 应用侧在批次 1 读取 `Runs__MaxDurationSeconds`，到点自行终结为 `failed(timeout)`，已生成内容照常保存，这样超时被正确归类，而不是被 Web 层掐断后看起来像连接中断。
+
+**线上变更（尚未执行，需要你确认，我不会自行运行）。** 顺序很重要：先改 Web，再改 API 的环境变量，应用在批次 1 之后才读它。
+
+```bash
+# 1) 把 Web 提到 300 秒（会创建新修订并默认接收全部流量）
+gcloud run services update vertex-ai-web --project=zhumyproject --region=asia-east1 --timeout=300
+
+# 2) 核对
+gcloud run services describe vertex-ai-web --project=zhumyproject --region=asia-east1 --format='value(spec.template.spec.timeoutSeconds)'
+gcloud run services describe vertex-ai-api --project=zhumyproject --region=asia-east1 --format='value(spec.template.spec.timeoutSeconds)'
+```
+
+需要你知道的两点：
+
+- **代价**：Web 服务是公开的（`--allow-unauthenticated`），超时变长后每个连接最多可占用 300 秒。你说是个人或内部使用，我认为可以接受。
+- **合并 `main` 会重新部署**：工作流在 `push` 到 `main` 时以 `--timeout="${WEB_TIMEOUT}"` 完整重配两个服务，所以合并后线上也会按仓库默认值（300 秒）落地；在你确认合并之前它不会发生。
+
+仍待验证：「Cloud Run 请求超时是否计入流式响应的整个持续时间」按官方文档应当包含；在无流量的标签修订上用慢速假上游实测一次，确认后再把 270 秒写死。即使 Web 层先掐断，API 也能通过 2.7 的断开传播收到取消，运行会终结为 `interrupted(connection)`，不会遗留悬空的 `running`。
 
 ## 3. Firestore 字段
 
@@ -257,13 +328,18 @@ requested            { providerId, modelName, presetId, customPrompt?, searchMod
                        thinking{enabled?, level?, budget?},
                        advanced{temperature?, topP?, maxOutputTokens?, safetyThreshold?} }
 effective            { 同上形状；服务端解析后的值；不适用的参数不写 }   （meta 事件写入）
-attachments          [{fileName, mimeType, sizeBytes, storageObjectName}]   （不含 base64）
+attachments          [{fileName, mimeType, sizeBytes, sha256, storageObjectName}]   （不含 base64）
 timing               { createdAt, startedAt?, firstOutputAt?, endedAt? }    （均为服务端时间）
 usage?               { inputTokens?, outputTokens?, source: "provider" | "estimate" }
 finishReason?        供应商给出时才写
 error?               { code, message, retryable }
 output               { chars, thinkingChars, citations }
 stopRequestedAt?, heartbeatAt, leaseOwner
+providerCall         not_started | started        （执行权复核标记，2.3.3）
+providerCallStartedAt?
+providerCalls?       { generate, summarize, countTokens }   （我们自己的计数，终结时写入）
+quotaReservation     { requests, estimatedTokens, searches, attachmentBytes }   （退还时按它原样回滚）
+retriedByRunId?      （仅失败且无内容的运行，由重试的准入事务一次性写入，见第 4 节）
 partial?             { content, thinking, seq, updatedAt }                 （终态时清除）
 createdAt, updatedAt
 ```
@@ -277,6 +353,7 @@ createdAt, updatedAt
 ```
 runId?, turnId?
 status?        "final" | "partial"       缺省按 final 处理
+attachments 元素新增： sha256, state（pending | stored | failed；缺省按 stored 处理，保证旧消息不受影响）
 revision?, supersededByMessageId?, selectedRunId?     （预留，见第 4 节，本阶段不会被写入）
 ```
 
@@ -340,16 +417,56 @@ runs: uid ASC, conversationId ASC, createdAt ASC
 
 选取规则用夹具单元测试覆盖，包括这些预留字段，所以以后上线功能时不需要改选取逻辑。
 
+### 4.1 重试复用用户消息的规则
+
+重试是「同一个用户消息上的又一次运行」，**不是新的用户消息**。服务端实现与界面在批次 2；但字段（`conversations.lastRunId`、`runs.retryOfRunId / attempt / trigger`、`retriedByRunId`）和下面的并发契约在批次 1 就按此设计，避免返工。
+
+**请求形状：** `POST /api/v2/runs`，体为 `{runId, conversationId, retryOfRunId, settings}`，**不带 `message` 和 `attachments`**（带了则 400）。消息和附件一律取自已存储的原用户消息。
+
+**准入事务内依次检查（同一个事务，原子）：**
+
+| # | 条件 | 不满足时 |
+|---|---|---|
+| 0 | 新 `runId` 的运行已存在 → 按重放处理（先于下面所有检查，所以重放永远幂等） | `Replay` |
+| 1 | 来源运行存在、属于当前用户、属于该会话 | 404 |
+| 2 | 来源运行已是终态 | 409 `source_not_terminal` |
+| 3 | 来源运行**没有助手消息**（本阶段只有失败或停止或中断且无内容的运行可重试，D5） | 409 `source_has_content` |
+| 4 | 来源运行是会话里最新的运行：`conversations.lastRunId == 来源 runId` | 409 `not_latest_turn` |
+| 5 | 来源运行的 `retriedByRunId` 为空 | 409 `already_retried`，并返回已有后继的 `runId` |
+| 6 | 原用户消息的附件全部为 `stored` | 409 `attachments_unavailable` |
+
+**同一个事务里写入：**
+
+- 新运行：`trigger=retry`、`retryOfRunId`、`attempt = 来源.attempt + 1`、`turnId` 沿用、**`userMessageId = 来源的 userMessageId`（复用，不由新 `runId` 派生）**、`assistantMessageId = v5(新runId:assistant)`、`requested` 取自本次请求（用户可以先换模型再重试）、`quotaReservation`。
+- 来源运行：只写一个字段 `retriedByRunId = 新runId`。**这是终态运行上唯一允许的修改，一次性写入。**
+- 会话：`lastRunId`、`activeRunId`、必要时刷新 `settings`。
+- **不写用户消息，不上传附件。**
+
+**执行：** 与普通运行完全相同（执行权复核、心跳、终结），区别只是：用户消息与附件取自存储（对象按 `sha256` 校验），上下文用选取器在「本轮之前的有效轮次」上计算。
+
+**可见性：** 对话里用户消息只出现一次；其下显示最新一次尝试的状态与结果。更早的失败尝试不单独成卡，出现在检视器的运行列表里（「第 N 次运行」及其错误）。会话详情接口返回该会话全部运行摘要。
+
+**与以后的重新生成、编辑重发的关系：** 共用 `trigger / attempt / retryOfRunId` 字段。第 3 条「无内容」的限制将来由「选中版本」规则取代，本阶段 API 触达不到。
+
+**测试：**
+
+| 层 | 测试 | 状态 |
+|---|---|---|
+| 契约（Firestore 模拟器） | 12 个并发重试同一个失败运行：恰好 1 个后继，来源的 `retriedByRunId` 指向它，后继复用同一 `userMessageId` 且 `attempt=2`，其余得到 `already_retried` 或「未知」后读回；重放赢家的 `runId` 是幂等的 | **已通过** |
+| 契约 | 来源仍在运行或已有内容时拒绝 | **已通过** |
+| 服务（批次 2） | 重试后消息总数不变（没有新用户消息）；第二次重试返回 409 `already_retried`；有部分内容时 409 `source_has_content`；之后又有新一轮时 409 `not_latest_turn`；原消息附件被复用且存储写入次数为 0；`attempt` 递增；配额只对新运行预留一次；请求里带 `message` 时 400；用户先换模型再重试，运行的 `requested` 是新模型 | 随实现提交 |
+| 选取器 | 第一次尝试（失败无内容）被排除，第二次成功后该轮有效，用户消息只出现一次 | 随实现提交 |
+
 ## 5. API 增量
 
 所有新接口在 `/api/v2/` 下，认证同现有（Firebase Bearer）。所有权校验失败一律返回 404。
 
 | 方法与路径 | 批次 | 说明 |
 |---|---|---|
-| `POST /api/v2/runs` | 1 | 创建运行，返回 SSE（第 2.8 节）。请求体含 `runId`、`conversationId`、`message`、`attachments`、`settings` |
+| `POST /api/v2/runs` | 1 | 创建运行，返回 SSE（第 2.8 节）。普通发送：`runId`、`conversationId`、`message`、`attachments`、`settings`。重试（批次 2）：`runId`、`conversationId`、`retryOfRunId`、`settings`，规则见 4.1。准入失败的错误码：`idempotency_mismatch`、`conflict`、`run_in_progress`、`retry_with_same_run_id`（503）、`source_not_terminal`、`source_has_content`、`not_latest_turn`、`already_retried`、`attachments_unavailable` |
 | `POST /api/v2/runs/{runId}/stop` | 1 | 幂等。返回当前运行快照；未知返回 404 |
 | `GET /api/v2/runs/{runId}` | 1 | 快照，必要时对账 |
-| `GET /api/v2/conversations/{id}` | 1 | 在现有字段之上增加 `runs[]`（摘要）、`settings`、消息的 `runId` 与 `status`；同时对账 `activeRunId` |
+| `GET /api/v2/conversations/{id}` | 1 | 在现有字段之上增加 `runs[]`（全部运行摘要，含 `attempt`、`retryOfRunId`）、`settings`、消息的 `runId` 与 `status`、附件的 `state`；同时对账 `activeRunId` |
 | `GET/PUT /api/v2/me/settings` | 2 | 我的默认 |
 | `PUT /api/v2/conversations/{id}/settings` | 2 | 此会话设置 |
 | `GET /api/v2/conversations/{id}/attachments/{messageId}/{index}` | 3 | 由后端代理读取附件，不再把 base64 塞进会话详情 |
@@ -381,6 +498,11 @@ Api/ChatEndpoints.cs                           旧路由，第三批改为适配
 - `IRunStore.AdmitAsync(...)` 返回 `Admitted(AdmittedRun) | Replay | Conflict | Busy | Rejected`；`AdmittedRun` 只能由它构造，模型调用入口只接受它（见 2.3）。
 - `IChatQuotaService` 增加可在外部 Firestore 事务内调用的预留方法和「在终结事务内记录用量」的方法；现有独立事务版本保留给旧路径，第四批随旧路径一起删除。
 
+- `IChatAttachmentStore.SaveAsync`：对象名带内容哈希，上传带 `ifGenerationMatch=0`，不覆盖任何已存在对象（2.3.2）；调用方只有 `RunService` 的 `Admitted` 分支。
+- `ChatHistoryManager` 的令牌计数和摘要调用接受取消令牌，并计入 `providerCalls`（2.3.4）。
+- `OpenAICompatibleChatModelClient` 的 `HttpClient` 用 `ResponseDrainTimeout = 0` 的处理器（2.3.4）。Gemini 侧的 `GeminiHttpOptions` 已在批次 0 完成。
+- 限流：把 `AddVertexRateLimiting` 里的分区函数抽成可测试的纯函数，加入「控制类」分类（2.9）。
+- 会话文档新增 `lastRunId`，每次准入时在事务里更新（4.1 第 4 条依赖它）。
 - `IChatModelClient.StreamChatAsync(ChatModelRequest, CancellationToken)`；`GeminiService`、`OpenAICompatibleChatModelClient`、`MockChatModelClient` 都要贯穿令牌。
 - `IChatModelClient.DescribeEffectiveConfig()`：返回实际生效的配置，用于 `effective` 与 `meta`。
 - `ChatChunk` 增加可选的 `FinishReason`、`Usage`，只在供应商提供时填。
@@ -458,17 +580,24 @@ src/
 
 每批独立可发布、独立可回滚。**未经你确认，任何一批都不部署线上。**
 
-### 批次 0：地基与风险验证（不改变用户可见行为）
+### 批次 0：地基与风险验证（本地可验证部分已完成，不改变用户可见行为）
 
-| 项 | 验收 |
-|---|---|
-| Node 代理传递断开 | 自动化测试：用假上游启动代理，客户端断开后，假上游在 1 秒内观察到请求被取消 |
-| 沙箱具备 .NET SDK，或确定只靠 CI | 能在本地运行 `dotnet build` 与现有全部测试，或书面记录只依赖 CI |
-| **Google.GenAI 1.26.1 的取消与用量** | 小型验证：令牌取消后 `GenerateContentStreamAsync` 在 2 秒内结束；响应是否带 `UsageMetadata`。**这需要真实凭据发起一次计费调用，由你授权后执行**。若 SDK 不支持取消，退路是丢弃枚举器并让出站 HTTP 请求在连接层被关闭，同样要验证 |
-| Firestore 模拟器可用于 CI | CI 中一个契约测试能起模拟器并通过 |
-| **Gemini SDK 不做隐式重试** | 用本地假上游统计：对 5xx 与超时，一次逻辑调用只产生一个上游请求；若 SDK 有重试，显式设为 1 次并有测试固定下来 |
-| **超时核对** | 你用 2.10 的命令给出线上两个服务的实际超时；在无流量标签修订上用慢速假上游实测一次，确认请求超时包含流式持续时间；部署脚本与工作流增加 `Runs__MaxDurationSeconds` 计算与小于 60 时报错的校验（脚本改动在没有你确认前不执行） |
-| Vite 项目骨架 | `npm run build` 与 `npm test` 在 CI 通过，Docker 镜像可构建，旧界面不受影响 |
+证据、命令与输出见 [`batch-0-report.md`](batch-0-report.md)。
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| Node 代理传递断开 | **已完成** | 先在未修改的代理上复现（3 个失败），修复后 5 个断开与直通测试全部通过；Web 全部测试 21/21 |
+| 沙箱具备 .NET SDK | **已完成** | 从 Ubuntu 软件源安装 10.0.112；现有 40 个测试在本地通过 |
+| Gemini SDK 一次调用一个请求、取消可用、用量字段存在 | **已完成（本地假上游）** | 三类调用 × 四种失败各 1 个请求；`Attempts=3` 会看到多次，证明测试有效；取消 4 毫秒内结束；`UsageMetadata` 存在。**真实 Vertex 端点仍待一次授权调用确认** |
+| 取消后立即关闭供应商连接 | **已完成并修复** | 默认处理器 2004 毫秒后才关闭、服务端多写 64 个分片；`ResponseDrainTimeout=0` 后 1 到 3 毫秒。现已用于所有 Gemini 客户端，测试固化 |
+| Firestore 模拟器与契约测试 | **已完成** | 通过 npm 的 firebase-tools 取模拟器（`gcloud` 组件下载被网络策略拒绝，没有重试）；10 个契约测试在模拟器上连续通过，包括复现并处理了「50 个并发准入整体锁超时」 |
+| 限流叠加的实测 | **已完成** | 3 个测试固化了真实行为（2.9） |
+| Vite 项目骨架 | **已完成** | 类型检查、lint、Vitest、构建通过；`npm ci` 在干净目录复现；Dockerfile 的每一步在干净目录里逐步复现并从 `/app/` 取到页面；CI 增加 `web-client`、`api-firestore-emulator`、`web-docker` 三个 job |
+| 超时的仓库侧变更与校验 | **已完成** | 脚本与工作流默认值、`Runs__MaxDurationSeconds` 计算与报错、10 条脚本测试通过。**线上变更未执行**（2.10） |
+| 备份与恢复手册 | **已完成** | [`backup-and-restore.md`](backup-and-restore.md)，命令参数已对照本机 `gcloud --help`；**一个命令都没运行** |
+| 真实 Vertex 调用验证取消与用量 | **待你授权** | 到时单独说明范围与成本 |
+| `docker build` 在真实 Docker 里执行 | **待 CI** | 沙箱里 Docker 守护进程不可用，只做了逐步复现；`web-docker` job 会真正构建并冒烟。分支推送不会触发 CI（`ci.yml` 只在 `pull_request` 与 `main` 上触发），需要开 PR 才会运行 |
+| 无流量标签修订上实测「请求超时包含流式持续时间」 | **待你授权** | 涉及部署，到时单独说明 |
 
 ### 批次 1：垂直链路
 
@@ -489,6 +618,9 @@ src/
     - 准入时配额超额：只写 `failed(quota)` 与用户消息，模型调用 0 次，配额没有被重复扣减。
     - 终结事务里记录用量：同一运行无论终结者是谁，`usageQuotas` 只增加一次。
     - 架构测试：重放、对账、停止三条路径的代码里不引用模型调用入口（以计数 Mock 与类型约束双重断言）。
+2b. **执行权复核**（`InMemoryRunStore` 与模拟器上各跑一遍）：对账器先终结则供应商调用 0 次且标记仍是 `not_started`，退还配额；复核与终结并发，标记为 `started` 当且仅当复核成功；标记事务失败按 P10 读回；`not_started` 的运行被对账时配额按 `quotaReservation` 原样退还，`started` 的不退还。底层的三条契约测试**已通过**。
+2c. **附件**：2.3.2 末尾列出的 7 条测试（覆盖、他人会话、同名已存在、准入后崩溃、落盘失败、删除会话、重试复用）。
+2d. **限流**：用真实的分区函数重跑 `RateLimitStackingTests` 的三条，另加：创建运行仍是每分钟 30 次；控制类用完预算后创建运行不受影响。三条行为测试**已通过**。
 3. **停止**：流中间调用 stop，运行变为 `stopped(user)`，部分内容保存为 `status=partial` 的助手消息，Mock 模型在 2 秒内观察到取消，`activeRunId` 被清除；完成后再停止，返回已完成快照，不改变数据；未知运行 404。
 4. **连接中断**：只断开流不调用 stop，运行变为 `interrupted(connection)`，部分内容保存，模型被取消。
 5. **宽限期**：流先断开、停止在 2 秒内到达，终态为 `stopped`；超过宽限期则为 `interrupted`。
@@ -532,6 +664,8 @@ src/
 - **存储契约测试**：同一组用例同时跑 `InMemoryRunStore` 和 `FirestoreRunStore`（模拟器），保证 CAS、事务、重放语义一致。
 - **取消测试**：Mock 模型客户端记录是否观察到取消令牌、花了多久，断言时限，而不是只断言结果。
 - **端到端**：Playwright 对接 Mock 提供商，用路由拦截模拟断网、切断流、慢响应。
+- **本地运行**：`dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj`（模拟器测试会标为跳过）；带模拟器：`firebase emulators:exec --only firestore --project demo-contract-tests --config VertexAI.Tests/firebase.emulator.json "dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build"`（需要 Java 21）。
+- **事务争用是常态，不是例外**：模拟器上 50 个并发事务曾整体 `Aborted`。所有依赖事务的协议都必须有「失败即未知、读回确认」的路径，并且测试要覆盖它。
 - **不测什么**：不在 CI 里调用真实模型。真实模型只用于批次 0 的一次验证和批次 1 的线上冒烟，都需要你授权。
 
 ## 10. 回滚与发布
@@ -549,23 +683,32 @@ src/
 - **不删除任何历史数据**。本方案没有删除或改写现有文档的步骤。
 - **模型密钥不进浏览器**：新前端只携带 Firebase 令牌，所有模型调用仍由后端发起，密钥仍来自 Cloud Run 环境与 Secret Manager。
 - **不未经确认部署**：索引部署、Cloud Run 发布、环境变量变更都需要你逐项确认。
-- 首次在生产启用 v2 前，建议做一次 Firestore 托管导出（D8）。
+- **启用 v2 的门槛：先备份、演练恢复、演练回滚**，清单见 [`backup-and-restore.md`](backup-and-restore.md) 第 7 节。恢复分级：先关开关或切回修订（不恢复数据）；只丢个别文档就恢复到临时库再针对性复制；直接对生产库导入是最后手段，因为它覆盖同 ID 文档却不删除之后新建的文档，会让会话元数据与消息不一致。
+- **合并 `main` 即上线**：`deploy-cloud-run.yml` 在 `push` 到 `main` 时无条件构建并以 `--set-env-vars`、`--timeout` 完整重配两个服务。本分支在你明确要求之前不合并；合并前需要确认仓库变量 `WEB_TIMEOUT`、`API_TIMEOUT` 以及上线时机。
 
 ## 11. 风险与未验证项
 
 | 风险 | 状态 | 应对 |
 |---|---|---|
-| Google.GenAI 1.26.1 是否真正支持取消、是否提供用量 | **未验证**，没有 SDK 与凭据可在沙箱试 | 批次 0 验证；不支持则退到连接层取消，用量显示「未知」 |
+| Gemini SDK 的取消与重试行为 | **已在本地假上游验证**（取消 4 毫秒、默认不重试、已固定为 1 次） | 真实 Vertex 端点上再确认一次，需你授权 |
+| 取消后供应商仍生成约 2 秒 | **已修复并实测**（Gemini）；OpenAI 兼容待批次 1 | `ResponseDrainTimeout=0` |
+| 一次运行含多次供应商调用（计数、摘要） | 已识别 | 全部在执行权标记之后、共用取消令牌、计入 `providerCalls` |
+| 事务争用导致准入整体失败 | **已复现** | 失败即未知、读回确认、503 可用同一 `runId` 重试 |
+| 附件被覆盖或写入他人路径 | **已识别并设计规避**（2.3.2） | 先准入后落盘、内容哈希命名、`ifGenerationMatch=0`，7 条测试 |
+| 僵尸执行者在运行终结后仍调用供应商 | 已设计（2.3.3） | 执行权复核标记，3 条契约测试已通过 |
 | 停止请求落在另一个实例，最长约 1 秒延迟 | 已设计 | 进程内注册表加 1 秒轮询 |
-| Cloud Run 实例被回收导致运行失联 | 已设计 | 心跳与租约对账，终态 `interrupted(server_lost)`，内容取检查点（最多丢失约 5 秒内容）；若恰在终结事务前失败，完整回复的尾部可能丢失，已在 2.3.1 P3 标明 |
-| **Web 超时 60 秒小于 270 秒上限** | 按仓库默认值成立，线上实际值**未核对** | 2.10：核对命令、`Runs__MaxDurationSeconds` 自动计算与校验、建议提到 300 秒（需你确认） |
-| SDK 或传输层隐式重试让「一次调用」变成多次供应商请求 | **未验证**（OpenAI 兼容客户端已核对没有） | 批次 0 验证并固定为 1 次 |
-| 可能零次调用（P1）且配额已扣 | 设计取舍 | 宁可少调不可多调；界面写明，不退还配额 |
-| 检查点写入频率与 Firestore 单文档写入限制 | 5 秒一次，远低于限制 | 无需处理 |
+| Cloud Run 实例被回收导致运行失联 | 已设计 | 心跳与租约对账；若恰在终结事务前失败，完整回复的尾部可能丢失（P3），已标明 |
+| Web 超时 60 秒小于 270 秒上限 | **线上值已核实为 60，仓库侧已改为 300，线上变更待你确认** | 2.10 |
+| 合并 `main` 会自动部署 | 事实 | 不合并；合并前确认变量与时机 |
+| 请求超时是否计入流式持续时间 | 按文档应当包含，**未实测** | 无流量标签修订实测，需你授权 |
+| 可能零次调用（P1'）且配额已扣 | 设计取舍 | 只有 `started` 才不退还；`not_started` 确定没调用，退还 |
 | 供应商已计费但取消后用量未知 | 无法避免 | 用量标记 `estimate`，不在检视器里冒充精确值 |
-| 沙箱无 .NET SDK，后端改动无法本地编译 | 事实 | 批次 0 先解决，否则每个后端改动都要等 CI |
+| `docker build` 只做了逐步复现，未在真实 Docker 里执行 | 沙箱限制 | `web-docker` CI job；需要开 PR 才会运行 |
+| 分支推送不触发 CI | 事实 | 开 PR 前所有验证都是本地做的，结果见批次 0 报告 |
 | 限流策略调整影响现有保护 | 低 | 只对读取与停止放宽，创建运行仍是每分钟 30 次 |
 
 ## 12. 下一步
 
-等你确认第 0 节的决策与第 7 节的截图。确认后我从**批次 0** 开始，按验收标准逐项完成并给出证据，再进入批次 1。批次 0 里唯一需要你操作的是：授权一次真实模型调用来验证取消与用量。
+1. 你确认第 0 节的决策与第 7 节的截图。
+2. 需要你单独授权、我不会自行执行的事项：真实 Vertex 调用（取消与用量）；线上把 Web 超时提到 300 秒；无流量标签修订上的超时实测；备份与恢复演练；任何部署或合并。
+3. 确认后进入批次 1，按第 8 节验收逐项完成并给出证据。
