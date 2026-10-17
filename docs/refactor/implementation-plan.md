@@ -47,7 +47,7 @@
 | Firestore 集合：`conversations`、`messages`、`usageQuotas`。没有用户设置集合 | 代码检索 | 用户默认设置需要新集合 |
 | 历史按 `uid + conversationId + createdAt` 索引，取最近 N 条 | `firestore.indexes.json` | 新索引只增不删 |
 | **请求超时：Web 60 秒，API 300 秒**。仓库默认值（脚本、工作流、`docs/cloud-run.md`）原为 60 与 300，**线上实际值由你在 Cloud Shell 核对，同为 60 与 300**（项目 `zhumyproject`，区域 `asia-east1`）。Node 代理自身没有任何超时设置。仓库默认值现已改为 300 与 300，线上尚未变更 | 部署脚本、工作流、`docs/cloud-run.md`、`server.mjs` | 经过代理的流式生成现在就最长 60 秒，这是已存在的限制，不是新方案引入的。见 2.10 |
-| OpenAI 兼容客户端用普通 `HttpClient`，没有重试或弹性处理器；`HttpClient.Timeout` 默认 100 秒，但读取响应头即返回，不限制流式正文。**.NET 的 `SocketsHttpHandler.ResponseDrainTimeout` 默认 2 秒**：取消一个未读完的 HTTP/1.1 响应后，连接还会保持最多 2 秒继续接收 | `OpenAICompatibleChatModelClient.cs:83`、`ServiceCollectionExtensions.cs:82` | 取消后供应商侧仍会生成约 2 秒。Gemini 侧已在批次 0 修复并实测；OpenAI 兼容侧在批次 1 配置同样的处理器 |
+| OpenAI 兼容客户端用普通 `HttpClient`，没有重试或弹性处理器；`HttpClient.Timeout` 默认 100 秒，但读取响应头即返回，不限制流式正文。**.NET 的 `SocketsHttpHandler.ResponseDrainTimeout` 默认 2 秒**：取消一个未读完的 HTTP/1.1 响应后，连接还会保持最多 2 秒继续接收 | `OpenAICompatibleChatModelClient.cs:83`、`ServiceCollectionExtensions.cs:82` | 取消后连接会多开约 2 秒（本地假上游实测）。真实服务在这段时间里是否继续生成或计费**未验证**。Gemini 侧已在批次 0 缩短为毫秒级；OpenAI 兼容侧在批次 1 配置同样的处理器 |
 | **Gemini SDK 1.26.1 实测（本地假上游，API Key 模式，传输层与 Vertex 模式共用）**：默认配置对 503、429、500、连接重置各只发 1 个请求（不重试）；显式 `RetryOptions.Attempts=1` 同样为 1；开到 3 则确实会重试（用来证明测试不是空转）；取消令牌后枚举在约 4 毫秒内结束；`GenerateContentResponse.UsageMetadata` 存在（含提示、候选、思考、总 token 数） | `GeminiRetryTests.cs`、批次 0 报告 | 「总尝试一次、零自动重试」已固化为代码和测试。**Vertex 模式下的行为仍需第一次真实调用时再确认一次** |
 | 沙箱现已安装 .NET SDK 10.0.112（来自 Ubuntu 软件源），现有 40 个测试在本地通过；新增后共 57 个（使用 Firestore 模拟器时全部运行，否则 10 个被标为跳过） | 批次 0 报告 | 后端改动可以本地编译与测试 |
 
@@ -136,7 +136,7 @@ admit(准入事务) ──► running ──► completed
 | P0 准入事务提交之前 | 无 | 客户端用同一 `runId` 重发，会被正常准入 | 0 或 1（后续那次） | 无 |
 | P1 已准入，附件落盘或标记写入之前死亡 | `running`，`providerCall=not_started`，心跳过期 | 对账器写 `interrupted(server_lost)`，**并退还配额**（确定没调用过） | **0（确定）** | 用户消息保留，附件状态 `pending` 视为不可用 |
 | P1' 标记已写为 `started`，供应商请求发出之前死亡 | `started` | 对账器写 `interrupted(server_lost)`，不退还 | 0 或 1（不确定，按已调用处理） | 配额已扣 |
-| P2 流式期间进程死亡 | `started`，最近检查点 | 对账器写 `interrupted(server_lost)`，用检查点内容写部分助手消息 | 1（供应商侧可能仍在生成，直到连接断开） | 丢失检查点之后至多约 5 秒的内容 |
+| P2 流式期间进程死亡 | `started`，最近检查点 | 对账器写 `interrupted(server_lost)`，用检查点内容写部分助手消息 | 1（进程死亡后连接随之断开；服务端是否还在生成取决于供应商，未验证） | 丢失检查点之后至多约 5 秒的内容 |
 | P3 模型已生成完，终结事务提交前死亡或失败 | 同 P2 | 同 P2（终结事务先重试 15 秒） | 1 | 完整回复的尾部可能丢失，只保留检查点内容，运行里标注 `server_lost` |
 | P4 终结事务已提交，给客户端的应答丢了 | 终态 | 客户端 `GET` 对账 | 1 | 无 |
 | P5 重复点击、代理或网络层重复发送 | 已有运行 | `Replay`，不执行 | 不增加 | 无 |
@@ -199,7 +199,7 @@ admit(准入事务) ──► running ──► completed
 - **按「模型会话」定义「至多一次」。** 一次运行至多发起一次**模型会话**：一个主生成流，加上该流所需的有限辅助调用（令牌计数、必要时一次历史摘要，见第 1 节事实）。我们的代码从不重复发起主生成。运行里记录 `providerCalls: {generate, summarize, countTokens}`（我们自己的计数），检视器如实显示，不显示的就是没有。
 - **辅助调用也带取消令牌**，并且受同一个时长上限约束；用户停止时它们立即取消，不会在停止后继续生成摘要。
 - **SDK 只尝试一次，零自动重试。** 所有 Gemini 客户端使用 `GeminiHttpOptions`：`RetryOptions.Attempts = 1`。实测：对 503、429、500、连接重置，三类调用（流式生成、非流式生成、令牌计数）各只发 1 个请求；同一套测试在 `Attempts=3` 时会看到多次请求，所以测试不是空转。
-- **取消后立即关闭供应商连接。** .NET 默认会在丢弃未读完的 HTTP/1.1 响应时继续接收最多 2 秒（`ResponseDrainTimeout`），期间供应商继续生成并计费。实测默认处理器在取消后 2004 毫秒才关闭连接、服务端多写了 64 个分片；`ResponseDrainTimeout = 0` 后在 1 到 3 毫秒内关闭。所有 Gemini 客户端共用这个处理器；OpenAI 兼容客户端在批次 1 用 `ConfigurePrimaryHttpMessageHandler` 做同样配置。
+- **取消后立即关闭供应商连接。** .NET 默认会在丢弃未读完的 HTTP/1.1 响应时继续接收最多 2 秒（`ResponseDrainTimeout`），这是客户端侧的行为。**本地假上游实测**：默认处理器在取消后 2004 毫秒才关闭连接、假上游又写了 64 个分片；`ResponseDrainTimeout = 0` 后在 1 到 3 毫秒内关闭。**这只证明连接关闭行为，不能据此断言真实 Google 服务在这段时间内继续生成或计费**，那需要真实调用才能测。所有 Gemini 客户端共用这个处理器；OpenAI 兼容客户端在批次 1 用 `ConfigurePrimaryHttpMessageHandler` 做同样配置。
 - **尚未验证的部分：** 以上都是针对本地假上游在 API Key 模式下测得的，传输层与 Vertex 模式共用，但真实 Vertex 端点（HTTP/2 与否、认证头、`UsageMetadata` 实际内容）要在第一次真实调用时再确认一次。这次调用需要你授权，到时会单独说明。
 
 ### 2.4 流式期间
@@ -589,7 +589,7 @@ src/
 | Node 代理传递断开 | **已完成** | 先在未修改的代理上复现（3 个失败），修复后 5 个断开与直通测试全部通过；Web 全部测试 21/21 |
 | 沙箱具备 .NET SDK | **已完成** | 从 Ubuntu 软件源安装 10.0.112；现有 40 个测试在本地通过 |
 | Gemini SDK 一次调用一个请求、取消可用、用量字段存在 | **已完成（本地假上游）** | 三类调用 × 四种失败各 1 个请求；`Attempts=3` 会看到多次，证明测试有效；取消 4 毫秒内结束；`UsageMetadata` 存在。**真实 Vertex 端点仍待一次授权调用确认** |
-| 取消后立即关闭供应商连接 | **已完成并修复** | 默认处理器 2004 毫秒后才关闭、服务端多写 64 个分片；`ResponseDrainTimeout=0` 后 1 到 3 毫秒。现已用于所有 Gemini 客户端，测试固化 |
+| 取消后立即关闭供应商连接 | **已完成并修复** | 本地假上游：默认处理器 2004 毫秒后才关闭、假上游多写 64 个分片；`ResponseDrainTimeout=0` 后 1 到 3 毫秒。现已用于所有 Gemini 客户端，测试固化。真实服务侧的效果未验证 |
 | Firestore 模拟器与契约测试 | **已完成** | 通过 npm 的 firebase-tools 取模拟器（`gcloud` 组件下载被网络策略拒绝，没有重试）；10 个契约测试在模拟器上连续通过，包括复现并处理了「50 个并发准入整体锁超时」 |
 | 限流叠加的实测 | **已完成** | 3 个测试固化了真实行为（2.9） |
 | Vite 项目骨架 | **已完成** | 类型检查、lint、Vitest、构建通过；`npm ci` 在干净目录复现；Dockerfile 的每一步在干净目录里逐步复现并从 `/app/` 取到页面；CI 增加 `web-client`、`api-firestore-emulator`、`web-docker` 三个 job |
@@ -691,7 +691,7 @@ src/
 | 风险 | 状态 | 应对 |
 |---|---|---|
 | Gemini SDK 的取消与重试行为 | **已在本地假上游验证**（取消 4 毫秒、默认不重试、已固定为 1 次） | 真实 Vertex 端点上再确认一次，需你授权 |
-| 取消后供应商仍生成约 2 秒 | **已修复并实测**（Gemini）；OpenAI 兼容待批次 1 | `ResponseDrainTimeout=0` |
+| 取消后连接多开约 2 秒 | 连接关闭行为已用假上游实测并修复（Gemini）；OpenAI 兼容待批次 1。**真实服务是否因此多生成或多计费未验证** | `ResponseDrainTimeout=0`；真实影响由真实调用验证计划测量 |
 | 一次运行含多次供应商调用（计数、摘要） | 已识别 | 全部在执行权标记之后、共用取消令牌、计入 `providerCalls` |
 | 事务争用导致准入整体失败 | **已复现** | 失败即未知、读回确认、503 可用同一 `runId` 重试 |
 | 附件被覆盖或写入他人路径 | **已识别并设计规避**（2.3.2） | 先准入后落盘、内容哈希命名、`ifGenerationMatch=0`，7 条测试 |
@@ -702,7 +702,7 @@ src/
 | 合并 `main` 会自动部署 | 事实 | 不合并；合并前确认变量与时机 |
 | 请求超时是否计入流式持续时间 | 按文档应当包含，**未实测** | 无流量标签修订实测，需你授权 |
 | 可能零次调用（P1'）且配额已扣 | 设计取舍 | 只有 `started` 才不退还；`not_started` 确定没调用，退还 |
-| 供应商已计费但取消后用量未知 | 无法避免 | 用量标记 `estimate`，不在检视器里冒充精确值 |
+| 取消后真实用量未知 | 无法在取消时得知 | 用量标记 `estimate`，不在检视器里冒充精确值；真实调用验证计划会测量取消后的实际计量 |
 | `docker build` 只做了逐步复现，未在真实 Docker 里执行 | 沙箱限制 | `web-docker` CI job；需要开 PR 才会运行 |
 | 分支推送不触发 CI | 事实 | 开 PR 前所有验证都是本地做的，结果见批次 0 报告 |
 | 限流策略调整影响现有保护 | 低 | 只对读取与停止放宽，创建运行仍是每分钟 30 次 |

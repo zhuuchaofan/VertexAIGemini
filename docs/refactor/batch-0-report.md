@@ -59,12 +59,12 @@ not ok 5 - a client abort does not crash the proxy
 
 ### 4.2 取消
 
-| | 取消令牌到枚举结束 | 供应商（上游）观察到连接关闭 | 取消后上游多写的分片 |
+| | 取消令牌到枚举结束 | 本地假上游观察到连接关闭 | 取消后假上游继续写入的分片 |
 |---|---|---|---|
 | 默认 .NET 处理器 | 约 4 毫秒 | **2004 毫秒后** | 64 个 |
 | `ResponseDrainTimeout = 0`（现用于所有 Gemini 客户端） | 约 4 毫秒 | **1 到 3 毫秒后** | 0 |
 
-2 秒的来源：.NET 的 `SocketsHttpHandler.ResponseDrainTimeout` 默认 2 秒，丢弃未读完的 HTTP/1.1 响应时连接继续接收。无论用取消令牌、`break` 还是显式释放枚举器结果相同。意味着取消后供应商还会继续生成并计费约 2 秒，已通过 `ClientOptions.HttpClientFactory` 提供共享的 `SocketsHttpHandler`（`disposeHandler: false`，连接池复用）修复，测试固定为「关闭延迟小于 500 毫秒」。
+2 秒的来源：.NET 的 `SocketsHttpHandler.ResponseDrainTimeout` 默认 2 秒，丢弃未读完的 HTTP/1.1 响应时连接继续接收。无论用取消令牌、`break` 还是显式释放枚举器结果相同。**这组数字只证明客户端侧的连接关闭行为**：默认处理器在取消后还让 TCP 连接保持约 2 秒，假上游因此又写了 64 个分片。**它不能证明真实的 Google 服务在这 2 秒里是否继续生成、是否计费**，假上游没有模型也没有账单。能确定的只有：不修的话，取消后的连接会多开约 2 秒；是否产生真实成本、成本多少，要等真实调用实测（见真实调用验证计划）。改用 `ClientOptions.HttpClientFactory` 提供共享的 `SocketsHttpHandler`（`disposeHandler: false`，连接池复用）修复，测试固定为「关闭延迟小于 500 毫秒」。
 
 ### 4.3 用量字段
 
