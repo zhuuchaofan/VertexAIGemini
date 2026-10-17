@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ConversationSummary, RunApi } from "../../api/types";
 import { themeLabels, type ThemeChoice } from "../../theme/useTheme";
+import { ConversationActions } from "./ConversationActions";
 import { formatWhen, groupByDay } from "./groupByDay";
+import { RenameField } from "./RenameField";
 
 interface Props {
   api: RunApi;
@@ -19,15 +21,21 @@ interface Props {
   onClose: () => void;
   /** Ids of conversations with a run in progress in this browser. */
   busyIds?: ReadonlySet<string>;
+  /** Called after a conversation was deleted from the list, so the page can leave it. */
+  onDeleted: (id: string) => void;
+  /** Ids with an unsent draft on this device. */
+  draftIds?: ReadonlySet<string>;
 }
 
-export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, onOpen, onNew, onSignOut, open, onClose, busyIds }: Props) {
+export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,24 +115,60 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, on
               <h3 className="group">{group.label}</h3>
               <ul>
                 {group.items.map(item => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      className={item.id === activeId ? "item active" : "item"}
-                      aria-current={item.id === activeId ? "page" : undefined}
-                      onClick={() => {
-                        onOpen(item.id);
-                        onClose();
-                      }}
-                    >
-                      <span className="title">
-                        {busyIds?.has(item.id) && <span className="dot" aria-label="生成中" />}
-                        {item.title || "未命名对话"}
-                      </span>
-                      <span className="meta">
-                        {item.modelName} · {formatWhen(item.updatedAt)}
-                      </span>
-                    </button>
+                  <li key={item.id} className="row">
+                    {editingId === item.id ? (
+                      <RenameField
+                        initial={item.title ?? ""}
+                        error={renameError}
+                        onCancel={() => {
+                          setEditingId(null);
+                          setRenameError(null);
+                        }}
+                        onSave={async title => {
+                          try {
+                            await api.renameConversation(item.id, title);
+                            setItems(current => current.map(entry => (entry.id === item.id ? { ...entry, title } : entry)));
+                            setEditingId(null);
+                            setRenameError(null);
+                          } catch {
+                            setRenameError("重命名失败，请再试一次。");
+                          }
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={item.id === activeId ? "item active" : "item"}
+                          aria-current={item.id === activeId ? "page" : undefined}
+                          onClick={() => {
+                            onOpen(item.id);
+                            onClose();
+                          }}
+                        >
+                          <span className="title">
+                            {busyIds?.has(item.id) && <span className="dot" aria-label="生成中" />}
+                            {item.title || "未命名对话"}
+                            {draftIds?.has(item.id) && <span className="tag draft">草稿</span>}
+                          </span>
+                          <span className="meta">
+                            {item.modelName} · {formatWhen(item.updatedAt)}
+                          </span>
+                        </button>
+                        <ConversationActions
+                          api={api}
+                          conversationId={item.id}
+                          busy={busyIds?.has(item.id) ?? false}
+                          variant="sidebar"
+                          label={`会话操作：${item.title || "未命名对话"}`}
+                          onRename={() => setEditingId(item.id)}
+                          onDeleted={() => {
+                            setItems(current => current.filter(entry => entry.id !== item.id));
+                            onDeleted(item.id);
+                          }}
+                        />
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>

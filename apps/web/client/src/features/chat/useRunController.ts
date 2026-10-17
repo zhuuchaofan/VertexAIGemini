@@ -65,6 +65,8 @@ const defaultNow = () => Date.now();
 export interface RunController {
   state: RunState;
   send(text: string, options?: RunOptions, attachments?: OutgoingAttachment[]): Promise<void>;
+  /** Tries the stored question of a failed run again, with the current settings. */
+  retry(failedRunId: string, options?: RunOptions): Promise<void>;
   stop(): Promise<void>;
   reset(): void;
   /** The composer took back the unsent text; keep the explanation, drop the pending copy. */
@@ -154,15 +156,15 @@ export function useRunController(options: RunControllerOptions): RunController {
     dispatch({ type: "networkFailed", started: true });
   }, [conversationId, pending, now]);
 
-  const send = useCallback(
-    async (text: string, runOptions?: RunOptions, attachments?: OutgoingAttachment[]) => {
+  const start = useCallback(
+    async (text: string, runOptions?: RunOptions, attachments?: OutgoingAttachment[], retryOf?: string) => {
       const message = text.trim();
       const files = attachments ?? [];
-      if ((!message && files.length === 0) || sending.current || !canSend(stateRef.current)) return;
+      if ((!message && files.length === 0 && !retryOf) || sending.current || !canSend(stateRef.current)) return;
       sending.current = true;
 
       const runId = newId();
-      dispatch({ type: "send", runId, message, now: now() });
+      dispatch({ type: "send", runId, message, now: now(), retryOf });
       pending.save({ runId, conversationId, message });
 
       const abort = new AbortController();
@@ -172,7 +174,7 @@ export function useRunController(options: RunControllerOptions): RunController {
         for (let attempt = 0; ; attempt += 1) {
           try {
             const result = await api.createRun(
-              { ...runOptions, runId, conversationId, message, ...(files.length > 0 ? { attachments: files } : {}) },
+              { ...runOptions, runId, conversationId, message, ...(files.length > 0 ? { attachments: files } : {}), ...(retryOf ? { retryOfRunId: retryOf } : {}) },
               {
                 onRun: snapshot => dispatch({ type: "run", run: snapshot }),
                 onDelta: delta => dispatch({ type: "delta", delta }),
@@ -223,6 +225,15 @@ export function useRunController(options: RunControllerOptions): RunController {
     [api, conversationId, newId, now, pending, settle, sleep]
   );
 
+  const send = useCallback(
+    (text: string, runOptions?: RunOptions, attachments?: OutgoingAttachment[]) => start(text, runOptions, attachments),
+    [start]
+  );
+  const retry = useCallback(
+    (failedRunId: string, runOptions?: RunOptions) => start("", runOptions, undefined, failedRunId),
+    [start]
+  );
+
   const stop = useCallback(async () => {
     const current = stateRef.current;
     if (current.phase !== "streaming" || !current.runId) return;
@@ -258,5 +269,5 @@ export function useRunController(options: RunControllerOptions): RunController {
 
   const unsentRestored = useCallback(() => dispatch({ type: "unsentRestored" }), []);
 
-  return { state, send, stop, reset, unsentRestored };
+  return { state, send, retry, stop, reset, unsentRestored };
 }

@@ -183,7 +183,6 @@
   .composer { padding: 4px 12px 10px; }
   .keys { display: none; }
   .chip { padding: 6px 9px; }
-  .composer-foot { display: none; }
   .overlay-backdrop { display: block; position: fixed; inset: 0; z-index: 50; background: rgba(8,11,16,.45); }
   .overlay-panel, .overlay-panel[data-placement] { position: fixed; z-index: 60; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-width: none; border-radius: 20px 20px 0 0; padding: 6px 10px calc(14px + env(safe-area-inset-bottom)); max-height: 80dvh; overflow: auto; }
   .sheet-grip { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line-2); margin: 2px auto 4px; }
@@ -258,3 +257,35 @@ button.att-thumb { cursor: zoom-in; }
 .viewer img { max-width: 100%; max-height: 100%; border-radius: 10px; background: #fff; }
 .viewer-close { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; font-size: 22px; }
 @media (max-width: 760px) { .att-thumb { width: calc(50% - 4px); height: 104px; } }
+
+/* ---- failures and retry ---- */
+.note .retry { margin-left: 8px; padding: 4px 12px; border: 1px solid currentColor; border-radius: 8px; background: none; color: inherit; font-weight: 600; }
+.note .retry:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.note.earlier { margin-left: 42px; font-size: 12px; opacity: .85; }
+
+/* ---- conversation actions, rename, drafts ---- */
+.rail .row { position: relative; }
+.conv-actions.sidebar { position: absolute; right: 4px; top: 7px; }
+.conv-actions.sidebar .dots { width: 28px; height: 28px; opacity: 0; }
+.rail .row:hover .dots, .rail .row:focus-within .dots, .conv-actions .dots[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .conv-actions.sidebar .dots { opacity: .7; } }
+.conv-actions .overlay-panel { left: auto; right: 0; width: 230px; }
+.menu { display: grid; gap: 2px; padding: 4px; }
+.menu-item { text-align: left; border: 0; background: none; border-radius: 9px; padding: 9px 12px; font-size: 14px; }
+.menu-item:hover:not(:disabled) { background: var(--panel-2); }
+.menu-item:disabled { color: var(--ink-3); cursor: default; }
+.menu-item.danger { color: var(--err); }
+.confirm { padding: 8px 10px 6px; display: grid; gap: 6px; }
+.confirm p { margin: 0; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.danger-btn { border: 0; border-radius: 10px; background: var(--err); color: #fff; font-weight: 600; padding: 8px 14px; }
+.danger-btn:disabled { opacity: .6; }
+.rename { display: grid; gap: 4px; width: 100%; }
+.rename input { width: 100%; padding: 7px 10px; border: 1px solid var(--accent); border-radius: 9px; background: var(--panel); color: var(--ink); font: inherit; }
+.bar-rename { min-width: 180px; max-width: 420px; }
+.tag.draft { background: var(--warn-soft); color: var(--warn); border-color: transparent; margin-left: 4px; }
+.composer-foot { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.draft-state { color: var(--ok); }
+@media (max-width: 760px) { .composer-foot { display: flex; } .composer-foot span:first-child { display: none; } .conv-actions .overlay-panel { width: auto; } }
+.login-tabs { width: min(320px, 100%); margin-bottom: 4px; }
+.login .ghost { width: 100%; }

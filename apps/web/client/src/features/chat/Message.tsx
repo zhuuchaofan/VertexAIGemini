@@ -35,6 +35,8 @@ interface ModelProps {
   thinkingLive?: boolean;
   /** Offered on an interrupted run so the stored reply can be fetched again. */
   onSync?: () => void;
+  /** Offered on a failed turn that may be tried again. */
+  onRetry?: () => void;
 }
 
 const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
@@ -43,7 +45,7 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync }: ModelProps) {
+export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry }: ModelProps) {
   const note = runNote(run);
   const tag = run ? badge[run.status] : undefined;
 
@@ -66,6 +68,11 @@ export function ModelMessage({ modelLabel, content, thinking, citations, created
         {note && (
           <div className={`note ${note.tone}`} role="status" data-run-status={run?.status}>
             <strong>{note.title}</strong> {note.detail}
+            {onRetry && (
+              <button type="button" className="retry" onClick={onRetry}>
+                重试
+              </button>
+            )}
             {run?.status === "interrupted" && onSync && (
               <button type="button" className="link" onClick={onSync}>
                 同步会话

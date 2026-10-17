@@ -25,6 +25,8 @@ export interface RunState {
   runId: string | null;
   /** The question being answered, shown at once. */
   message: string | null;
+  /** Set when this run answers a question that is already stored (a retry), so it is not shown a second time. */
+  retryOf: string | null;
   content: string;
   thinking: string;
   citations: Citation[];
@@ -38,7 +40,7 @@ export interface RunState {
 }
 
 export type RunAction =
-  | { type: "send"; runId: string; message: string; now: number }
+  | { type: "send"; runId: string; message: string; now: number; retryOf?: string }
   | { type: "run"; run: RunSnapshot }
   | { type: "delta"; delta: DeltaEvent }
   | { type: "citations"; items: Citation[] }
@@ -58,6 +60,7 @@ export function initialRunState(conversationId: string): RunState {
     conversationId,
     runId: null,
     message: null,
+    retryOf: null,
     content: "",
     thinking: "",
     citations: [],
@@ -82,6 +85,7 @@ function backToComposer(state: RunState, text: string): RunState {
     runId: null,
     unsentMessage: state.message,
     message: null,
+    retryOf: null,
     notice: { kind: "unsent", text }
   };
 }
@@ -96,6 +100,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         phase: "sending",
         runId: action.runId,
         message: action.message,
+        retryOf: action.retryOf ?? null,
         startedAt: action.now
       };
 

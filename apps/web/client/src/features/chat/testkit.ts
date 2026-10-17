@@ -44,6 +44,11 @@ export class FakeRunApi implements RunApi {
   async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
   async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
   async getAttachment() { return new Blob(["x"]); }
+  renamed: { id: string; title: string }[] = [];
+  deleted: string[] = [];
+  async renameConversation(id: string, title: string) { this.renamed.push({ id, title }); }
+  async deleteConversation(id: string) { this.deleted.push(id); }
+  async exportConversation() { return { blob: new Blob(["x"]), fileName: "c.md" }; }
   defaults: import("../../api/types").StoredSettings | null = null;
   savedDefaults: import("../../api/types").StoredSettings[] = [];
   savedConversationSettings: { id: string; settings: import("../../api/types").StoredSettings }[] = [];

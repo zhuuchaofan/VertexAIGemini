@@ -118,6 +118,30 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       return (await response.json()) as WorkspaceConfig;
     },
 
+    async renameConversation(conversationId: string, title: string): Promise<void> {
+      const response = await request(`/api/conversations/${conversationId}/title`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title })
+      });
+      if (!response.ok) await fail(response);
+    },
+
+    async deleteConversation(conversationId: string): Promise<void> {
+      const response = await request(`/api/v2/conversations/${conversationId}`, { method: "DELETE" });
+      if (!response.ok) await fail(response);
+    },
+
+    async exportConversation(conversationId: string, format: "markdown" | "json") {
+      const response = await request(`/api/export/${conversationId}/${format}`);
+      if (!response.ok) await fail(response);
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+      const plain = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+      const fileName = encoded ? decodeURIComponent(encoded) : (plain ?? `conversation.${format === "json" ? "json" : "md"}`);
+      return { blob: await response.blob(), fileName };
+    },
+
     async getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob> {
       const response = await request(`/api/v2/conversations/${conversationId}/messages/${messageId}/attachments/${index}`);
       if (!response.ok) await fail(response);

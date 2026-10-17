@@ -4,6 +4,7 @@ import type { WorkspaceConfig } from "./api/types";
 import { useSession } from "./auth/session";
 import { ChatView } from "./features/chat/ChatView";
 import { Sidebar } from "./features/conversations/Sidebar";
+import { listDraftIds } from "./features/drafts/drafts";
 import { useDefaults } from "./features/workspace/useDefaults";
 import { useWorkspace } from "./features/workspace/useWorkspace";
 import { LoginForm } from "./LoginForm";
@@ -29,7 +30,15 @@ export function App() {
   }
 
   if (session.status === "signed-out") {
-    return <LoginForm error={session.error} onSubmit={session.signIn} />;
+    return (
+      <LoginForm
+        error={session.error}
+        onSignIn={session.signIn}
+        onSignUp={session.signUp}
+        onGoogle={session.signInWithGoogle}
+        onReset={session.resetPassword}
+      />
+    );
   }
 
   return (
@@ -88,6 +97,10 @@ interface ReadyProps extends WorkbenchProps {
 
 function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
   const defaults = useDefaults(api, workspace);
+  const [draftsVersion, setDraftsVersion] = useState(0);
+  // Re-read whenever a draft changed or the list did; reading local storage is cheap.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const draftIds = useMemo(() => listDraftIds(), [draftsVersion, listVersion]);
   if (defaults.status === "loading") {
     return <main className="boot"><p>正在读取你的默认设置…</p></main>;
   }
@@ -108,6 +121,11 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, lis
         onSignOut={onSignOut}
         open={drawer}
         onClose={() => setDrawer(false)}
+        draftIds={draftIds}
+        onDeleted={id => {
+          bumpList();
+          if (id === route.conversationId) onNew();
+        }}
       />
       <main className="main">
         <ChatView
@@ -119,6 +137,10 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, lis
           onSaveDefaults={defaults.save}
           safetyThresholds={safetyThresholds}
           onMenu={() => setDrawer(true)}
+          draftKey={route.conversationId ?? "new"}
+          onDraftsChanged={() => setDraftsVersion(version => version + 1)}
+          onListChanged={bumpList}
+          onDeleted={onNew}
           onRunAdmitted={() => {
             if (!route.conversationId) route.openConversation(conversationId);
           }}

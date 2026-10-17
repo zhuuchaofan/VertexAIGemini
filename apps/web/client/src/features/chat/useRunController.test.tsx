@@ -51,6 +51,22 @@ describe("useRunController", () => {
     expect(result.current.state.notice).toBeNull();
   });
 
+  test("a retry sends the failed run's id and no message, and does not show the question a second time", async () => {
+    const api = new FakeRunApi();
+    api.script = async (_request, handlers) => {
+      handlers.onRun(snapshot());
+      handlers.onDone(snapshot({ status: "completed", hasAssistantMessage: true, outputChars: 2 }));
+      return { started: true, done: true };
+    };
+    const { result } = setup(api);
+
+    await act(() => result.current.retry("failed-run", { modelName: "m" }));
+
+    expect(api.createCalls).toEqual([{ runId: "run-1", conversationId: "conv-1", message: "", modelName: "m", retryOfRunId: "failed-run" }]);
+    expect(result.current.state.retryOf).toBe("failed-run");
+    expect(result.current.state.phase).toBe("finished");
+  });
+
   test("two clicks in the same tick create exactly one run", async () => {
     const api = new FakeRunApi();
     let release!: () => void;

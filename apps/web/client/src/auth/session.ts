@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AuthHeaders } from "../api/client";
+import { authErrorMessage } from "./messages";
 
 export type SessionStatus = "loading" | "signed-out" | "signed-in" | "unavailable";
 
@@ -9,6 +10,10 @@ export interface Session {
   error: string | null;
   headers: AuthHeaders;
   signIn(email: string, password: string): Promise<void>;
+  signUp(email: string, password: string): Promise<void>;
+  signInWithGoogle(): Promise<void>;
+  /** Resolves when the reset mail was sent. */
+  resetPassword(email: string): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -95,18 +100,40 @@ export function useSession(): Session {
     return current ? { Authorization: `Bearer ${await current.getIdToken()}` } : {};
   }, [devUser]);
 
-  const signIn = useCallback(async (address: string, password: string) => {
+  // Each way in reports its failure in plain language through `error`, and rethrows so a form can stop its spinner.
+  const attempt = useCallback(async (action: (loaded: FirebaseAuthModule) => Promise<unknown>) => {
     const loaded = firebase.current;
     if (!loaded) throw new Error("登录尚未就绪。");
     setError(null);
     try {
-      await loaded.mod.signInWithEmailAndPassword(loaded.auth, address, password);
+      await action(loaded);
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "登录失败。";
-      setError(message);
+      setError(authErrorMessage(caught));
       throw caught;
     }
   }, []);
+
+  const signIn = useCallback(
+    (address: string, password: string) => attempt(l => l.mod.signInWithEmailAndPassword(l.auth, address, password)),
+    [attempt]
+  );
+  const signUp = useCallback(
+    (address: string, password: string) => attempt(l => l.mod.createUserWithEmailAndPassword(l.auth, address, password)),
+    [attempt]
+  );
+  const signInWithGoogle = useCallback(
+    () =>
+      attempt(l => {
+        const provider = new l.mod.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        return l.mod.signInWithPopup(l.auth, provider);
+      }),
+    [attempt]
+  );
+  const resetPassword = useCallback(
+    (address: string) => attempt(l => l.mod.sendPasswordResetEmail(l.auth, address)),
+    [attempt]
+  );
 
   const signOut = useCallback(async () => {
     if (devUser) return;
@@ -115,7 +142,7 @@ export function useSession(): Session {
   }, [devUser]);
 
   return useMemo(
-    () => ({ status, email, error, headers, signIn, signOut }),
-    [status, email, error, headers, signIn, signOut]
+    () => ({ status, email, error, headers, signIn, signUp, signInWithGoogle, resetPassword, signOut }),
+    [status, email, error, headers, signIn, signUp, signInWithGoogle, resetPassword, signOut]
   );
 }

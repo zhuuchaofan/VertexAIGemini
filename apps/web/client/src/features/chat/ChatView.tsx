@@ -5,13 +5,16 @@ import { Overlay } from "../../ui/Overlay";
 import { AttachmentList, LocalAttachmentList } from "../attachments/AttachmentList";
 import { prepareAttachment, releasePreview, type PendingAttachment } from "../attachments/prepare";
 import { selectFiles, type Rejection } from "../attachments/rules";
+import { ConversationActions } from "../conversations/ConversationActions";
+import { RenameField } from "../conversations/RenameField";
+import { clearDraft, loadDraft, saveDraft } from "../drafts/drafts";
 import { Composer } from "../composer/Composer";
 import { ModelPicker } from "../composer/ModelPicker";
 import { findModel, fromStored, toRunOptions, toStored, withModel, type ChatSettings } from "../settings/chatSettings";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
-import { buildThread } from "./thread";
+import { buildThread, canRetry, runNote } from "./thread";
 import { localPendingStore, useRunController, type PendingStore } from "./useRunController";
 
 interface Props {
@@ -29,6 +32,14 @@ interface Props {
   onRunAdmitted?: () => void;
   /** Opens the conversation list on a phone. */
   onMenu?: () => void;
+  /** Where unsent text and attachments are kept: the conversation's id, or "new" before it exists. */
+  draftKey: string;
+  /** The draft changed, so the list can tag the conversation. */
+  onDraftsChanged?: () => void;
+  /** The title changed or the conversation was removed, so the list should be read again. */
+  onListChanged?: () => void;
+  /** The conversation was deleted from here; the page should leave it. */
+  onDeleted?: () => void;
   pending?: PendingStore;
 }
 
@@ -62,7 +73,7 @@ function useElapsed(startedAt: number | null, running: boolean): number {
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-export function ChatView({ api, conversationId, workspace, defaults, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, pending = localPendingStore }: Props) {
+export function ChatView({ api, conversationId, workspace, defaults, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, draftKey, onDraftsChanged, onListChanged, onDeleted, pending = localPendingStore }: Props) {
   const mobile = useIsMobile();
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,6 +96,38 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   const pendingSave = useRef<{ timer: ReturnType<typeof setTimeout>; send: () => void } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+
+  // Bring back what was typed and attached here last time, unless something new has already been typed.
+  useEffect(() => {
+    let cancelled = false;
+    loadDraft(draftKey)
+      .then(async saved => {
+        if (cancelled || !saved) return;
+        setDraft(current => current || saved.text);
+        if (saved.files.length > 0) {
+          const restored: PendingAttachment[] = saved.files.map(file => ({
+            id: crypto.randomUUID(),
+            ...file,
+            previewUrl: file.mimeType.startsWith("image/")
+              ? URL.createObjectURL(new Blob([Uint8Array.from(atob(file.base64Data), c => c.charCodeAt(0))], { type: file.mimeType }))
+              : undefined
+          }));
+          setAttachments(current => (current.length > 0 ? current : restored));
+        }
+        setDraftSaved(true);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setDraftReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftKey]);
 
   // Read the stored conversation. State is only set once the answer arrives, never synchronously in the effect.
   useEffect(() => {
@@ -195,15 +238,36 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   }, [thread.length, state.content, state.thinking, state.phase]);
 
   // After a reload the question is already stored; show the live bubble only for a question that is not.
-  const questionStored = detail?.messages.some(m => m.role === "user" && m.runId === state.runId) ?? false;
+  const questionStored = (state.retryOf !== null) || (detail?.messages.some(m => m.role === "user" && m.runId === state.runId) ?? false);
   const live = state.phase !== "idle" && state.message !== null;
   const model = findModel(workspace, settings.providerId, settings.modelName);
   const labelFor = (providerId: string, modelName: string) => findModel(workspace, providerId, modelName)?.name ?? modelName;
   const replyLabel = detail ? labelFor(detail.providerId, detail.modelName) : labelFor(settings.providerId, settings.modelName);
+  // Each reply names the model that really wrote it, which can differ from the conversation's current model.
+  const replyLabelFor = (run: { requested?: { providerId?: string; modelName?: string } | null; effective?: Record<string, unknown> | null } | undefined) => {
+    const modelName = (run?.effective?.modelName as string | undefined) ?? run?.requested?.modelName;
+    const providerId = (run?.effective?.providerId as string | undefined) ?? run?.requested?.providerId;
+    return modelName ? labelFor(providerId ?? settings.providerId, modelName) : replyLabel;
+  };
   const liveLabel = model?.name ?? settings.modelName;
 
   // A send that never reached the server brings its attachments back along with its text.
   const shownAttachments = attachments.length > 0 ? attachments : state.unsentMessage != null ? sent : [];
+
+  // Keep the draft as it changes (after a short pause), or drop it once there is nothing left to keep.
+  useEffect(() => {
+    if (!draftReady) return;
+    const timer = setTimeout(() => {
+      const files = shownAttachments.map(({ fileName, mimeType, size, base64Data }) => ({ fileName, mimeType, size, base64Data }));
+      void saveDraft(draftKey, { text: composerText, files }).then(() => {
+        setDraftSaved(composerText.length > 0 || files.length > 0);
+        onDraftsChanged?.();
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+    // shownAttachments is derived from attachments, sent and the unsent notice, all listed here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composerText, attachments, sent, state.unsentMessage, draftKey, draftReady]);
 
   const addFiles = async (files: File[]) => {
     const { accepted, rejected } = selectFiles(files, shownAttachments.length);
@@ -240,6 +304,8 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
     setAttachments([]);
     setRejections([]);
     setSent(files);
+    // What was typed is on its way: its draft goes now, whatever the conversation is called by the time the send ends.
+    void clearDraft(draftKey).then(() => onDraftsChanged?.());
     if (state.unsentMessage) controller.unsentRestored();
     await controller.send(
       text,
@@ -336,7 +402,30 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
           </button>
         )}
         <div className="bar-title">
-          <h1>{title}</h1>
+          {renaming && detail ? (
+            <RenameField
+              className="bar-rename"
+              initial={detail.title ?? ""}
+              error={renameError}
+              onCancel={() => {
+                setRenaming(false);
+                setRenameError(null);
+              }}
+              onSave={async next => {
+                try {
+                  await api.renameConversation(conversationId, next);
+                  setDetail(current => (current ? { ...current, title: next } : current));
+                  setRenaming(false);
+                  setRenameError(null);
+                  onListChanged?.();
+                } catch {
+                  setRenameError("重命名失败，请再试一次。");
+                }
+              }}
+            />
+          ) : (
+            <h1>{title}</h1>
+          )}
           {mobile ? (
             <ModelPicker
               workspace={workspace}
@@ -349,6 +438,21 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
           )}
         </div>
         <span className="spacer" />
+        {detail && (
+          <ConversationActions
+            api={api}
+            conversationId={conversationId}
+            busy={isActive(state) || followId !== null}
+            variant="header"
+            label="会话操作"
+            onRename={() => setRenaming(true)}
+            onDeleted={() => {
+              void clearDraft(draftKey).then(() => onDraftsChanged?.());
+              onListChanged?.();
+              onDeleted?.();
+            }}
+          />
+        )}
         {mobile ? (
           <Overlay open={settingsOpen} onClose={() => setSettingsOpen(false)} title="对话设置" trigger={settingsButton} className="settings-sheet">
             {panel(() => setSettingsOpen(false))}
@@ -369,7 +473,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
             </div>
           )}
 
-          {thread.map(item => (
+          {thread.map((item, position) => (
             <article key={item.key} className="turn">
               {item.user && (
                 <UserMessage message={item.user}>
@@ -378,16 +482,31 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
                   )}
                 </UserMessage>
               )}
-              {(item.reply || item.run) && (
+              {item.attempts
+                .filter(attempt => attempt !== item.finalRun && runNote(attempt))
+                .map(attempt => {
+                  const note = runNote(attempt)!;
+                  return (
+                    <div key={attempt.runId} className={`note ${note.tone} earlier`} role="status" data-run-status={attempt.status}>
+                      <strong>第 {attempt.attempt} 次：{note.title}</strong> {note.detail}
+                    </div>
+                  );
+                })}
+              {(item.reply || item.finalRun) && (
                 <ModelMessage
-                  modelLabel={replyLabel}
+                  modelLabel={replyLabelFor(item.finalRun)}
                   content={item.reply?.content ?? ""}
                   thinking={item.reply?.thinkingContent}
                   citations={item.reply?.citations}
                   createdAt={item.reply?.createdAt}
                   status={item.reply?.status}
-                  run={item.run}
+                  run={item.finalRun}
                   onSync={() => setReloadKey(key => key + 1)}
+                  onRetry={
+                    item.finalRun && canRetry(item, position === thread.length - 1, isActive(state) || followId !== null)
+                      ? () => void controller.retry(item.finalRun!.runId, toRunOptions(workspace, settings))
+                      : undefined
+                  }
                 />
               )}
             </article>
@@ -446,6 +565,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
         onRemoveAttachment={removeAttachment}
         onDismissRejections={() => setRejections([])}
         footer="内容由 AI 生成，请核对重要信息"
+        draftSaved={draftSaved && (composerText.length > 0 || shownAttachments.length > 0)}
       />
     </section>
     {!mobile && settingsOpen && (

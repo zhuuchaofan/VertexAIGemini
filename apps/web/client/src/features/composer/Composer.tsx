@@ -26,6 +26,8 @@ interface Props {
   statusLine: string | null;
   phase: string;
   footer?: string;
+  /** The text and attachments here are kept on this device until sent. */
+  draftSaved?: boolean;
   attachments: PendingAttachment[];
   rejections: Rejection[];
   preparing: boolean;
@@ -39,7 +41,7 @@ const ACCEPT = "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf,.
 const MAX_HEIGHT = 220;
 
 export function Composer(props: Props) {
-  const { value, onChange, onSubmit, onStop, running, stopping, canSend, workspace, settings, onSettings, modelInHeader, statusLine, phase, footer } = props;
+  const { value, onChange, onSubmit, onStop, running, stopping, canSend, workspace, settings, onSettings, modelInHeader, statusLine, phase, footer, draftSaved } = props;
   const { attachments, rejections, preparing, onAddFiles, onRemoveAttachment, onDismissRejections } = props;
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -173,7 +175,12 @@ export function Composer(props: Props) {
         </div>
       </div>
       {dragging && <p className="drop-hint" role="status">松开以添加附件</p>}
-      {footer && <p className="composer-foot">{footer}</p>}
+      {(footer || draftSaved) && (
+        <p className="composer-foot">
+          <span>{footer}</span>
+          {draftSaved && <span className="draft-state" role="status">✓ 草稿已自动保存在本机</span>}
+        </p>
+      )}
     </form>
   );
 }

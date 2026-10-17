@@ -11,6 +11,8 @@ public sealed class MockChatModelClient : IChatModelClient, IChatRunTelemetrySou
 
     public int CurrentTokenCount { get; private set; }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> FlakyCalls = new();
+
     // Deterministic, and clearly the mock's own: it lets tests and the UI exercise usage and settings end to end.
     public ChatRunTelemetry Telemetry { get; } = new();
     private ChatSessionOptions? _options;
@@ -189,6 +191,26 @@ public sealed class MockChatModelClient : IChatModelClient, IChatRunTelemetrySou
             };
             Complete(trimmed, 20, 21);
             yield break;
+        }
+
+        // Fails the first time a given message is sent and answers every time after, so a retry can be shown to work.
+        if (trimmed.StartsWith("/flaky", StringComparison.Ordinal))
+        {
+            if (FlakyCalls.AddOrUpdate(trimmed, 1, (_, n) => n + 1) == 1)
+            {
+                await Task.Delay(20, cancellationToken);
+                throw new InvalidOperationException("Gemini ServerError: mock upstream unavailable");
+            }
+
+            yield return new ChatChunk { Text = "这次成功了。", IsThinking = false };
+            Complete(trimmed, 6, 0);
+            yield break;
+        }
+
+        if (trimmed.StartsWith("/failfirst", StringComparison.Ordinal))
+        {
+            await Task.Delay(20, cancellationToken);
+            throw new InvalidOperationException("Gemini ServerError: mock upstream unavailable");
         }
 
         if (trimmed.StartsWith("/fail", StringComparison.Ordinal))

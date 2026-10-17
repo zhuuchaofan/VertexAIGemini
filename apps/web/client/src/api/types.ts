@@ -22,6 +22,13 @@ export interface RunSnapshot {
   admittedAt: string | null;
   endedAt: string | null;
   replayed?: boolean;
+  /** The failed run this one tries again, and the run that tried this one again. */
+  retryOfRunId?: string | null;
+  retriedByRunId?: string | null;
+  requested?: RunOptions | null;
+  effective?: Record<string, unknown> | null;
+  usage?: { inputTokens?: number; outputTokens?: number; thoughtsTokens?: number; totalTokens?: number; source: string } | null;
+  finishReason?: string | null;
 }
 
 export interface DeltaEvent {
@@ -115,6 +122,8 @@ export interface CreateRunRequest extends RunOptions {
   conversationId: string;
   message: string;
   attachments?: OutgoingAttachment[];
+  /** Answers the stored question of this failed run instead of sending a new message. */
+  retryOfRunId?: string;
 }
 
 export interface ThinkingOption {
@@ -224,6 +233,9 @@ export interface RunApi {
   getWorkspace(): Promise<WorkspaceConfig>;
   getAuthStatus(): Promise<AuthStatus>;
   getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob>;
+  renameConversation(conversationId: string, title: string): Promise<void>;
+  deleteConversation(conversationId: string): Promise<void>;
+  exportConversation(conversationId: string, format: "markdown" | "json"): Promise<{ blob: Blob; fileName: string }>;
   getDefaults(): Promise<StoredSettings | null>;
   putDefaults(settings: StoredSettings): Promise<StoredSettings | null>;
   putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void>;
