@@ -26,6 +26,7 @@ internal static class FirestoreConversationSchema
     public const string ThinkingContent = "thinkingContent";
     public const string AttachmentsJson = "attachmentsJson";
     public const string RunId = "runId";
+    public const string CitationsJson = "citationsJson";
     public const string Status = "status";
     public const string ActiveRunId = "activeRunId";
     public const string LastRunId = "lastRunId";

@@ -289,6 +289,24 @@ internal static class RunEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, (await host.Http.GetAsync($"/api/v2/conversations/{Guid.NewGuid()}")).StatusCode);
     }
 
+    public static void CitationsAreStoredWithTheReplyOnceEachAndReturnedOnReload() => Wait(Async9());
+    private static async Task Async9()
+    {
+        var h = new RunHarness();
+        using var host = new ApiHost(h, h.User);
+        var conversation = Guid.NewGuid();
+        using (var response = await PostAsync(host, Body("/cite sources", conversationId: conversation))) await ReadEventsAsync(response);
+
+        var detail = await GetJsonAsync(host, $"/api/v2/conversations/{conversation}");
+        var reply = detail.GetProperty("messages").EnumerateArray().Single(m => m.GetProperty("role").GetString() == "model");
+        var citations = reply.GetProperty("citations").EnumerateArray().ToList();
+        Assert.Equal("https://example.com/one|https://example.org/two", string.Join('|', citations.Select(c => c.GetProperty("uri").GetString()!)));
+        Assert.Equal("One", citations[0].GetProperty("title").GetString()!); // the first title for an address wins
+
+        var user = detail.GetProperty("messages").EnumerateArray().First(m => m.GetProperty("role").GetString() == "user");
+        Assert.Equal(0, user.GetProperty("citations").GetArrayLength());
+    }
+
     // ---------------------------------------------------------------------------------------- rate limits
 
     /// <summary>Not an emulator test: the real classification and budgets, through the real middleware.</summary>

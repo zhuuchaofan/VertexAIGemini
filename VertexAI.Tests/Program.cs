@@ -32,6 +32,7 @@ var tests = new (string Name, Action Test)[]
     ("Rate limit: named endpoint policy does not relax the global limiter", RateLimitStackingTests.NamedEndpointPolicyDoesNotRelaxTheGlobalLimiter),
     ("Rate limit: DisableRateLimiting removes every limit including the global one", RateLimitStackingTests.DisableRateLimitingRemovesEveryLimitIncludingTheGlobalOne),
     ("Rate limit: classifying inside the global limiter isolates run-control routes", RateLimitStackingTests.ClassifyingInsideTheGlobalLimiterGivesControlRoutesTheirOwnBudget),
+    ("Run endpoints: Citations are stored with the reply once each and returned on reload", RunEndpointTests.CitationsAreStoredWithTheReplyOnceEachAndReturnedOnReload),
     ("Run lifecycle: Concurrent sends of one run execute exactly once", RunLifecycleTests.ConcurrentSendsOfOneRunExecuteExactlyOnce),
     ("Run lifecycle: Replay of a finished run reports it without executing", RunLifecycleTests.ReplayOfAFinishedRunReportsItWithoutExecuting),
     ("Run lifecycle: Conflicting or foreign run ids are refused", RunLifecycleTests.ConflictingOrForeignRunIdsAreRefused),
@@ -117,13 +118,20 @@ foreach (var (name, test) in tests)
     try
     {
         // A wedged call (for example to the emulator) must fail loudly and by name instead of hanging the run.
-        var running = Task.Run(test);
-        if (!running.Wait(TimeSpan.FromSeconds(240)))
+        // On its own thread, not the pool: the tests block on async work and must not starve the pool they depend on.
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { test(); }
+            catch (Exception ex) { failure = ex; }
+        }) { IsBackground = true };
+        thread.Start();
+        if (!thread.Join(TimeSpan.FromSeconds(240)))
         {
             throw new TimeoutException("the test did not finish within 240 seconds");
         }
 
-        running.GetAwaiter().GetResult();
+        if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         Console.WriteLine($"PASS {name}");
     }
     catch (Exception ex) when (ex is AggregateException { InnerException: TestSkippedException } aggregate)

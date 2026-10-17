@@ -291,10 +291,24 @@ public static class RunEndpoints
                 thinkingContent = m.ThinkingContent,
                 runId = m.RunId,
                 status = m.Status,
+                citations = ParseCitations(m.CitationsJson),
                 createdAt = m.CreatedAt
             }),
             runs = records.Select(run => RunSnapshot.From(run))
         }, Json);
+    }
+
+    private static IReadOnlyList<SearchCitation> ParseCitations(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<SearchCitation>>(json) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
     }
 
     private static Task Snapshot(HttpContext context, RunRecord? record)

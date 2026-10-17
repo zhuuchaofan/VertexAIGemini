@@ -43,6 +43,7 @@ internal static class FirestoreConversationMapper
 
         // Optional fields are only written when set, so documents created before runs existed keep their shape.
         if (message.RunId != null) document[FirestoreConversationSchema.RunId] = message.RunId;
+        if (message.CitationsJson != null) document[FirestoreConversationSchema.CitationsJson] = message.CitationsJson;
         if (message.Status != null) document[FirestoreConversationSchema.Status] = message.Status;
         return document;
     }
@@ -92,6 +93,7 @@ internal static class FirestoreConversationMapper
             ThinkingContent = ReadString(snapshot, FirestoreConversationSchema.ThinkingContent),
             AttachmentsJson = ReadString(snapshot, FirestoreConversationSchema.AttachmentsJson),
             RunId = ReadString(snapshot, FirestoreConversationSchema.RunId),
+            CitationsJson = ReadString(snapshot, FirestoreConversationSchema.CitationsJson),
             Status = ReadString(snapshot, FirestoreConversationSchema.Status),
             CreatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.CreatedAt)
         };

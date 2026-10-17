@@ -40,7 +40,9 @@ export class FakeRunApi implements RunApi {
   async stopRun(runId: string) { this.stopCalls.push(runId); return this.onStop(); }
   async getRun() { this.getRunCalls += 1; return this.onGetRun(this.getRunCalls); }
   async getConversation() { return this.conversation; }
-  async listConversations() { return []; }
+  async listConversations() { return { items: [], hasMore: false, nextCursor: null }; }
+  async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
+  async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
 }
 
 // A macrotask, not a microtask: events scheduled earlier by the fake server must get to run first.

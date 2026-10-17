@@ -275,6 +275,7 @@ public sealed class RunService
 
                 if (chunk.Citations is { Count: > 0 })
                 {
+                    state.AddCitations(chunk.Citations);
                     await send.Emit(new RunEvent.Citations(chunk.Citations));
                 }
             }
@@ -409,7 +410,7 @@ public sealed class RunService
             : Math.Max(content?.Length ?? 0, 0) / 4;
         var request = new FinalizeRequest(
             run.User, run.RunId, FinalizeOrigin.Executor, run.ExecutorId,
-            status, reason, content, thinking, error, tokens);
+            status, reason, content, thinking, error, tokens, state.Citations());
 
         for (var attempt = 0; ; attempt++)
         {
@@ -627,6 +628,21 @@ public sealed class RunService
                 return offset;
             }
         }
+
+        private readonly List<SearchCitation> _citations = [];
+
+        public void AddCitations(IEnumerable<SearchCitation> items)
+        {
+            lock (_gate)
+            {
+                foreach (var item in items)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.Uri) && !_citations.Any(c => c.Uri == item.Uri)) _citations.Add(item);
+                }
+            }
+        }
+
+        public IReadOnlyList<SearchCitation> Citations() { lock (_gate) return _citations.ToList(); }
 
         public (string? Content, string? Thinking) Snapshot()
         {

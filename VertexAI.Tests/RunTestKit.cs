@@ -96,6 +96,24 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient
             case "/empty":
                 yield break;
 
+            case "/cite":
+                yield return new ChatChunk { Text = "According to the sources." };
+                yield return new ChatChunk
+                {
+                    Text = "",
+                    Citations = [new SearchCitation { Title = "One", Uri = "https://example.com/one" }]
+                };
+                yield return new ChatChunk
+                {
+                    Text = "",
+                    Citations =
+                    [
+                        new SearchCitation { Title = "One again", Uri = "https://example.com/one" },
+                        new SearchCitation { Title = "Two", Uri = "https://example.org/two" }
+                    ]
+                };
+                yield break;
+
             default:
                 yield return new ChatChunk { Text = "Hello " };
                 yield return new ChatChunk { Text = "world" };

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Google.Cloud.Firestore;
 using Microsoft.Extensions.Options;
 using VertexAI.Services.Auth;
@@ -398,6 +399,7 @@ public sealed class FirestoreRunStore : IRunStore
                     ThinkingContent = string.IsNullOrWhiteSpace(thinking) ? null : thinking,
                     CreatedAt = now,
                     RunId = record.RunId,
+                    CitationsJson = request.Citations is { Count: > 0 } ? JsonSerializer.Serialize(request.Citations) : null,
                     Status = request.Status == RunStatus.Completed ? "final" : "partial"
                 };
                 transaction.Create(

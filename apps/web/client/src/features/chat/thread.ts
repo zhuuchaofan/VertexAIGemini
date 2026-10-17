@@ -33,7 +33,7 @@ export function buildThread(detail: ConversationDetail | null): ThreadItem[] {
 }
 
 /** The note shown for a run that did not complete, or null when there is nothing to say. */
-export function runNote(run: RunSnapshot | undefined): { tone: "info" | "warn" | "err"; title: string; detail: string } | null {
+export function runNote(run: RunSnapshot | undefined): { tone: "info" | "warn" | "err"; title: string; detail: string} | null {
   if (!run || run.status === "completed" || run.status === "running") return null;
   const saved = run.hasAssistantMessage ? `已保存已生成的 ${run.outputChars} 字。` : "没有产生回复。";
 

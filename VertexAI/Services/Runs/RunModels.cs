@@ -147,6 +147,7 @@ public sealed record FinalizeRequest(
     string? Content,
     string? Thinking,
     RunError? Error,
-    int TokenCount);
+    int TokenCount,
+    IReadOnlyList<SearchCitation>? Citations = null);
 
 public sealed record FinalizeResult(bool Won, RunRecord Record);

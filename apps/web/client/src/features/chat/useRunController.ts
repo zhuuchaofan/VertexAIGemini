@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import { ApiError, NetworkError, type RunApi, type RunSnapshot } from "../../api/types";
+import { ApiError, NetworkError, type RunApi, type RunOptions, type RunSnapshot } from "../../api/types";
 import { canSend, initialRunState, runReducer, type RunState } from "./runMachine";
 
 /** A send that was started but whose outcome the browser may not know yet. Survives a reload. */
@@ -60,7 +60,7 @@ const defaultNow = () => Date.now();
 
 export interface RunController {
   state: RunState;
-  send(text: string): Promise<void>;
+  send(text: string, options?: RunOptions): Promise<void>;
   stop(): Promise<void>;
   reset(): void;
   /** The composer took back the unsent text; keep the explanation, drop the pending copy. */
@@ -151,7 +151,7 @@ export function useRunController(options: RunControllerOptions): RunController {
   }, [conversationId, pending, now]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, runOptions?: RunOptions) => {
       const message = text.trim();
       if (!message || sending.current || !canSend(stateRef.current)) return;
       sending.current = true;
@@ -167,7 +167,7 @@ export function useRunController(options: RunControllerOptions): RunController {
         for (let attempt = 0; ; attempt += 1) {
           try {
             const result = await api.createRun(
-              { runId, conversationId, message },
+              { ...runOptions, runId, conversationId, message },
               {
                 onRun: snapshot => dispatch({ type: "run", run: snapshot }),
                 onDelta: delta => dispatch({ type: "delta", delta }),

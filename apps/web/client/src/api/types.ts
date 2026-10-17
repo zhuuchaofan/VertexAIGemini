@@ -42,6 +42,7 @@ export interface StoredMessage {
   thinkingContent: string | null;
   runId: string | null;
   status: "final" | "partial" | null;
+  citations?: Citation[];
   createdAt: string;
 }
 
@@ -58,14 +59,94 @@ export interface ConversationDetail {
 export interface ConversationSummary {
   id: string;
   title: string | null;
+  providerId?: string;
   modelName: string;
   updatedAt: string;
 }
 
-export interface CreateRunRequest {
+export interface ConversationPage {
+  items: ConversationSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+/** Per-run options, in the shape the v2 run endpoint takes. Only what the chosen model supports is ever set. */
+export interface RunOptions {
+  providerId?: string;
+  modelName?: string;
+  presetId?: string;
+  customPrompt?: string | null;
+  searchMode?: SearchMode;
+  thinkingEnabled?: boolean | null;
+  thinkingLevel?: string | null;
+  thinkingBudget?: number | null;
+  advanced?: AdvancedOptions;
+}
+
+export type SearchMode = "off" | "auto" | "force";
+
+export interface AdvancedOptions {
+  temperature?: number;
+  topP?: number;
+  maxOutputTokens?: number;
+  safetyThreshold?: string;
+}
+
+export interface CreateRunRequest extends RunOptions {
   runId: string;
   conversationId: string;
   message: string;
+}
+
+export interface ThinkingOption {
+  value: string;
+  label: string;
+}
+
+export interface ThinkingConfig {
+  kind: string;
+  canDisable: boolean;
+  fixedEnabled: boolean;
+  includeThoughts: boolean;
+  default?: string | null;
+  options: ThinkingOption[];
+  budgets: number[];
+  defaultBudget?: number | null;
+}
+
+export interface ModelOption {
+  name: string;
+  modelName: string;
+  description: string;
+  supportsThinking: boolean;
+  supportsSampling: boolean;
+  thinking: ThinkingConfig | null;
+  maxTokens: number;
+}
+
+export interface PromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  description: string;
+}
+
+export interface WorkspaceProvider {
+  provider: { id: string; name: string; description: string };
+  models: ModelOption[];
+  presets: PromptPreset[];
+  defaultPresetId: string;
+  defaultModelName: string;
+}
+
+export interface WorkspaceConfig {
+  providers: WorkspaceProvider[];
+  defaultProviderId: string;
+}
+
+export interface AuthStatus {
+  email: string;
+  safetyThresholds: string[];
 }
 
 export interface RunStreamHandlers {
@@ -109,5 +190,7 @@ export interface RunApi {
   stopRun(runId: string): Promise<RunSnapshot | null>;
   getRun(runId: string): Promise<RunSnapshot | null>;
   getConversation(conversationId: string): Promise<ConversationDetail | null>;
-  listConversations(): Promise<ConversationSummary[]>;
+  listConversations(cursor?: string | null): Promise<ConversationPage>;
+  getWorkspace(): Promise<WorkspaceConfig>;
+  getAuthStatus(): Promise<AuthStatus>;
 }

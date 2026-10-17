@@ -3,14 +3,16 @@ import {
   ApiError,
   NetworkError,
   type Citation,
+  type AuthStatus,
   type ConversationDetail,
-  type ConversationSummary,
+  type ConversationPage,
   type CreateRunRequest,
   type DeltaEvent,
   type RunApi,
   type RunSnapshot,
   type RunStreamHandlers,
-  type RunStreamResult
+  type RunStreamResult,
+  type WorkspaceConfig
 } from "./types";
 
 export type AuthHeaders = () => Promise<Record<string, string>>;
@@ -101,11 +103,25 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       return (await response.json()) as ConversationDetail;
     },
 
-    async listConversations(): Promise<ConversationSummary[]> {
-      const response = await request("/api/conversations?limit=30");
+    async listConversations(cursor?: string | null): Promise<ConversationPage> {
+      const query = new URLSearchParams({ limit: "30" });
+      if (cursor) query.set("cursor", cursor);
+      const response = await request(`/api/conversations?${query}`);
       if (!response.ok) await fail(response);
-      const page = (await response.json()) as { items: ConversationSummary[] };
-      return page.items;
+      return (await response.json()) as ConversationPage;
+    },
+
+    async getWorkspace(): Promise<WorkspaceConfig> {
+      const response = await request("/api/workspace/config");
+      if (!response.ok) await fail(response);
+      return (await response.json()) as WorkspaceConfig;
+    },
+
+    async getAuthStatus(): Promise<AuthStatus> {
+      const response = await request("/api/auth/status");
+      if (!response.ok) await fail(response);
+      const body = (await response.json()) as { user?: { email: string }; safetyThresholds?: string[] };
+      return { email: body.user?.email ?? "", safetyThresholds: body.safetyThresholds ?? [] };
     }
   };
 }
