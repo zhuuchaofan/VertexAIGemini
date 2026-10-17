@@ -242,7 +242,9 @@ public sealed class RunService
             }
 
             // The execution-right check. After this returns true the provider may be contacted; before it, never.
-            switch (await BeginProviderCallAsync(run))
+            var searchModeForRun = SearchModes.Normalize(request.SearchMode);
+            var effective = DescribeEffective(model, request.Options.ProviderId, searchModeForRun);
+            switch (await BeginProviderCallAsync(run, effective))
             {
                 case BeginOutcome.Refused:
                     return await CurrentRecordAsync(run);
@@ -361,14 +363,24 @@ public sealed class RunService
 
     private enum BeginOutcome { Allowed, Refused, Unavailable }
 
-    private async Task<BeginOutcome> BeginProviderCallAsync(AdmittedRun run)
+    private RunEffective? DescribeEffective(IChatModelClient model, string? providerId, string searchMode)
+    {
+        if (model is not IChatRunTelemetrySource source) return null;
+        var applied = source.Effective;
+        return new RunEffective(
+            _providers.ResolveProviderId(providerId), applied.ModelName, applied.PresetId, searchMode,
+            applied.ThinkingEnabled, applied.ThinkingLevel, applied.ThinkingBudget,
+            applied.Temperature, applied.TopP, applied.MaxOutputTokens, applied.SafetyThreshold);
+    }
+
+    private async Task<BeginOutcome> BeginProviderCallAsync(AdmittedRun run, RunEffective? effective)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(_settings.FinalizeTimeoutSeconds));
-                return await _store.BeginProviderCallAsync(run, timeout.Token)
+                return await _store.BeginProviderCallAsync(run, timeout.Token, effective)
                     ? BeginOutcome.Allowed
                     : BeginOutcome.Refused;
             }
@@ -396,6 +408,31 @@ public sealed class RunService
         return BeginOutcome.Unavailable;
     }
 
+    /// <summary>
+    /// What this run learned. Provider figures are used as reported; when the provider reported no usage but text was
+    /// produced, an estimate is stored and labelled as one. Nothing is made up for a run that never reached the provider.
+    /// </summary>
+    private static RunMeta? BuildMeta(IChatModelClient? model, StreamState state, string? content, string? thinking)
+    {
+        var telemetry = (model as IChatRunTelemetrySource)?.Telemetry;
+        RunUsage? usage = null;
+        if (telemetry?.Usage is { } reported)
+        {
+            usage = new RunUsage(reported.InputTokens, reported.OutputTokens, reported.ThoughtsTokens, reported.TotalTokens, "provider");
+        }
+        else if (!string.IsNullOrEmpty(content))
+        {
+            usage = new RunUsage(null, Math.Max(1, content.Length / 4), null, null, "estimate");
+        }
+
+        var calls = telemetry is { GenerateCalls: > 0 }
+            ? new RunProviderCalls(telemetry.GenerateCalls, telemetry.SummarizeCalls, telemetry.CountTokensCalls)
+            : null;
+        return new RunMeta(
+            usage, telemetry?.FinishReason, telemetry?.ModelVersion, telemetry?.ResponseId, calls,
+            thinking?.Length ?? 0, state.Citations().Count, state.FirstOutputAt);
+    }
+
     private async Task<RunRecord> FinalizeAsync(
         AdmittedRun run,
         StreamState state,
@@ -410,7 +447,8 @@ public sealed class RunService
             : Math.Max(content?.Length ?? 0, 0) / 4;
         var request = new FinalizeRequest(
             run.User, run.RunId, FinalizeOrigin.Executor, run.ExecutorId,
-            status, reason, content, thinking, error, tokens, state.Citations());
+            status, reason, content, thinking, error, tokens, state.Citations(),
+            BuildMeta(model, state, content, thinking));
 
         for (var attempt = 0; ; attempt++)
         {
@@ -617,10 +655,14 @@ public sealed class RunService
 
         public string Content { get { lock (_gate) return _content.ToString(); } }
 
+        private DateTime? _firstOutputAt;
+        public DateTime? FirstOutputAt { get { lock (_gate) return _firstOutputAt; } }
+
         public int Append(string text, bool thinking)
         {
             lock (_gate)
             {
+                if (_firstOutputAt == null && text.Length > 0) _firstOutputAt = DateTime.UtcNow;
                 var builder = thinking ? _thinking : _content;
                 var offset = builder.Length;
                 builder.Append(text);

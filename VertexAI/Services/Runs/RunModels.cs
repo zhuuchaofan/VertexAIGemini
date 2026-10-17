@@ -57,6 +57,40 @@ public sealed record RunRequested(
     int? ThinkingBudget,
     ChatAdvancedOptions? Advanced);
 
+/// <summary>
+/// Tokens as far as they are known. <c>Source</c> is "provider" when the provider reported them and "estimate" when
+/// they are our own count (characters divided by four); a figure we do not have stays null.
+/// </summary>
+public sealed record RunUsage(int? InputTokens, int? OutputTokens, int? ThoughtsTokens, int? TotalTokens, string Source);
+
+/// <summary>What was actually applied to the request, as resolved on the server. Written before the provider is called.</summary>
+public sealed record RunEffective(
+    string ProviderId,
+    string ModelName,
+    string PresetId,
+    string SearchMode,
+    bool? ThinkingEnabled,
+    string? ThinkingLevel,
+    int? ThinkingBudget,
+    double? Temperature,
+    double? TopP,
+    int? MaxOutputTokens,
+    string? SafetyThreshold);
+
+/// <summary>Our own count of provider requests a run made, by kind.</summary>
+public sealed record RunProviderCalls(int Generate, int Summarize, int CountTokens);
+
+/// <summary>What a run learned while it ran. Everything here is optional: unknown stays unknown.</summary>
+public sealed record RunMeta(
+    RunUsage? Usage,
+    string? FinishReason,
+    string? ModelVersion,
+    string? ResponseId,
+    RunProviderCalls? ProviderCalls,
+    int ThinkingChars,
+    int CitationCount,
+    DateTime? FirstOutputAt);
+
 /// <summary>A persisted run. Lease and partial-output fields are internal bookkeeping and never sent to clients.</summary>
 public sealed record RunRecord
 {
@@ -82,6 +116,18 @@ public sealed record RunRecord
     public string? PartialContent { get; init; }
     public string? PartialThinking { get; init; }
     public ChatQuotaRequest? QuotaReservation { get; init; }
+    public DateTime? CreatedAt { get; init; }
+    public DateTime? ProviderCallStartedAt { get; init; }
+    public RunRequested? Requested { get; init; }
+    public RunEffective? Effective { get; init; }
+    public RunUsage? Usage { get; init; }
+    public string? FinishReason { get; init; }
+    public string? ModelVersion { get; init; }
+    public string? ResponseId { get; init; }
+    public RunProviderCalls? ProviderCalls { get; init; }
+    public int ThinkingChars { get; init; }
+    public int CitationCount { get; init; }
+    public DateTime? FirstOutputAt { get; init; }
 }
 
 public sealed record AdmitRequest(
@@ -148,6 +194,7 @@ public sealed record FinalizeRequest(
     string? Thinking,
     RunError? Error,
     int TokenCount,
-    IReadOnlyList<SearchCitation>? Citations = null);
+    IReadOnlyList<SearchCitation>? Citations = null,
+    RunMeta? Meta = null);
 
 public sealed record FinalizeResult(bool Won, RunRecord Record);

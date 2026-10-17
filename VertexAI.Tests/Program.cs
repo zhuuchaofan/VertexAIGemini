@@ -32,6 +32,10 @@ var tests = new (string Name, Action Test)[]
     ("Rate limit: named endpoint policy does not relax the global limiter", RateLimitStackingTests.NamedEndpointPolicyDoesNotRelaxTheGlobalLimiter),
     ("Rate limit: DisableRateLimiting removes every limit including the global one", RateLimitStackingTests.DisableRateLimitingRemovesEveryLimitIncludingTheGlobalOne),
     ("Rate limit: classifying inside the global limiter isolates run-control routes", RateLimitStackingTests.ClassifyingInsideTheGlobalLimiterGivesControlRoutesTheirOwnBudget),
+    ("Run record: A completed run keeps what the provider reported", RunRecordTests.ACompletedRunKeepsWhatTheProviderReported),
+    ("Run record: A stopped run keeps a labelled estimate and leaves the rest unknown", RunRecordTests.AStoppedRunKeepsAnEstimateLabelledAsOneAndLeavesTheRestUnknown),
+    ("Run record: A run that never reached the provider has no effective, usage or calls", RunRecordTests.ARunThatNeverReachedTheProviderHasNoEffectiveUsageOrCalls),
+    ("Run record: A failed run keeps its call count and no invented usage", RunRecordTests.AFailedRunWithPartialTextStillKeepsItsEndingAndCounts),
     ("Run endpoints: Citations are stored with the reply once each and returned on reload", RunEndpointTests.CitationsAreStoredWithTheReplyOnceEachAndReturnedOnReload),
     ("Run lifecycle: Concurrent sends of one run execute exactly once", RunLifecycleTests.ConcurrentSendsOfOneRunExecuteExactlyOnce),
     ("Run lifecycle: Replay of a finished run reports it without executing", RunLifecycleTests.ReplayOfAFinishedRunReportsItWithoutExecuting),
@@ -105,6 +109,8 @@ var tests = new (string Name, Action Test)[]
     ("OpenAICompatibleCatalog enables providers from environment keys", OpenAICompatibleCatalogTests.EnablesProvidersFromEnvironmentKeys),
     ("OpenAICompatibleCatalog preserves legacy single provider", OpenAICompatibleCatalogTests.PreservesLegacySingleProvider),
     ("OpenAICompatibleChatModelClient streams SSE response", OpenAICompatibleChatModelClientTests.StreamsSseResponse),
+    ("OpenAICompatibleChatModelClient applies sampling and reports what the provider volunteers", OpenAICompatibleChatModelClientTests.AppliesRequestedSamplingAndOutputLimitAndReportsWhatTheProviderVolunteers),
+    ("OpenAICompatibleChatModelClient leaves sampling out and usage unknown by default", OpenAICompatibleChatModelClientTests.LeavesSamplingOutAndUsageUnknownWhenNothingWasAskedOrReported),
     ("OpenAICompatibleChatModelClient applies thinking options", OpenAICompatibleChatModelClientTests.AppliesThinkingOptions),
     ("OpenAICompatibleChatModelClient applies provider thinking options", OpenAICompatibleChatModelClientTests.AppliesProviderThinkingOptions),
     ("OpenAICompatibleChatModelClient streams reasoning chunks", OpenAICompatibleChatModelClientTests.StreamsReasoningChunks)
@@ -1121,6 +1127,63 @@ internal static class OpenAICompatibleChatModelClientTests
         Assert.Contains("CQgH", handler.RequestBody ?? "");
         Assert.Contains("\"image_url\"", handler.RequestBody ?? "");
         Assert.True(client.CurrentTokenCount > 0);
+    }
+
+    public static void AppliesRequestedSamplingAndOutputLimitAndReportsWhatTheProviderVolunteers()
+    {
+        var handler = new CapturingHandler(
+            "data: {\"id\":\"chatcmpl-1\",\"model\":\"test-model-0613\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10,\"completion_tokens_details\":{\"reasoning_tokens\":1}}}\n\n" +
+            "data: [DONE]\n\n");
+        var client = new OpenAICompatibleChatModelClient(
+            new HttpClient(handler),
+            new OpenAICompatibleProviderSettings
+            {
+                Enabled = true, ProviderId = "test", Name = "Test", ApiKey = "k",
+                Endpoint = "https://provider.example/v1/chat/completions", ModelName = "test-model"
+            });
+        Run(client.ConfigureAsync(new ChatSessionOptions(Advanced: new ChatAdvancedOptions(null, 0.4, 0.8, 1234))));
+        Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+
+        var body = handler.RequestBody ?? "";
+        Assert.Contains("\"temperature\":0.4", body);
+        Assert.Contains("\"top_p\":0.8", body);
+        Assert.Contains("\"max_tokens\":1234", body);
+        Assert.False(body.Contains("stream_options")); // nothing the provider might reject is added to ask for usage
+
+        Assert.Equal("stop", client.Telemetry.FinishReason!);
+        Assert.Equal("test-model-0613", client.Telemetry.ModelVersion!);
+        Assert.Equal("chatcmpl-1", client.Telemetry.ResponseId!);
+        Assert.Equal(7, client.Telemetry.Usage!.InputTokens!.Value);
+        Assert.Equal(1, client.Telemetry.Usage.ThoughtsTokens!.Value);
+        Assert.Equal(1, client.Telemetry.GenerateCalls);
+        Assert.Equal(1234, client.Effective.MaxOutputTokens!.Value);
+        Assert.Equal(0.4, client.Effective.Temperature!.Value);
+    }
+
+    public static void LeavesSamplingOutAndUsageUnknownWhenNothingWasAskedOrReported()
+    {
+        var handler = new CapturingHandler(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n");
+        var client = new OpenAICompatibleChatModelClient(
+            new HttpClient(handler),
+            new OpenAICompatibleProviderSettings
+            {
+                Enabled = true, ProviderId = "test", Name = "Test", ApiKey = "k",
+                Endpoint = "https://provider.example/v1/chat/completions", ModelName = "test-model"
+            });
+        Run(client.ConfigureAsync(new ChatSessionOptions()));
+        Run(ReadAllAsync(client.StreamChatAsync(new ChatModelRequest("hi", []))));
+
+        var body = handler.RequestBody ?? "";
+        Assert.False(body.Contains("temperature"));
+        Assert.False(body.Contains("top_p"));
+        Assert.Contains("\"max_tokens\":8192", body);
+        Assert.Null(client.Telemetry.Usage);
+        Assert.Null(client.Telemetry.FinishReason);
+        Assert.Null(client.Effective.Temperature);
+        Assert.Equal(8192, client.Effective.MaxOutputTokens!.Value);
     }
 
     public static void AppliesThinkingOptions()

@@ -20,7 +20,11 @@ public interface IRunStore
     /// The execution-right check. True only for the lease holder of a still-running run whose provider call has not
     /// started, and only once. Nothing may talk to the provider before this returns true.
     /// </summary>
-    Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken);
+    /// <summary>
+    /// Marks that the provider is about to be called, once, by the lease holder. <paramref name="effective"/> is what was
+    /// resolved for the request; it is stored in the same write so a run that dies mid-call still says what it was asking for.
+    /// </summary>
+    Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken, RunEffective? effective = null);
 
     Task<RunLeaseState> PollAsync(AdmittedRun run, CancellationToken cancellationToken);
 

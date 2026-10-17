@@ -18,6 +18,10 @@ public class ChatHistoryManager
 
     // Token 使用量追踪
     public int CurrentTokenCount { get; private set; }
+
+    /// <summary>Provider requests this manager made on the side, so a run can report them honestly.</summary>
+    public int CountTokensCalls { get; private set; }
+    public int SummaryCalls { get; private set; }
     public int MaxTokens => _settings.MaxHistoryTokens;
     public bool HasSummary => !string.IsNullOrEmpty(_historySummary);
 
@@ -154,6 +158,7 @@ public class ChatHistoryManager
             // 使用 GetContentsForSending() 获取完整内容（包含摘要上下文）
             var contentsToCount = GetContentsForSending();
 
+            CountTokensCalls++;
             var response = await _client.Models.CountTokensAsync(
                 model: _modelName,
                 contents: contentsToCount,
@@ -228,6 +233,7 @@ public class ChatHistoryManager
                 Temperature = 0.3
             };
 
+            SummaryCalls++;
             var response = await _client.Models.GenerateContentAsync(
                 model: _modelName,
                 contents: [summaryPrompt],

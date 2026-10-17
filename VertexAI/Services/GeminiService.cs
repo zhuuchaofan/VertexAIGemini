@@ -11,7 +11,7 @@ namespace VertexAI.Services;
 /// <summary>
 /// Gemini 聊天服务 - 封装与 Vertex AI 的流式交互
 /// </summary>
-public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelClient, IAsyncDisposable
+public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelClient, IChatRunTelemetrySource, IAsyncDisposable
 {
     private readonly Client _client;
     private readonly string _projectId;
@@ -29,6 +29,20 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     private int? _thinkingBudget;
     private AuthenticatedUser? _requestUser;
     private ChatAdvancedOptions? _advanced;
+
+    // What the provider told us about the current request, and what we applied. Read by the run service.
+    public ChatRunTelemetry Telemetry { get; } = new();
+
+    public ChatEffectiveOptions Effective => new(
+        _modelName,
+        _currentPresetId,
+        _thinkingEnabled,
+        _thinkingLevel,
+        _thinkingBudget,
+        _config.Temperature,
+        _config.TopP,
+        _config.MaxOutputTokens,
+        _config.SafetySettings?.FirstOrDefault()?.Threshold?.ToString());
 
     // 公开属性 - 委托给 HistoryManager
     public int CurrentTokenCount => _historyManager.CurrentTokenCount;
@@ -254,6 +268,8 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         // 检查并修剪历史
         await _historyManager.TrimIfNeededAsync(cancellationToken);
+        Telemetry.CountTokensCalls = _historyManager.CountTokensCalls;
+        Telemetry.SummarizeCalls = _historyManager.SummaryCalls;
 
         // 获取发送内容
         var contentsToSend = _historyManager.GetContentsForSending();
@@ -282,15 +298,26 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             };
         }
 
+        Telemetry.GenerateCalls++;
         await foreach (var response in _client.Models.GenerateContentStreamAsync(
             model: _modelName,
             contents: contentsToSend,
             config: requestConfig,
             cancellationToken: cancellationToken))
         {
+            if (response.UsageMetadata is { } usage)
+            {
+                // Streamed usage is cumulative: the last report wins, and a field the provider left out stays unknown.
+                Telemetry.Usage = new ChatUsage(
+                    usage.PromptTokenCount, usage.CandidatesTokenCount, usage.ThoughtsTokenCount, usage.TotalTokenCount);
+            }
+
+            if (!string.IsNullOrEmpty(response.ModelVersion)) Telemetry.ModelVersion = response.ModelVersion;
+            if (!string.IsNullOrEmpty(response.ResponseId)) Telemetry.ResponseId = response.ResponseId;
             if (response.Candidates is not { Count: > 0 }) continue;
 
             var candidate = response.Candidates[0];
+            if (candidate.FinishReason is { } finishReason) Telemetry.FinishReason = finishReason.ToString();
             if (IsBlockedFinishReason(candidate.FinishReason))
             {
                 blockedFinishReason = candidate.FinishReason;
@@ -386,6 +413,8 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         // 更新 Token 计数
         await _historyManager.UpdateTokenCountAsync(cancellationToken);
+        Telemetry.CountTokensCalls = _historyManager.CountTokensCalls;
+        Telemetry.SummarizeCalls = _historyManager.SummaryCalls;
 
         stopwatch.Stop();
         _logger.LogInformation(

@@ -84,10 +84,26 @@ public sealed record RunSnapshot(
     bool ProviderCallStarted,
     DateTime? AdmittedAt,
     DateTime? EndedAt,
-    bool? Replayed = null)
+    bool? Replayed = null,
+    RunRequested? Requested = null,
+    RunEffective? Effective = null,
+    RunUsage? Usage = null,
+    string? FinishReason = null,
+    string? ModelVersion = null,
+    RunProviderCalls? ProviderCalls = null,
+    RunTiming? Timing = null,
+    RunOutput? Output = null)
 {
     public static RunSnapshot From(RunRecord run, bool? replayed = null) => new(
         run.RunId, run.ConversationId, run.UserMessageId, run.AssistantMessageId,
         run.Status.ToWire(), run.StatusReason, run.Attempt, run.Error, run.OutputChars,
-        run.HasAssistantMessage, run.ProviderCallStarted, run.AdmittedAt, run.EndedAt, replayed);
+        run.HasAssistantMessage, run.ProviderCallStarted, run.AdmittedAt, run.EndedAt, replayed,
+        run.Requested, run.Effective, run.Usage, run.FinishReason, run.ModelVersion, run.ProviderCalls,
+        new RunTiming(run.CreatedAt, run.ProviderCallStartedAt, run.FirstOutputAt, run.EndedAt),
+        run.Status.IsTerminal() ? new RunOutput(run.OutputChars, run.ThinkingChars, run.CitationCount) : null);
 }
+
+/// <summary>Server-side times. Browser-side durations are measured in the browser and never stored here.</summary>
+public sealed record RunTiming(DateTime? CreatedAt, DateTime? StartedAt, DateTime? FirstOutputAt, DateTime? EndedAt);
+
+public sealed record RunOutput(int Chars, int ThinkingChars, int Citations);

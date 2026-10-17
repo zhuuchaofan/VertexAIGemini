@@ -2,7 +2,7 @@ using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
-public sealed class MockChatModelClient : IChatModelClient
+public sealed class MockChatModelClient : IChatModelClient, IChatRunTelemetrySource
 {
     private readonly List<ChatHistoryEntry> _history = [];
     private string _modelName = "mock-fast";
@@ -10,6 +10,31 @@ public sealed class MockChatModelClient : IChatModelClient
     private string _currentSystemPrompt = "";
 
     public int CurrentTokenCount { get; private set; }
+
+    // Deterministic, and clearly the mock's own: it lets tests and the UI exercise usage and settings end to end.
+    public ChatRunTelemetry Telemetry { get; } = new();
+    private ChatSessionOptions? _options;
+
+    public ChatEffectiveOptions Effective
+    {
+        get
+        {
+            var model = ModelOptions.FirstOrDefault(m => m.ModelName == _modelName);
+            var sampling = model?.SupportsSampling != false;
+            var thinking = model?.Thinking;
+            var level = thinking is { Options.Count: > 0 }
+                ? (thinking.Options.Any(o => o.Value == _options?.ThinkingLevel) ? _options!.ThinkingLevel : thinking.Default)
+                : null;
+            return new ChatEffectiveOptions(
+                _modelName, _currentPresetId,
+                thinking is null ? null : _options?.ThinkingEnabled ?? true,
+                level, null,
+                sampling ? _options?.Advanced?.Temperature ?? 1 : null,
+                sampling ? _options?.Advanced?.TopP ?? 0.9 : null,
+                _options?.Advanced?.MaxOutputTokens ?? 8192,
+                _options?.Advanced?.SafetyThreshold);
+        }
+    }
     public string CurrentModelName => _modelName;
     public string CurrentPresetId => _currentPresetId;
     public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
@@ -22,15 +47,43 @@ public sealed class MockChatModelClient : IChatModelClient
             ModelName = "mock-fast",
             Description = "Deterministic provider for UI and API tests without cloud credentials.",
             SupportsThinking = true,
+            SupportsSampling = false,
+            Thinking = new ChatThinkingConfig
+            {
+                Kind = "gemini-level",
+                CanDisable = false,
+                Default = "medium",
+                Options =
+                [
+                    new() { Value = "low", Label = "低" },
+                    new() { Value = "medium", Label = "中" },
+                    new() { Value = "high", Label = "高" }
+                ]
+            },
             MaxTokens = 8192
         },
         new()
         {
             Name = "Mock Detailed",
             ModelName = "mock-detailed",
-            Description = "Deterministic provider with a slightly richer streamed response.",
-            SupportsThinking = true,
+            Description = "Deterministic provider with sampling controls and no thinking.",
             MaxTokens = 32768
+        },
+        new()
+        {
+            Name = "Mock Budget",
+            ModelName = "mock-budget",
+            Description = "Deterministic provider with a thinking switch and token budget.",
+            SupportsThinking = true,
+            Thinking = new ChatThinkingConfig
+            {
+                Kind = "qwen-budget",
+                CanDisable = true,
+                Default = "on",
+                Budgets = [500, 2000],
+                DefaultBudget = 2000
+            },
+            MaxTokens = 16384
         }
     ];
 
@@ -54,6 +107,7 @@ public sealed class MockChatModelClient : IChatModelClient
 
     public Task ConfigureAsync(ChatSessionOptions? options)
     {
+        _options = options;
         if (!string.IsNullOrWhiteSpace(options?.ModelName))
         {
             _modelName = ModelOptions.Any(m => m.ModelName == options.ModelName)
@@ -114,6 +168,7 @@ public sealed class MockChatModelClient : IChatModelClient
                 await Task.Delay(15, cancellationToken);
             }
 
+            Complete(trimmed, MarkdownSample.Chunks().Sum(c => c.Length), 0);
             yield break;
         }
 
@@ -132,6 +187,7 @@ public sealed class MockChatModelClient : IChatModelClient
                     new SearchCitation { Title = "示例来源二", Uri = "https://example.org/two" }
                 ]
             };
+            Complete(trimmed, 20, 21);
             yield break;
         }
 
@@ -142,6 +198,7 @@ public sealed class MockChatModelClient : IChatModelClient
             throw new InvalidOperationException("mock provider failure");
         }
 
+        Telemetry.GenerateCalls++;
         var attachmentCount = request.Attachments.Count;
         var historyCount = _history.Count;
         var searchMode = SearchModes.Normalize(request.SearchMode);
@@ -174,6 +231,19 @@ public sealed class MockChatModelClient : IChatModelClient
                 IsThinking = false
             };
         }
+
+        Complete(trimmed, 60, 0);
+    }
+
+    /// <summary>Reports usage the way a provider would at the end of a completed reply.</summary>
+    private void Complete(string message, int outputChars, int thoughtChars)
+    {
+        var input = EstimateTokens(message) + _history.Count * 16;
+        var output = Math.Max(1, outputChars / 4);
+        var thoughts = thoughtChars > 0 ? Math.Max(1, thoughtChars / 4) : (int?)null;
+        Telemetry.Usage = new ChatUsage(input, output, thoughts, input + output + (thoughts ?? 0));
+        Telemetry.FinishReason = "STOP";
+        Telemetry.ModelVersion = $"{_modelName}-mock";
     }
 
     private static int EstimateTokens(string text) =>

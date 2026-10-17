@@ -6,7 +6,7 @@ using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
-public sealed class OpenAICompatibleChatModelClient : IChatModelClient
+public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRunTelemetrySource
 {
     private readonly HttpClient _httpClient;
     private readonly OpenAICompatibleProviderSettings _settings;
@@ -31,6 +31,40 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
     }
 
     public int CurrentTokenCount { get; private set; }
+
+    public ChatRunTelemetry Telemetry { get; } = new();
+
+    public ChatEffectiveOptions Effective
+    {
+        get
+        {
+            var model = ModelOptions.FirstOrDefault(item => item.ModelName == _modelName);
+            var (enabled, level, budget) = ResolveThinking(model?.Thinking);
+            var sampling = model?.SupportsSampling != false;
+            return new ChatEffectiveOptions(
+                _modelName, _currentPresetId,
+                model?.Thinking is null ? null : enabled,
+                level,
+                enabled ? budget : null,
+                sampling ? _options?.Advanced?.Temperature : null,
+                sampling ? _options?.Advanced?.TopP : null,
+                _options?.Advanced?.MaxOutputTokens ?? DefaultMaxTokens,
+                null);
+        }
+    }
+
+    private const int DefaultMaxTokens = 8192;
+
+    private (bool Enabled, string? Level, int? Budget) ResolveThinking(ChatThinkingConfig? thinking)
+    {
+        if (thinking == null) return (false, null, null);
+        var enabled = thinking.FixedEnabled || (_options?.ThinkingEnabled ?? thinking.Default != "off");
+        var level = NormalizeThinkingLevel(thinking, _options?.ThinkingLevel);
+        var budget = thinking.Budgets.Count > 0 || thinking.DefaultBudget != null
+            ? NormalizeThinkingBudget(thinking, _options?.ThinkingBudget)
+            : null;
+        return (enabled, level, budget);
+    }
     public string CurrentModelName => _modelName;
     public string CurrentPresetId => _currentPresetId;
     public string CurrentCustomPrompt => _currentPresetId == "custom" ? _currentSystemPrompt : "";
@@ -73,6 +107,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             throw new InvalidOperationException($"OpenAI-compatible provider '{_settings.ProviderId}' is enabled but no API key is configured.");
         }
 
+        Telemetry.GenerateCalls++;
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _settings.Endpoint);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
         httpRequest.Content = new StringContent(
@@ -109,7 +144,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
                 break;
             }
 
-            var chunk = ExtractDelta(data);
+            var chunk = ExtractDelta(data, Telemetry);
             if (string.IsNullOrEmpty(chunk.Text))
             {
                 continue;
@@ -151,8 +186,15 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
             ["stream"] = true,
             ["messages"] = messages,
             // Explicitly cap output cost instead of relying on provider defaults.
-            ["max_tokens"] = 8192
+            ["max_tokens"] = _options?.Advanced?.MaxOutputTokens ?? DefaultMaxTokens
         };
+
+        if (ModelOptions.FirstOrDefault(item => item.ModelName == _modelName)?.SupportsSampling != false)
+        {
+            // Only what the person set: otherwise the provider's own defaults apply.
+            if (_options?.Advanced?.Temperature is { } temperature) body["temperature"] = temperature;
+            if (_options?.Advanced?.TopP is { } topP) body["top_p"] = topP;
+        }
 
         ApplyThinkingOptions(body);
         return body;
@@ -347,15 +389,23 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
         || mimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)
         || mimeType.Equals("text/yaml", StringComparison.OrdinalIgnoreCase);
 
-    private static ChatChunk ExtractDelta(string data)
+    private static ChatChunk ExtractDelta(string data, ChatRunTelemetry telemetry)
     {
         using var document = JsonDocument.Parse(data);
-        if (!document.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+        var root = document.RootElement;
+        Observe(root, telemetry);
+
+        if (!root.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
         {
             return new ChatChunk { Text = "" };
         }
 
         var choice = choices[0];
+        if (choice.TryGetProperty("finish_reason", out var finish) && finish.ValueKind == JsonValueKind.String)
+        {
+            telemetry.FinishReason = finish.GetString();
+        }
+
         if (!choice.TryGetProperty("delta", out var delta))
         {
             return new ChatChunk { Text = "" };
@@ -383,10 +433,34 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
 
         return new ChatChunk
         {
-            Text = delta.TryGetProperty("content", out var content)
+            Text = delta.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String
                 ? content.GetString() ?? ""
                 : ""
         };
+    }
+
+    /// <summary>
+    /// Keeps what the provider volunteers: usage (only when the stream includes it) and the model and response ids.
+    /// Nothing is requested or invented, so a provider that says nothing leaves these unknown.
+    /// </summary>
+    private static void Observe(JsonElement root, ChatRunTelemetry telemetry)
+    {
+        if (root.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.String)
+            telemetry.ModelVersion = model.GetString();
+        if (root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+            telemetry.ResponseId = id.GetString();
+
+        if (!root.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object) return;
+
+        int? Number(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) ? n : null;
+
+        int? thoughts = null;
+        if (usage.TryGetProperty("completion_tokens_details", out var details) && details.ValueKind == JsonValueKind.Object)
+            thoughts = Number(details, "reasoning_tokens");
+
+        telemetry.Usage = new ChatUsage(
+            Number(usage, "prompt_tokens"), Number(usage, "completion_tokens"), thoughts, Number(usage, "total_tokens"));
     }
 
     private static int EstimateTokens(string text) =>

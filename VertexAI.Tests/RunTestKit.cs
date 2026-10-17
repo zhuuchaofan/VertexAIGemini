@@ -35,8 +35,11 @@ internal sealed class ModelProbe
 ///   /gate  streams one chunk then waits for ModelProbe.Gate        /fail  provider error
 ///   /blocked  safety block                  /empty  ends with no text
 /// </summary>
-internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient
+internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, IChatRunTelemetrySource
 {
+    public ChatRunTelemetry Telemetry { get; } = new();
+    public ChatEffectiveOptions Effective { get; } =
+        new("scripted", "default", true, "medium", null, 1, 0.9, 8192, "BlockMediumAndAbove");
     private IReadOnlyList<ChatHistoryEntry> _history = [];
 
     public int CurrentTokenCount { get; private set; }
@@ -63,6 +66,7 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         probe.RecordStreamCall();
+        Telemetry.GenerateCalls++;
         if (probe.CountStartedMarkers is { } count) probe.ProviderMarkersAtCall.Enqueue(await count());
 
         var script = request.Message.Split(' ', 2)[0];
@@ -94,6 +98,15 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient
                 throw new InvalidOperationException("Gemini response was blocked by safety settings: SAFETY");
 
             case "/empty":
+                yield break;
+
+            case "/usage":
+                yield return new ChatChunk { Text = "Hello " };
+                yield return new ChatChunk { Text = "world" };
+                Telemetry.Usage = new ChatUsage(11, 22, 3, 36);
+                Telemetry.FinishReason = "STOP";
+                Telemetry.ModelVersion = "scripted-1";
+                Telemetry.ResponseId = "resp-1";
                 yield break;
 
             case "/cite":

@@ -197,6 +197,8 @@ public sealed class FirestoreRunStore : IRunStore
             AssistantMessageId = assistantMessageId,
             Status = admitted ? RunStatus.Running : RunStatus.Failed,
             StatusReason = admitted ? null : RunReasons.Quota,
+            Requested = request.Requested,
+            CreatedAt = now,
             Fingerprint = request.Fingerprint,
             LeaseOwner = admitted ? request.ExecutorId : null,
             AdmittedAt = admitted ? now : null,
@@ -262,7 +264,7 @@ public sealed class FirestoreRunStore : IRunStore
 
     // ------------------------------------------------------------------------------------------------ lease
 
-    public async Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken)
+    public async Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken, RunEffective? effective = null)
     {
         var runRef = Runs.Document(run.RunId);
         return await _db.RunTransactionAsync(async transaction =>
@@ -277,12 +279,14 @@ public sealed class FirestoreRunStore : IRunStore
                 return false;
             }
 
-            transaction.Update(runRef, new Dictionary<string, object>
+            var update = new Dictionary<string, object>
             {
                 [Fields.ProviderCall] = "started",
                 [Fields.ProviderCallStartedAt] = FieldValue.ServerTimestamp,
                 [Fields.UpdatedAt] = FieldValue.ServerTimestamp
-            });
+            };
+            if (effective != null) update[Fields.Effective] = EffectiveToMap(effective);
+            transaction.Update(runRef, update);
             return true;
         }, cancellationToken: cancellationToken);
     }
@@ -419,6 +423,28 @@ public sealed class FirestoreRunStore : IRunStore
                 [Fields.PartialThinking] = FieldValue.Delete
             };
             if (request.Error != null) runUpdate[Fields.Error] = ErrorToMap(request.Error);
+            if (request.Meta is { } meta)
+            {
+                // Only what is known is written: a missing field means unknown, never zero.
+                if (meta.Usage != null) runUpdate[Fields.Usage] = UsageToMap(meta.Usage);
+                if (meta.FinishReason != null) runUpdate[Fields.FinishReason] = meta.FinishReason;
+                if (meta.ModelVersion != null) runUpdate[Fields.ModelVersion] = meta.ModelVersion;
+                if (meta.ResponseId != null) runUpdate[Fields.ResponseId] = meta.ResponseId;
+                if (meta.ProviderCalls != null)
+                {
+                    runUpdate[Fields.ProviderCalls] = new Dictionary<string, object>
+                    {
+                        ["generate"] = meta.ProviderCalls.Generate,
+                        ["summarize"] = meta.ProviderCalls.Summarize,
+                        ["countTokens"] = meta.ProviderCalls.CountTokens
+                    };
+                }
+
+                if (meta.FirstOutputAt != null) runUpdate[Fields.FirstOutputAt] = Timestamp.FromDateTime(meta.FirstOutputAt.Value.ToUniversalTime());
+                runUpdate[Fields.ThinkingChars] = meta.ThinkingChars;
+                runUpdate[Fields.CitationCount] = meta.CitationCount;
+            }
+
             transaction.Update(runRef, runUpdate);
 
             if (conversationSnapshot.Exists)
@@ -534,6 +560,72 @@ public sealed class FirestoreRunStore : IRunStore
         return map;
     }
 
+    private static Dictionary<string, object> EffectiveToMap(RunEffective effective)
+    {
+        var map = new Dictionary<string, object>
+        {
+            ["providerId"] = effective.ProviderId,
+            ["modelName"] = effective.ModelName,
+            ["presetId"] = effective.PresetId,
+            ["searchMode"] = effective.SearchMode
+        };
+        if (effective.ThinkingEnabled is { } enabled) map["thinkingEnabled"] = enabled;
+        if (effective.ThinkingLevel != null) map["thinkingLevel"] = effective.ThinkingLevel;
+        if (effective.ThinkingBudget is { } budget) map["thinkingBudget"] = budget;
+        if (effective.Temperature is { } temperature) map["temperature"] = temperature;
+        if (effective.TopP is { } topP) map["topP"] = topP;
+        if (effective.MaxOutputTokens is { } maxOutput) map["maxOutputTokens"] = maxOutput;
+        if (effective.SafetyThreshold != null) map["safetyThreshold"] = effective.SafetyThreshold;
+        return map;
+    }
+
+    private static Dictionary<string, object> UsageToMap(RunUsage usage)
+    {
+        var map = new Dictionary<string, object> { ["source"] = usage.Source };
+        if (usage.InputTokens is { } input) map["inputTokens"] = input;
+        if (usage.OutputTokens is { } output) map["outputTokens"] = output;
+        if (usage.ThoughtsTokens is { } thoughts) map["thoughtsTokens"] = thoughts;
+        if (usage.TotalTokens is { } total) map["totalTokens"] = total;
+        return map;
+    }
+
+    private static double? Num(Dictionary<string, object> map, string key) =>
+        map.TryGetValue(key, out var value) && value is not null ? Convert.ToDouble(value) : null;
+
+    private static int? Int(Dictionary<string, object> map, string key) =>
+        map.TryGetValue(key, out var value) && value is not null ? Convert.ToInt32(value) : null;
+
+    private static RunEffective? ReadEffective(Dictionary<string, object>? map) => map == null ? null : new RunEffective(
+        map.GetValueOrDefault("providerId") as string ?? "",
+        map.GetValueOrDefault("modelName") as string ?? "",
+        map.GetValueOrDefault("presetId") as string ?? "",
+        map.GetValueOrDefault("searchMode") as string ?? "auto",
+        map.GetValueOrDefault("thinkingEnabled") as bool?,
+        map.GetValueOrDefault("thinkingLevel") as string,
+        Int(map, "thinkingBudget"),
+        Num(map, "temperature"),
+        Num(map, "topP"),
+        Int(map, "maxOutputTokens"),
+        map.GetValueOrDefault("safetyThreshold") as string);
+
+    private static RunRequested? ReadRequested(Dictionary<string, object>? map)
+    {
+        if (map == null) return null;
+        ChatAdvancedOptions? advanced = null;
+        if (map.GetValueOrDefault("advanced") is Dictionary<string, object> a)
+            advanced = new ChatAdvancedOptions(a.GetValueOrDefault("safetyThreshold") as string, Num(a, "temperature"), Num(a, "topP"), Int(a, "maxOutputTokens"));
+        return new RunRequested(
+            map.GetValueOrDefault("providerId") as string ?? "",
+            map.GetValueOrDefault("modelName") as string ?? "",
+            map.GetValueOrDefault("presetId") as string ?? "",
+            map.GetValueOrDefault("customPrompt") as string,
+            map.GetValueOrDefault("searchMode") as string ?? "auto",
+            map.GetValueOrDefault("thinkingEnabled") as bool?,
+            map.GetValueOrDefault("thinkingLevel") as string,
+            Int(map, "thinkingBudget"),
+            advanced);
+    }
+
     private static Dictionary<string, object> QuotaToMap(ChatQuotaRequest quota) => new()
     {
         ["requests"] = quota.RequestCount,
@@ -598,12 +690,40 @@ public sealed class FirestoreRunStore : IRunStore
             HasAssistantMessage = Read<bool?>(Fields.HasAssistantMessage) ?? false,
             PartialContent = Read<string>(Fields.PartialContent),
             PartialThinking = Read<string>(Fields.PartialThinking),
-            QuotaReservation = reservation
+            QuotaReservation = reservation,
+            CreatedAt = Time(Fields.CreatedAt),
+            ProviderCallStartedAt = Time(Fields.ProviderCallStartedAt),
+            Requested = ReadRequested(Read<Dictionary<string, object>>(Fields.Requested)),
+            Effective = ReadEffective(Read<Dictionary<string, object>>(Fields.Effective)),
+            Usage = ReadUsage(Read<Dictionary<string, object>>(Fields.Usage)),
+            FinishReason = Read<string>(Fields.FinishReason),
+            ModelVersion = Read<string>(Fields.ModelVersion),
+            ResponseId = Read<string>(Fields.ResponseId),
+            ProviderCalls = ReadProviderCalls(Read<Dictionary<string, object>>(Fields.ProviderCalls)),
+            ThinkingChars = (int)(Read<long?>(Fields.ThinkingChars) ?? 0),
+            CitationCount = (int)(Read<long?>(Fields.CitationCount) ?? 0),
+            FirstOutputAt = Time(Fields.FirstOutputAt)
         };
     }
 
+    private static RunUsage? ReadUsage(Dictionary<string, object>? map) => map == null ? null : new RunUsage(
+        Int(map, "inputTokens"), Int(map, "outputTokens"), Int(map, "thoughtsTokens"), Int(map, "totalTokens"),
+        map.GetValueOrDefault("source") as string ?? "estimate");
+
+    private static RunProviderCalls? ReadProviderCalls(Dictionary<string, object>? map) => map == null ? null : new RunProviderCalls(
+        Int(map, "generate") ?? 0, Int(map, "summarize") ?? 0, Int(map, "countTokens") ?? 0);
+
     private static class Fields
     {
+        public const string Effective = "effective";
+        public const string Usage = "usage";
+        public const string FinishReason = "finishReason";
+        public const string ModelVersion = "modelVersion";
+        public const string ResponseId = "responseId";
+        public const string ProviderCalls = "providerCalls";
+        public const string ThinkingChars = "thinkingChars";
+        public const string CitationCount = "citationCount";
+        public const string FirstOutputAt = "firstOutputAt";
         public const string Uid = "uid";
         public const string LocalUserId = "localUserId";
         public const string ConversationId = "conversationId";
