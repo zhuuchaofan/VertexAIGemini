@@ -1,0 +1,152 @@
+using VertexAI.Services.Auth;
+using VertexAI.Services.Chat;
+using VertexAI.Services.Quota;
+
+namespace VertexAI.Services.Runs;
+
+public enum RunStatus { Running, Completed, Stopped, Interrupted, Failed }
+
+public static class RunStatuses
+{
+    public static string ToWire(this RunStatus status) => status switch
+    {
+        RunStatus.Running => "running",
+        RunStatus.Completed => "completed",
+        RunStatus.Stopped => "stopped",
+        RunStatus.Interrupted => "interrupted",
+        RunStatus.Failed => "failed",
+        _ => throw new ArgumentOutOfRangeException(nameof(status))
+    };
+
+    public static RunStatus Parse(string? value) => value switch
+    {
+        "completed" => RunStatus.Completed,
+        "stopped" => RunStatus.Stopped,
+        "interrupted" => RunStatus.Interrupted,
+        "failed" => RunStatus.Failed,
+        _ => RunStatus.Running
+    };
+
+    public static bool IsTerminal(this RunStatus status) => status != RunStatus.Running;
+}
+
+public static class RunReasons
+{
+    public const string User = "user";
+    public const string Connection = "connection";
+    public const string ServerLost = "server_lost";
+    public const string Quota = "quota";
+    public const string Safety = "safety";
+    public const string ProviderError = "provider_error";
+    public const string EmptyResponse = "empty_response";
+    public const string Timeout = "timeout";
+    public const string Internal = "internal";
+}
+
+public sealed record RunError(string Code, string Message, bool Retryable);
+
+/// <summary>What the browser asked for, normalized. Stored as the run's immutable request snapshot.</summary>
+public sealed record RunRequested(
+    string ProviderId,
+    string ModelName,
+    string PresetId,
+    string? CustomPrompt,
+    string SearchMode,
+    bool? ThinkingEnabled,
+    string? ThinkingLevel,
+    int? ThinkingBudget,
+    ChatAdvancedOptions? Advanced);
+
+/// <summary>A persisted run. Lease and partial-output fields are internal bookkeeping and never sent to clients.</summary>
+public sealed record RunRecord
+{
+    public required string RunId { get; init; }
+    public required string Uid { get; init; }
+    public required Guid ConversationId { get; init; }
+    public required Guid UserMessageId { get; init; }
+    public required Guid AssistantMessageId { get; init; }
+    public int Attempt { get; init; } = 1;
+    public string Trigger { get; init; } = "send";
+    public RunStatus Status { get; init; }
+    public string? StatusReason { get; init; }
+    public string Fingerprint { get; init; } = "";
+    public bool ProviderCallStarted { get; init; }
+    public string? LeaseOwner { get; init; }
+    public DateTime? AdmittedAt { get; init; }
+    public DateTime? HeartbeatAt { get; init; }
+    public DateTime? EndedAt { get; init; }
+    public DateTime? StopRequestedAt { get; init; }
+    public RunError? Error { get; init; }
+    public int OutputChars { get; init; }
+    public bool HasAssistantMessage { get; init; }
+    public string? PartialContent { get; init; }
+    public string? PartialThinking { get; init; }
+    public ChatQuotaRequest? QuotaReservation { get; init; }
+}
+
+public sealed record AdmitRequest(
+    AuthenticatedUser User,
+    string RunId,
+    Guid ConversationId,
+    string Message,
+    RunRequested Requested,
+    string ModelName,
+    string PresetId,
+    string? CustomPrompt,
+    string ExecutorId,
+    string Fingerprint,
+    ChatQuotaRequest Quota);
+
+/// <summary>
+/// The only proof that a request may call the model. It can only be produced by <see cref="IRunStore.AdmitAsync"/>
+/// (its constructor is internal to the store implementation), and the model-calling code accepts nothing else.
+/// </summary>
+public sealed class AdmittedRun
+{
+    internal AdmittedRun(AuthenticatedUser user, RunRecord record, string executorId)
+    {
+        User = user;
+        Record = record;
+        ExecutorId = executorId;
+    }
+
+    public AuthenticatedUser User { get; }
+    public RunRecord Record { get; }
+    public string ExecutorId { get; }
+    public string RunId => Record.RunId;
+    public Guid ConversationId => Record.ConversationId;
+}
+
+public abstract record AdmitResult
+{
+    public sealed record Admitted(AdmittedRun Run) : AdmitResult;
+    /// <summary>The run already exists; nothing is executed.</summary>
+    public sealed record Replay(RunRecord Run) : AdmitResult;
+    /// <summary>Same run id with a different request, or an id owned by someone else. Never leaks which.</summary>
+    public sealed record Conflict(string Code) : AdmitResult;
+    public sealed record Busy(string ActiveRunId) : AdmitResult;
+    /// <summary>Quota refused the request. A failed run and the user message were stored; the model was not called.</summary>
+    public sealed record Rejected(RunRecord Run) : AdmitResult;
+    /// <summary>The conversation's active run lost its lease; reconcile it, then admit again.</summary>
+    public sealed record StaleActive(string RunId) : AdmitResult;
+}
+
+public sealed record RunLeaseState(RunStatus Status, bool OwnedByCaller, bool StopRequested);
+
+public sealed record RunCheckpoint(string Content, string? Thinking);
+
+public enum FinalizeOrigin { Executor, Reconciler }
+
+public sealed record FinalizeRequest(
+    AuthenticatedUser User,
+    string RunId,
+    FinalizeOrigin Origin,
+    string? ExecutorId,
+    RunStatus Status,
+    string Reason,
+    string? Content,
+    string? Thinking,
+    RunError? Error,
+    int TokenCount);
+
+public sealed record FinalizeResult(bool Won, RunRecord Record);

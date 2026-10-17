@@ -4,7 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage"] },
+  { ignores: ["dist", "dist-e2e", "coverage", "test-results", "playwright-report"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -12,5 +12,6 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
     plugins: { "react-hooks": reactHooks },
     rules: { ...reactHooks.configs.recommended.rules }
-  }
+  },
+  { files: ["e2e/**", "playwright.config.ts"], languageOptions: { globals: globals.node } }
 );

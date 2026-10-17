@@ -25,6 +25,10 @@ internal static class FirestoreConversationSchema
     public const string Content = "content";
     public const string ThinkingContent = "thinkingContent";
     public const string AttachmentsJson = "attachmentsJson";
+    public const string RunId = "runId";
+    public const string Status = "status";
+    public const string ActiveRunId = "activeRunId";
+    public const string LastRunId = "lastRunId";
 
     public static string UserDocumentId(AuthenticatedUser user) =>
         FirestoreDocumentIds.UserDocumentId(user.LocalUserId, user.FirebaseUid);

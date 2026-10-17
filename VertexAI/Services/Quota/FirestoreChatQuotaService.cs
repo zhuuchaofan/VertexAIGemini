@@ -68,6 +68,64 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
     private bool ShouldBypass(AuthenticatedUser user) =>
         !_settings.Enabled || (_settings.AdminBypassEnabled && user.IsAdmin);
 
+    public DocumentReference DailyDocumentFor(AuthenticatedUser user) => GetDailyDocument(user);
+
+    /// <summary>
+    /// Decides a reservation from an already-read usage snapshot so it can run inside a larger transaction
+    /// (all reads must come before any write). <c>Bypassed</c> users reserve nothing.
+    /// </summary>
+    public QuotaDecision Evaluate(DocumentSnapshot usageSnapshot, ChatQuotaRequest request)
+    {
+        if (ShouldBypass(request.User))
+        {
+            return new QuotaDecision(true, null, null, false);
+        }
+
+        var next = DailyUsage.From(usageSnapshot).Add(request);
+        try
+        {
+            Validate(next);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new QuotaDecision(false, ex.Message, null, false);
+        }
+
+        return new QuotaDecision(true, null, next.ToDocument(request), true);
+    }
+
+    /// <summary>
+    /// Increments applied when a run ends: tokens that were actually used, and (only when the provider was
+    /// provably never called) the exact inverse of the reservation. Plain increments need no read.
+    /// </summary>
+    public Dictionary<string, object> EndOfRunDelta(
+        AuthenticatedUser user, int actualTokens, ChatQuotaRequest? refund)
+    {
+        var delta = new Dictionary<string, object>
+        {
+            [UserIdField] = ResolveUserId(user),
+            [DateField] = TodayDateKey(),
+            [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+
+        if (actualTokens > 0)
+        {
+            delta[ActualTokens] = FieldValue.Increment(actualTokens);
+        }
+
+        if (refund != null)
+        {
+            delta[Requests] = FieldValue.Increment(-refund.RequestCount);
+            delta[EstimatedTokens] = FieldValue.Increment(-refund.EstimatedTokens);
+            delta[Searches] = FieldValue.Increment(-refund.SearchCount);
+            delta[AttachmentBytes] = FieldValue.Increment(-refund.AttachmentBytes);
+        }
+
+        return delta;
+    }
+
+    public bool Bypasses(AuthenticatedUser user) => ShouldBypass(user);
+
     private DocumentReference GetDailyDocument(AuthenticatedUser user) =>
         _db.Collection(CollectionName).Document(DailyDocumentId(ResolveUserId(user), TodayDateKey()));
 
@@ -148,6 +206,8 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
             throw new InvalidOperationException("Daily attachment quota exceeded.");
         }
     }
+
+    public sealed record QuotaDecision(bool Allowed, string? Error, Dictionary<string, object>? Reservation, bool Reserved);
 
     private sealed record DailyUsage(
         int Requests,

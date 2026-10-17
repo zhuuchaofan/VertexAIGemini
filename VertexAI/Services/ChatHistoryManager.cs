@@ -100,28 +100,28 @@ public class ChatHistoryManager
     /// <summary>
     /// 检查并在必要时修剪历史
     /// </summary>
-    public async Task TrimIfNeededAsync()
+    public async Task TrimIfNeededAsync(CancellationToken cancellationToken = default)
     {
         // 1. 硬性限制：轮数超限
         if (_chatHistory.Count > _settings.MaxHistoryRounds * 2)
         {
-            await TrimByRoundsAsync();
+            await TrimByRoundsAsync(cancellationToken);
         }
 
         // 2. Token 超限检查
-        var tokenCount = await CountTokensAsync();
+        var tokenCount = await CountTokensAsync(cancellationToken);
         if (tokenCount >= _settings.SummaryThreshold)
         {
-            await TrimByTokensAsync();
+            await TrimByTokensAsync(cancellationToken);
         }
     }
 
     /// <summary>
     /// 更新 Token 计数
     /// </summary>
-    public async Task UpdateTokenCountAsync()
+    public async Task UpdateTokenCountAsync(CancellationToken cancellationToken = default)
     {
-        CurrentTokenCount = await CountTokensAsync();
+        CurrentTokenCount = await CountTokensAsync(cancellationToken);
     }
 
     /// <summary>
@@ -145,7 +145,7 @@ public class ChatHistoryManager
     /// <summary>
     /// 计算当前历史的 Token 数量（包含摘要上下文）
     /// </summary>
-    private async Task<int> CountTokensAsync()
+    private async Task<int> CountTokensAsync(CancellationToken cancellationToken = default)
     {
         if (_chatHistory.Count == 0) return 0;
 
@@ -156,11 +156,12 @@ public class ChatHistoryManager
 
             var response = await _client.Models.CountTokensAsync(
                 model: _modelName,
-                contents: contentsToCount
+                contents: contentsToCount,
+                cancellationToken: cancellationToken
             );
             return response.TotalTokens ?? 0;
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             // 如果计数失败，使用估算（每字符约 1.5 token）
             var contentsToCount = GetContentsForSending();
@@ -174,7 +175,7 @@ public class ChatHistoryManager
     /// <summary>
     /// 按轮数修剪（保留最近 N 轮）
     /// </summary>
-    private async Task TrimByRoundsAsync()
+    private async Task TrimByRoundsAsync(CancellationToken cancellationToken)
     {
         var keepCount = _settings.MaxHistoryRounds * 2; // 每轮 = user + assistant
         var removeCount = _chatHistory.Count - keepCount;
@@ -182,14 +183,14 @@ public class ChatHistoryManager
         if (removeCount <= 0) return;
 
         var oldMessages = _chatHistory.Take(removeCount).ToList();
-        await GenerateSummaryAsync(oldMessages);
+        await GenerateSummaryAsync(oldMessages, cancellationToken);
         _chatHistory.RemoveRange(0, removeCount);
     }
 
     /// <summary>
     /// 按 Token 数修剪（删除最旧的 50%）
     /// </summary>
-    private async Task TrimByTokensAsync()
+    private async Task TrimByTokensAsync(CancellationToken cancellationToken)
     {
         var removeCount = _chatHistory.Count / 2;
         if (removeCount <= 0) return;
@@ -198,14 +199,14 @@ public class ChatHistoryManager
         if (removeCount % 2 != 0) removeCount++;
 
         var oldMessages = _chatHistory.Take(removeCount).ToList();
-        await GenerateSummaryAsync(oldMessages);
+        await GenerateSummaryAsync(oldMessages, cancellationToken);
         _chatHistory.RemoveRange(0, removeCount);
     }
 
     /// <summary>
     /// 为旧消息生成摘要
     /// </summary>
-    private async Task GenerateSummaryAsync(List<Content> oldMessages)
+    private async Task GenerateSummaryAsync(List<Content> oldMessages, CancellationToken cancellationToken)
     {
         if (oldMessages.Count == 0) return;
 
@@ -230,7 +231,8 @@ public class ChatHistoryManager
             var response = await _client.Models.GenerateContentAsync(
                 model: _modelName,
                 contents: [summaryPrompt],
-                config: summaryConfig
+                config: summaryConfig,
+                cancellationToken: cancellationToken
             );
 
             var summaryText = response.Candidates?.FirstOrDefault()?.Content?.Parts?
@@ -243,7 +245,7 @@ public class ChatHistoryManager
                 ? $"{_historySummary}\n\n{summaryText}"
                 : summaryText;
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             _historySummary = $"[之前进行了 {oldMessages.Count / 2} 轮对话]";
         }

@@ -17,6 +17,7 @@ try
     builder.Host.UseSerilog();
     ConfigureCloudRunPort(builder);
     builder.Services.AddVertexApplication(builder.Configuration);
+    builder.Services.AddDevelopmentOverrides(builder.Configuration, builder.Environment);
 
     var app = builder.Build();
 

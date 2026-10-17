@@ -32,6 +32,43 @@ var tests = new (string Name, Action Test)[]
     ("Rate limit: named endpoint policy does not relax the global limiter", RateLimitStackingTests.NamedEndpointPolicyDoesNotRelaxTheGlobalLimiter),
     ("Rate limit: DisableRateLimiting removes every limit including the global one", RateLimitStackingTests.DisableRateLimitingRemovesEveryLimitIncludingTheGlobalOne),
     ("Rate limit: classifying inside the global limiter isolates run-control routes", RateLimitStackingTests.ClassifyingInsideTheGlobalLimiterGivesControlRoutesTheirOwnBudget),
+    ("Run lifecycle: Concurrent sends of one run execute exactly once", RunLifecycleTests.ConcurrentSendsOfOneRunExecuteExactlyOnce),
+    ("Run lifecycle: Replay of a finished run reports it without executing", RunLifecycleTests.ReplayOfAFinishedRunReportsItWithoutExecuting),
+    ("Run lifecycle: Conflicting or foreign run ids are refused", RunLifecycleTests.ConflictingOrForeignRunIdsAreRefused),
+    ("Run lifecycle: Stop ends the run and keeps what was generated", RunLifecycleTests.StopEndsTheRunAndKeepsWhatWasGenerated),
+    ("Run lifecycle: Stop from another instance travels through storage", RunLifecycleTests.StopFromAnotherInstanceTravelsThroughStorage),
+    ("Run lifecycle: Dropped connection interrupts and keeps partial output", RunLifecycleTests.DroppedConnectionInterruptsAndKeepsPartialOutput),
+    ("Run lifecycle: A stop inside the grace period counts as a stop", RunLifecycleTests.AStopInsideTheGracePeriodCountsAsAStop),
+    ("Run lifecycle: A lost executor is reconciled once and never reaches the model", RunLifecycleTests.ALostExecutorIsReconciledOnceAndNeverReachesTheModel),
+    ("Run lifecycle: A run lost before the provider call refunds its reservation", RunLifecycleTests.ARunLostBeforeTheProviderCallRefundsItsReservation),
+    ("Run lifecycle: A frozen executor is fenced once its run was reconciled", RunLifecycleTests.AFrozenExecutorIsFencedOnceItsRunWasReconciled),
+    ("Run lifecycle: The provider-call marker is written before the model is called", RunLifecycleTests.TheProviderCallMarkerIsWrittenBeforeTheModelIsCalled),
+    ("Run lifecycle: Failures keep the question and write no reply", RunLifecycleTests.FailuresKeepTheQuestionAndWriteNoReply),
+    ("Run lifecycle: Quota rejection stores the question and never calls the model", RunLifecycleTests.QuotaRejectionStoresTheQuestionAndNeverCallsTheModel),
+    ("Run lifecycle: A second run in a busy conversation is refused until the first ends", RunLifecycleTests.ASecondRunInABusyConversationIsRefusedUntilTheFirstEnds),
+    ("Run lifecycle: A stale active run is closed before the next one is admitted", RunLifecycleTests.AStaleActiveRunIsClosedBeforeTheNextOneIsAdmitted),
+    ("Run lifecycle: Only answered turns reach the model", RunLifecycleTests.OnlyAnsweredTurnsReachTheModel),
+    ("Run logic: the selector pairs questions with replies and drops orphans", RunLogicTests.TheSelectorPairsQuestionsWithRepliesAndDropsOrphans),
+    ("Run logic: the question being answered now is never context", RunLogicTests.TheQuestionBeingAnsweredNowIsNeverContext),
+    ("Run logic: a partial reply counts but an empty one does not", RunLogicTests.APartialReplyCountsButAnEmptyOneDoesNot),
+    ("Run logic: only the newest turns are kept", RunLogicTests.OnlyTheNewestTurnsAreKept),
+    ("Run logic: messages from before runs existed are treated the same", RunLogicTests.MessagesFromBeforeRunsExistAreTreatedTheSame),
+    ("Run logic: thinking text travels with the reply", RunLogicTests.ThinkingTextTravelsWithTheReply),
+    ("Run logic: run ids are deterministic and RFC 4122 version 5", RunLogicTests.RunIdsAreDeterministicAndFollowRfc4122Version5),
+    ("Run logic: only canonical UUIDs are accepted as run ids", RunLogicTests.OnlyCanonicalUuidsAreAcceptedAsRunIds),
+    ("Run logic: the fingerprint changes with anything that defines the request", RunLogicTests.TheFingerprintChangesWithAnythingThatDefinesTheRequest),
+    ("Run logic: provider errors are classified without leaking internals", RunLogicTests.ProviderErrorsAreClassifiedWithoutLeakingInternals),
+    ("Run API: a run streams in order and ends with the server's terminal state", RunEndpointTests.ARunStreamsInOrderAndEndsWithTheServersTerminalState),
+    ("Run API: replaying a finished run streams its state and executes nothing", RunEndpointTests.ReplayingAFinishedRunStreamsItsStateAndExecutesNothing),
+    ("Run API: a dropped connection is settled as interrupted and the text is kept", RunEndpointTests.ADroppedConnectionIsSettledAsInterruptedAndTheTextIsKept),
+    ("Run API: the stop endpoint ends the run and the stream reports it", RunEndpointTests.TheStopEndpointEndsTheRunAndTheStreamReportsIt),
+    ("Run API: requests are validated before any run exists", RunEndpointTests.RequestsAreValidatedBeforeAnyRunExists),
+    ("Run API: conflicts and busy conversations are 409", RunEndpointTests.ConflictsAndBusyConversationsAreReportedAs409),
+    ("Run API: routes are dark until enabled and require a signed-in user", RunEndpointTests.RunRoutesAreDarkUntilEnabledAndRequireASignedInUser),
+    ("Run API: the conversation endpoint returns messages and runs and settles lost runs", RunEndpointTests.TheConversationEndpointReturnsMessagesRunsAndSettlesLostRuns),
+    ("Rate limit: run-control routes have their own budget, creating a run keeps its limit", RunEndpointTests.RunControlRoutesHaveTheirOwnBudgetAndCreatingARunKeepsItsLimit),
+    ("Dev overrides: cannot be switched on outside Development", RunEndpointTests.TheDevelopmentOverridesCannotBeSwitchedOnOutsideDevelopment),
+    ("Dev overrides: the dev user header yields a stable anonymous user", RunEndpointTests.TheDevUserHeaderOnlyYieldsAStableAnonymousUser),
     ("Gemini client options allow exactly one attempt", GeminiRetryTests.ProductionOptionsAllowExactlyOneAttempt),
     ("Gemini SDK issues exactly one upstream request per call", GeminiRetryTests.EveryCallIssuesExactlyOneUpstreamRequest),
     ("Gemini retry harness detects retries when enabled", GeminiRetryTests.HarnessDetectsRetriesWhenTheyAreEnabled),
@@ -79,8 +116,20 @@ foreach (var (name, test) in tests)
 {
     try
     {
-        test();
+        // A wedged call (for example to the emulator) must fail loudly and by name instead of hanging the run.
+        var running = Task.Run(test);
+        if (!running.Wait(TimeSpan.FromSeconds(240)))
+        {
+            throw new TimeoutException("the test did not finish within 240 seconds");
+        }
+
+        running.GetAwaiter().GetResult();
         Console.WriteLine($"PASS {name}");
+    }
+    catch (Exception ex) when (ex is AggregateException { InnerException: TestSkippedException } aggregate)
+    {
+        skippedCount++;
+        Console.WriteLine($"SKIP {name} ({aggregate.InnerException!.Message})");
     }
     catch (TestSkippedException skipped)
     {
@@ -104,11 +153,14 @@ if (failures.Count > 0)
         Console.WriteLine($"- {failure}");
     }
 
+    Environment.Exit(1);
     return 1;
 }
 
 Console.WriteLine();
 Console.WriteLine($"{tests.Length - skippedCount} tests passed, {skippedCount} skipped.");
+// A timed-out test may still own a background thread; do not wait for it.
+Environment.Exit(0);
 return 0;
 
 internal static class GeminiPartFactoryTests

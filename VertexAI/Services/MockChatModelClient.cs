@@ -81,9 +81,29 @@ public sealed class MockChatModelClient : IChatModelClient
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request) =>
+        StreamChatAsync(request, CancellationToken.None);
+
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var trimmed = request.Message.Trim();
+
+        // "/slow" streams one numbered line every 100 ms until it ends or is cancelled. It exists so a stop,
+        // a dropped connection or a reload can be exercised end to end against a real stream.
+        if (trimmed.StartsWith("/slow", StringComparison.Ordinal))
+        {
+            for (var line = 1; line <= 200; line++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return new ChatChunk { Text = $"line {line}\n", IsThinking = false };
+                await Task.Delay(100, cancellationToken);
+            }
+
+            yield break;
+        }
+
         var attachmentCount = request.Attachments.Count;
         var historyCount = _history.Count;
         var searchMode = SearchModes.Normalize(request.SearchMode);

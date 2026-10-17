@@ -484,7 +484,8 @@ Services/Runs/
   RunIds.cs                                    UUIDv5 派生
   RunFingerprint.cs                            规范化与哈希
   IRunStore.cs                                 创建事务 / CAS 终结 / 心跳 / 读取
-  FirestoreRunStore.cs, InMemoryRunStore.cs    后者用于单元测试，模拟相同的 CAS 语义
+  FirestoreRunStore.cs                         唯一的存储实现。协议测试直接在 Firestore 模拟器上运行真实的
+                                               RunService 与存储，只替换模型，不再维护一份内存版本
   RunService.cs                                生命周期编排（替代 ChatOrchestrator 的内部）
   RunCancellationRegistry.cs                   进程内取消令牌，按 runId
   RunReconciler.cs                             租约过期对账（只写终态，不持有任何模型客户端）
@@ -607,7 +608,7 @@ src/
 
 1. **幂等**：同一 `runId` 并发和顺序各发两次，结果只有 1 条用户消息、至多 1 条助手消息、模型调用恰好 1 次、配额预留 1 次；重放返回 `replayed`。
 2. 同一 `runId`、不同内容，返回 409 `idempotency_mismatch`；他人的 `runId` 返回 409 且不泄露。
-2a. **至多一次的故障注入**（`InMemoryRunStore` 与 Firestore 模拟器上各跑一遍，计数 Mock 模型记录调用次数）：
+2a. **至多一次的故障注入**（真实的 `RunService` 与 `FirestoreRunStore` 在 Firestore 模拟器上，只有模型是脚本化的，并计数调用次数）：
     - 同一 `runId` 100 个并发准入：恰好 1 个 `Admitted`，其余 `Replay`，模型调用恰好 1 次。
     - P1：准入提交后、模型调用前注入崩溃：对账后终态为 `interrupted(server_lost)`，**模型调用 0 次**，之后任意重放、`GET`、再次对账都不再产生调用。
     - P2/P3：流式中途和终结前注入崩溃：终态由对账器写入，内容来自检查点，模型调用恰好 1 次。
@@ -618,7 +619,7 @@ src/
     - 准入时配额超额：只写 `failed(quota)` 与用户消息，模型调用 0 次，配额没有被重复扣减。
     - 终结事务里记录用量：同一运行无论终结者是谁，`usageQuotas` 只增加一次。
     - 架构测试：重放、对账、停止三条路径的代码里不引用模型调用入口（以计数 Mock 与类型约束双重断言）。
-2b. **执行权复核**（`InMemoryRunStore` 与模拟器上各跑一遍）：对账器先终结则供应商调用 0 次且标记仍是 `not_started`，退还配额；复核与终结并发，标记为 `started` 当且仅当复核成功；标记事务失败按 P10 读回；`not_started` 的运行被对账时配额按 `quotaReservation` 原样退还，`started` 的不退还。底层的三条契约测试**已通过**。
+2b. **执行权复核**（同上，真实服务与存储）：对账器先终结则供应商调用 0 次且标记仍是 `not_started`，退还配额；复核与终结并发，标记为 `started` 当且仅当复核成功；标记事务失败按 P10 读回；`not_started` 的运行被对账时配额按 `quotaReservation` 原样退还，`started` 的不退还。底层的三条契约测试**已通过**。
 2c. **附件**：2.3.2 末尾列出的 7 条测试（覆盖、他人会话、同名已存在、准入后崩溃、落盘失败、删除会话、重试复用）。
 2d. **限流**：用真实的分区函数重跑 `RateLimitStackingTests` 的三条，另加：创建运行仍是每分钟 30 次；控制类用完预算后创建运行不受影响。三条行为测试**已通过**。
 3. **停止**：流中间调用 stop，运行变为 `stopped(user)`，部分内容保存为 `status=partial` 的助手消息，Mock 模型在 2 秒内观察到取消，`activeRunId` 被清除；完成后再停止，返回已完成快照，不改变数据；未知运行 404。
@@ -658,10 +659,29 @@ src/
 
 验收：切换前一周内，新界面可覆盖你的日常使用；回滚演练一次（把环境变量改回，旧界面立刻恢复）。
 
+### 8.1 批次 1 实现状态与偏差
+
+一条可运行的完整链路已在本地（Firestore 模拟器 + 模拟模型）跑通：浏览器 → Node 代理 → API（RunService + FirestoreRunStore）→ 模型。
+
+已实现：准入事务（重放/冲突/忙/配额）、`providerCall` 标记、租约与心跳、停止（含 2 秒断开宽限）、终态 CAS 写入、对账器（只写终态）、SSE v2（run/delta/citations/done/end）、`Runs__Enabled` 默认关闭、运行控制路由的限流分类、前端状态机与控制器（双击保护、待决运行恢复）。
+
+偏差与推迟（如实）：
+
+| 项 | 状态 |
+|---|---|
+| v2 带附件 | 推迟到批次 1b；v2 目前拒绝附件 |
+| `meta`/`usage`/`finishReason`/`providerCalls`/`effective`/设置端点 | 推迟；用量未写入 |
+| 失败运行的重试 | 只有数据设计与契约测试，未实现 |
+| 新对话首条消息的地址 | 端到端测试发现：地址在运行结束才设置，运行中刷新会丢失视图。已改为服务端确认运行后立即设置 |
+| 断网（离线）模拟 | Playwright 的离线开关不会切断已建立的流，端到端改为「关闭标签页后在新标签页查看」；前端单元测试覆盖 `networkFailed` 路径 |
+| Firestore 客户端 | 生产代码改为仅当设置了 `FIRESTORE_EMULATOR_HOST` 才连接模拟器，否则连生产（端到端测试发现原来始终要求凭据） |
+
+测试：后端 94 项（带模拟器）/ 60 项通过 + 34 项跳过（无模拟器）；前端单元 29 项；端到端 6 项。真实 Vertex 调用、线上超时修改、无流量标签修订、备份恢复均未执行。
+
 ## 9. 测试策略
 
 - **纯逻辑优先**：状态机、选取器、幂等指纹、SSE 解析都是纯函数，表驱动覆盖。
-- **存储契约测试**：同一组用例同时跑 `InMemoryRunStore` 和 `FirestoreRunStore`（模拟器），保证 CAS、事务、重放语义一致。
+- **协议测试接入真实实现**：运行生命周期的测试驱动真实的 `RunService`、`FirestoreRunStore`、配额服务与会话存储（Firestore 模拟器），只把模型换成脚本化的假模型；HTTP 层的测试再叠加真实的接口与 Kestrel。底层的 Firestore 原语契约测试（单赢家、比较并设置、围栏）单独保留，用来证明模拟器与真实 Firestore 共有的语义。
 - **取消测试**：Mock 模型客户端记录是否观察到取消令牌、花了多久，断言时限，而不是只断言结果。
 - **端到端**：Playwright 对接 Mock 提供商，用路由拦截模拟断网、切断流、慢响应。
 - **本地运行**：`dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj`（模拟器测试会标为跳过）；带模拟器：`firebase emulators:exec --only firestore --project demo-contract-tests --config VertexAI.Tests/firebase.emulator.json "dotnet run --project VertexAI.Tests/VertexAI.Tests.csproj --no-build"`（需要 Java 21）。

@@ -13,6 +13,8 @@ using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 using VertexAI.Services.Health;
 using VertexAI.Services.Quota;
+using VertexAI.Services.Runs;
+using Microsoft.Extensions.Options;
 
 namespace VertexAI.Configuration;
 
@@ -42,36 +44,10 @@ public static class ServiceCollectionExtensions
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-                RateLimitPartition.GetFixedWindowLimiter(
-                    ResolveRateLimitPartitionKey(context),
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = 30,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
-                        AutoReplenishment = true
-                    }));
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(RateLimitPolicies.Partition);
         });
 
         return services;
-    }
-
-    private static string ResolveRateLimitPartitionKey(HttpContext context)
-    {
-        var authorization = context.Request.Headers.Authorization.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(authorization))
-        {
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(authorization));
-            return "auth:" + Convert.ToHexString(hash.AsSpan(0, 16));
-        }
-
-        var forwarded = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        var ip = !string.IsNullOrWhiteSpace(forwarded)
-            ? forwarded.Split(',')[0].Trim()
-            : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        return "ip:" + ip;
     }
 
     private static IServiceCollection AddApplicationServices(
@@ -93,21 +69,36 @@ public static class ServiceCollectionExtensions
         }
         services.AddScoped<IChatProviderCatalog, ChatProviderCatalog>();
         services.AddScoped<IChatModelClient>(sp => sp.GetRequiredService<IChatProviderCatalog>().CreateClient("gemini"));
-        services.AddSingleton(CreateFirebaseAuth(configuration));
+        services.AddSingleton(_ => CreateFirebaseAuth(configuration));
         services.AddScoped<IUserContext, FirebaseUserContext>();
-        services.AddSingleton(sp => FirestoreDb.Create(ResolveFirestoreProjectId(configuration)));
-        services.AddSingleton(StorageClient.Create());
+        services.AddSingleton(sp => new FirestoreDbBuilder
+        {
+            ProjectId = ResolveFirestoreProjectId(configuration),
+            // Uses the emulator only when FIRESTORE_EMULATOR_HOST is set (local runs, end-to-end tests); otherwise production.
+            EmulatorDetection = Google.Api.Gax.EmulatorDetection.EmulatorOrProduction
+        }.Build());
+        services.AddSingleton(_ => StorageClient.Create());
         services.AddSingleton<IChatAttachmentStore>(sp =>
         {
-            var store = ActivatorUtilities.CreateInstance<CloudStorageChatAttachmentStore>(sp);
-            return store.IsEnabled ? store : new NoOpChatAttachmentStore();
+            // Only build the Cloud Storage store (which needs credentials) when a bucket is configured.
+            var bucket = Environment.GetEnvironmentVariable("ATTACHMENT_STORAGE_BUCKET")
+                ?? sp.GetRequiredService<IOptions<PersistenceSettings>>().Value.AttachmentStorageBucket;
+            return string.IsNullOrWhiteSpace(bucket)
+                ? new NoOpChatAttachmentStore()
+                : ActivatorUtilities.CreateInstance<CloudStorageChatAttachmentStore>(sp);
         });
         services.AddScoped<FirestoreConversationStore>();
         services.AddScoped<IConversationStore>(sp => sp.GetRequiredService<FirestoreConversationStore>());
-        services.AddScoped<IChatQuotaService, FirestoreChatQuotaService>();
+        services.AddScoped<FirestoreChatQuotaService>();
+        services.AddScoped<IChatQuotaService>(sp => sp.GetRequiredService<FirestoreChatQuotaService>());
         services.AddScoped<IQuotaUsageReader, FirestoreQuotaUsageReader>();
         services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
         services.AddScoped<ChatOrchestrator>();
+
+        services.Configure<RunSettings>(configuration.GetSection("Runs"));
+        services.AddSingleton<RunCancellationRegistry>();
+        services.AddScoped<IRunStore, FirestoreRunStore>();
+        services.AddScoped<RunService>();
 
         return services;
     }

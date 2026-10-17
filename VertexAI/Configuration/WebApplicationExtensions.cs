@@ -39,6 +39,7 @@ public static class WebApplicationExtensions
 
         app.MapAuthEndpoints();
         app.MapChatEndpoints();
+        app.MapRunEndpoints();
         app.MapConversationEndpoints();
         app.MapWorkspaceEndpoints();
         app.MapExportEndpoints();

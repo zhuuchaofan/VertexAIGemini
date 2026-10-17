@@ -64,7 +64,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient
     public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request) =>
         StreamChatAsync(request, CancellationToken.None);
 
-    private async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
         ChatModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {

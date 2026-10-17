@@ -188,9 +188,12 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         return StreamChatAsync(userParts, false);
     }
 
-    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request) =>
+        StreamChatAsync(request, CancellationToken.None);
+
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, CancellationToken cancellationToken)
     {
-        return StreamChatAsync(request, SearchModes.EnablesWebSearch(request.SearchMode));
+        return StreamChatAsync(request, SearchModes.EnablesWebSearch(request.SearchMode), cancellationToken);
     }
 
     public Task LoadHistoryAsync(IReadOnlyCollection<ChatHistoryEntry> messages)
@@ -199,10 +202,13 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         return Task.CompletedTask;
     }
 
-    private IAsyncEnumerable<ChatChunk> StreamChatAsync(ChatModelRequest request, bool enableSearch)
+    private IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        ChatModelRequest request,
+        bool enableSearch,
+        CancellationToken cancellationToken)
     {
         var userParts = GeminiPartFactory.CreateParts(request.Message, request.Attachments);
-        return StreamChatAsync(userParts, enableSearch);
+        return StreamChatAsync(userParts, enableSearch, cancellationToken);
     }
 
     private static string ResolveSystemPrompt(
@@ -221,7 +227,13 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     /// <summary>
     /// 流式发送消息并返回响应（多模态：文本+图片，包含 Google 联网搜索支持）
     /// </summary>
-    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts, bool enableSearch)
+    public IAsyncEnumerable<ChatChunk> StreamChatAsync(List<Part> userParts, bool enableSearch) =>
+        StreamChatAsync(userParts, enableSearch, CancellationToken.None);
+
+    public async IAsyncEnumerable<ChatChunk> StreamChatAsync(
+        List<Part> userParts,
+        bool enableSearch,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         EnsureConfigured();
 
@@ -241,7 +253,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         _historyManager.AddUserMessage(userParts);
 
         // 检查并修剪历史
-        await _historyManager.TrimIfNeededAsync();
+        await _historyManager.TrimIfNeededAsync(cancellationToken);
 
         // 获取发送内容
         var contentsToSend = _historyManager.GetContentsForSending();
@@ -273,7 +285,8 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         await foreach (var response in _client.Models.GenerateContentStreamAsync(
             model: _modelName,
             contents: contentsToSend,
-            config: requestConfig))
+            config: requestConfig,
+            cancellationToken: cancellationToken))
         {
             if (response.Candidates is not { Count: > 0 }) continue;
 
@@ -372,7 +385,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         }
 
         // 更新 Token 计数
-        await _historyManager.UpdateTokenCountAsync();
+        await _historyManager.UpdateTokenCountAsync(cancellationToken);
 
         stopwatch.Stop();
         _logger.LogInformation(

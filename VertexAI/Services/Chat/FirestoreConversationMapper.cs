@@ -29,7 +29,7 @@ internal static class FirestoreConversationMapper
         string uid,
         Guid localUserId)
     {
-        return new Dictionary<string, object?>
+        var document = new Dictionary<string, object?>
         {
             [FirestoreConversationSchema.Uid] = uid,
             [FirestoreConversationSchema.LocalUserId] = localUserId.ToString("D"),
@@ -40,6 +40,11 @@ internal static class FirestoreConversationMapper
             [FirestoreConversationSchema.AttachmentsJson] = message.AttachmentsJson,
             [FirestoreConversationSchema.CreatedAt] = Timestamp.FromDateTime(message.CreatedAt)
         };
+
+        // Optional fields are only written when set, so documents created before runs existed keep their shape.
+        if (message.RunId != null) document[FirestoreConversationSchema.RunId] = message.RunId;
+        if (message.Status != null) document[FirestoreConversationSchema.Status] = message.Status;
+        return document;
     }
 
     public static Conversation? ToConversation(DocumentSnapshot snapshot)
@@ -86,6 +91,8 @@ internal static class FirestoreConversationMapper
             Content = ReadString(snapshot, FirestoreConversationSchema.Content) ?? "",
             ThinkingContent = ReadString(snapshot, FirestoreConversationSchema.ThinkingContent),
             AttachmentsJson = ReadString(snapshot, FirestoreConversationSchema.AttachmentsJson),
+            RunId = ReadString(snapshot, FirestoreConversationSchema.RunId),
+            Status = ReadString(snapshot, FirestoreConversationSchema.Status),
             CreatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.CreatedAt)
         };
     }

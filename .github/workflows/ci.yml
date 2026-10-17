@@ -117,6 +117,56 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  e2e:
+    # The whole chain in a real browser: Playwright -> Node proxy -> API (mock model, fake dev user) -> Firestore
+    # emulator. Covers send, stream, stop, a closed tab, a reload mid-stream, a double click and a busy conversation.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/client/package-lock.json
+
+      - name: Build the API
+        run: |
+          dotnet restore VertexAI/VertexAI.csproj
+          dotnet build VertexAI/VertexAI.csproj --no-restore --disable-build-servers
+
+      - name: Install client dependencies and the browser
+        working-directory: apps/web/client
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run the end-to-end tests
+        working-directory: apps/web/client
+        run: npm run e2e
+
+      - name: Keep the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/client/test-results
+          if-no-files-found: ignore
+
   web-docker:
     # The same Dockerfile the deployment builds. Builds only, never pushes or deploys.
     runs-on: ubuntu-latest

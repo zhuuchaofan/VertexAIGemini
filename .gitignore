@@ -14,3 +14,7 @@ GCPKey/
 node_modules/
 apps/web/client/dist/
 apps/web/client/coverage/
+apps/web/client/dist-e2e/
+apps/web/client/test-results/
+apps/web/client/playwright-report/
+firestore-debug.log
