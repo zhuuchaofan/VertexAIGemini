@@ -18,7 +18,7 @@
 |---|---|---|
 | D1 | 新前端路径用 `/app/`，上线后 `/` 重定向到 `/app/`，旧界面移到 `/legacy/` | 同意 |
 | D2 | 用户主动停止之外，连接中断一律不继续生成（取消模型请求，保存部分内容） | 同意 |
-| D3 | **单次生成的服务端上限由两个 Cloud Run 服务的较小超时决定**。脚本、工作流和文档里 Web 默认是 **60 秒**，API 是 300 秒，所以按现有配置上限只有约 30 秒。方案：把 `WEB_TIMEOUT` 提到 300 秒（需要你确认，我不会自行改动或发布），部署脚本自动算出 `Runs__MaxDurationSeconds = min(WEB_TIMEOUT, API_TIMEOUT) − 30`，并在小于 60 时报错。详见 2.10 | 需你确认 |
+| D3 | **单次生成的服务端上限由两个 Cloud Run 服务的较小超时决定**。脚本、工作流和文档里 Web 默认是 **60 秒**，API 是 300 秒，所以按现有配置上限只有约 30 秒。方案：把 `WEB_TIMEOUT` 提到 300 秒（需要你确认，我不会自行改动或发布），部署脚本自动算出 `Runs__MaxDurationSeconds = min(WEB_TIMEOUT, API_TIMEOUT) − 30`，并在小于 60 时报错。详见 2.10。**线上实际值已由你核对：Web 60 秒、API 300 秒**，所以现在的上限约 30 秒 | 需你决定是否把 Web 提到 300 秒 |
 | D4 | 一个会话同时只允许一个进行中的运行，第二个返回 409 | 同意 |
 | D5 | 已失败且没有产生内容的运行允许「重试」；已有部分内容（停止或中断）的运行本阶段**不提供重试**，用户直接发新消息继续，部分内容作为上下文 | 同意（这是与上一版视觉稿的差异，已更新截图） |
 | D6 | 旧接口 `/api/chat/stream` 在第三批改为调用新的运行服务（只维护一套内部实现），第四批评估后下线 | 同意 |
@@ -229,6 +229,7 @@ Node 代理本身没有设置任何超时，所以约束来自 Cloud Run 的请�
   gcloud run services describe vertex-ai-web --region=REGION --format='value(spec.template.spec.timeoutSeconds)'
   gcloud run services describe vertex-ai-api --region=REGION --format='value(spec.template.spec.timeoutSeconds)'
   ```
+- **线上实际值（2026-10-17，由你在 Cloud Shell 核对，项目 `zhumyproject`，区域 `asia-east1`）：`vertex-ai-web` = 60 秒，`vertex-ai-api` = 300 秒**，与仓库默认值一致。所以现在经过代理的单次生成最长 60 秒，扣掉 30 秒收尾余量后，`Runs__MaxDurationSeconds` 只有 30。
 - 方案：
   1. 新增配置 `Runs__MaxDurationSeconds`，API 在这个时间点自己终结运行（`failed(timeout)`，已生成内容照常保存），这样超时被正确归类，而不是被 Web 层掐断后看起来像连接中断。
   2. 部署脚本和工作流计算 `min(WEB_TIMEOUT, API_TIMEOUT) − 30` 作为它的值（预留 30 秒给终结事务和收尾），**小于 60 时直接报错**，不静默部署。
