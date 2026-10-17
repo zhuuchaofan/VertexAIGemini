@@ -91,12 +91,41 @@ public sealed class FirestoreRunStore : IRunStore
             }
         }
 
+        // A retry may only continue a failed turn that is still the latest and was not retried: check the source now,
+        // in the same transaction that creates the new run, so two retries of one run cannot both be admitted.
+        RunRecord? source = null;
+        DocumentSnapshot? sourceMessage = null;
+        if (request.RetryOfRunId != null)
+        {
+            if (!conversationSnapshot.Exists) return new AdmitResult.Conflict("conflict");
+            var sourceSnapshot = await transaction.GetSnapshotAsync(Runs.Document(request.RetryOfRunId), ct);
+            if (!sourceSnapshot.Exists) return new AdmitResult.Conflict("conflict");
+            source = ToRecord(sourceSnapshot);
+            if (source.Uid != uid || source.ConversationId != request.ConversationId) return new AdmitResult.Conflict("conflict");
+
+            if (source.Status == RunStatus.Running) return new AdmitResult.Refused("source_not_terminal");
+            if (source.HasAssistantMessage) return new AdmitResult.Refused("source_has_content");
+            if (!string.IsNullOrEmpty(source.RetriedByRunId)) return new AdmitResult.Refused("already_retried");
+            if (!conversationSnapshot.TryGetValue<string>(FirestoreConversationSchema.LastRunId, out var lastRunId)
+                || lastRunId != request.RetryOfRunId)
+            {
+                return new AdmitResult.Refused("not_latest_turn");
+            }
+
+            sourceMessage = await transaction.GetSnapshotAsync(Messages.Document(source.UserMessageId.ToString("D")), ct);
+            if (!sourceMessage.Exists) return new AdmitResult.Conflict("conflict");
+            sourceMessage.TryGetValue<string>(FirestoreConversationSchema.AttachmentsJson, out var attachmentsJson);
+            if (ChatAttachmentSerializer.Deserialize(attachmentsJson).Any(a => !AttachmentStates.IsUsable(a.State)))
+                return new AdmitResult.Refused("attachments_unavailable");
+        }
+
         var usageSnapshot = await transaction.GetSnapshotAsync(usageRef, ct);
         var quota = _quota.Evaluate(usageSnapshot, request.Quota);
 
         // ---- all reads are done; everything below only buffers writes ----
         var now = DateTime.UtcNow;
-        var userMessageId = RunIds.UserMessageId(request.RunId);
+        // A retry answers the question that is already stored; it never creates a second copy of it.
+        var userMessageId = source?.UserMessageId ?? RunIds.UserMessageId(request.RunId);
         var assistantMessageId = RunIds.AssistantMessageId(request.RunId);
         var admitted = quota.Allowed;
 
@@ -107,8 +136,8 @@ public sealed class FirestoreRunStore : IRunStore
             [Fields.ConversationId] = request.ConversationId.ToString("D"),
             [Fields.UserMessageId] = userMessageId.ToString("D"),
             [Fields.AssistantMessageId] = assistantMessageId.ToString("D"),
-            [Fields.Attempt] = 1,
-            [Fields.Trigger] = "send",
+            [Fields.Attempt] = (source?.Attempt ?? 0) + 1,
+            [Fields.Trigger] = source == null ? "send" : "retry",
             [Fields.Status] = (admitted ? RunStatus.Running : RunStatus.Failed).ToWire(),
             [Fields.Fingerprint] = request.Fingerprint,
             [Fields.ProviderCall] = "not_started",
@@ -135,7 +164,16 @@ public sealed class FirestoreRunStore : IRunStore
             runDocument[Fields.Error] = ErrorToMap(new RunError(RunReasons.Quota, quota.Error ?? "Quota exceeded.", false));
         }
 
+        if (source != null) runDocument[Fields.RetryOfRunId] = request.RetryOfRunId!;
         transaction.Create(runRef, runDocument);
+        if (source != null)
+        {
+            transaction.Update(Runs.Document(source.RunId), new Dictionary<string, object>
+            {
+                [Fields.RetriedByRunId] = request.RunId,
+                [Fields.UpdatedAt] = FieldValue.ServerTimestamp
+            });
+        }
 
         var userMessage = new Message
         {
@@ -147,9 +185,12 @@ public sealed class FirestoreRunStore : IRunStore
             RunId = request.RunId,
             AttachmentsJson = ChatAttachmentSerializer.Serialize(request.Attachments)
         };
-        transaction.Create(
-            Messages.Document(userMessageId.ToString("D")),
-            FirestoreConversationMapper.ToDocument(userMessage, uid, request.User.LocalUserId));
+        if (source == null)
+        {
+            transaction.Create(
+                Messages.Document(userMessageId.ToString("D")),
+                FirestoreConversationMapper.ToDocument(userMessage, uid, request.User.LocalUserId));
+        }
 
         if (conversationSnapshot.Exists)
         {
@@ -209,6 +250,8 @@ public sealed class FirestoreRunStore : IRunStore
             Status = admitted ? RunStatus.Running : RunStatus.Failed,
             StatusReason = admitted ? null : RunReasons.Quota,
             Requested = request.Requested,
+            Attachments = request.Attachments ?? [],
+            RetryOfRunId = request.RetryOfRunId,
             CreatedAt = now,
             Fingerprint = request.Fingerprint,
             LeaseOwner = admitted ? request.ExecutorId : null,
@@ -559,6 +602,22 @@ public sealed class FirestoreRunStore : IRunStore
         return conversation;
     }
 
+    public async Task<int> DeleteRunsOfConversationAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken)
+    {
+        var snapshot = await Runs
+            .WhereEqualTo(Fields.Uid, Uid(user))
+            .WhereEqualTo(Fields.ConversationId, conversationId.ToString("D"))
+            .GetSnapshotAsync(cancellationToken);
+        foreach (var chunk in snapshot.Documents.Chunk(400))
+        {
+            var batch = _db.StartBatch();
+            foreach (var document in chunk) batch.Delete(document.Reference);
+            await batch.CommitAsync(cancellationToken);
+        }
+
+        return snapshot.Count;
+    }
+
     public async Task<Message?> GetMessageAsync(
         AuthenticatedUser user, Guid conversationId, Guid messageId, CancellationToken cancellationToken)
     {
@@ -802,7 +861,9 @@ public sealed class FirestoreRunStore : IRunStore
             ThinkingChars = (int)(Read<long?>(Fields.ThinkingChars) ?? 0),
             CitationCount = (int)(Read<long?>(Fields.CitationCount) ?? 0),
             FirstOutputAt = Time(Fields.FirstOutputAt),
-            Attachments = ReadAttachments(Read<List<object>>(Fields.Attachments))
+            Attachments = ReadAttachments(Read<List<object>>(Fields.Attachments)),
+            RetryOfRunId = Read<string>(Fields.RetryOfRunId),
+            RetriedByRunId = Read<string>(Fields.RetriedByRunId)
         };
     }
 
@@ -816,6 +877,8 @@ public sealed class FirestoreRunStore : IRunStore
     private static class Fields
     {
         public const string Attachments = "attachments";
+        public const string RetryOfRunId = "retryOfRunId";
+        public const string RetriedByRunId = "retriedByRunId";
         public const string Effective = "effective";
         public const string Usage = "usage";
         public const string FinishReason = "finishReason";

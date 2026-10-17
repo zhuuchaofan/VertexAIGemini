@@ -130,6 +130,10 @@ public sealed record RunRecord
     public int CitationCount { get; init; }
     public DateTime? FirstOutputAt { get; init; }
     public IReadOnlyList<ChatAttachment> Attachments { get; init; } = [];
+
+    /// <summary>The failed run this one tries again, and the run that tried this one again. Both only for retries.</summary>
+    public string? RetryOfRunId { get; init; }
+    public string? RetriedByRunId { get; init; }
 }
 
 public sealed record AdmitRequest(
@@ -144,7 +148,8 @@ public sealed record AdmitRequest(
     string ExecutorId,
     string Fingerprint,
     ChatQuotaRequest Quota,
-    IReadOnlyList<ChatAttachment>? Attachments = null);
+    IReadOnlyList<ChatAttachment>? Attachments = null,
+    string? RetryOfRunId = null);
 
 /// <summary>
 /// The only proof that a request may call the model. It can only be produced by <see cref="IRunStore.AdmitAsync"/>
@@ -176,6 +181,8 @@ public abstract record AdmitResult
     public sealed record Busy(string ActiveRunId) : AdmitResult;
     /// <summary>Quota refused the request. A failed run and the user message were stored; the model was not called.</summary>
     public sealed record Rejected(RunRecord Run) : AdmitResult;
+    /// <summary>A retry that the state of its source does not allow. Nothing was written.</summary>
+    public sealed record Refused(string Code) : AdmitResult;
     /// <summary>The conversation's active run lost its lease; reconcile it, then admit again.</summary>
     public sealed record StaleActive(string RunId) : AdmitResult;
 }

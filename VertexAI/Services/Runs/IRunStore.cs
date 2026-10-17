@@ -38,6 +38,9 @@ public interface IRunStore
 
     Task<Message?> GetMessageAsync(AuthenticatedUser user, Guid conversationId, Guid messageId, CancellationToken cancellationToken);
 
+    /// <summary>Removes the run records of a conversation that its owner deleted. Returns how many were removed.</summary>
+    Task<int> DeleteRunsOfConversationAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken);
+
     Task<bool> BeginProviderCallAsync(AdmittedRun run, CancellationToken cancellationToken, RunEffective? effective = null);
 
     Task<RunLeaseState> PollAsync(AdmittedRun run, CancellationToken cancellationToken);

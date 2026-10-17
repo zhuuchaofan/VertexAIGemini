@@ -22,7 +22,8 @@ public sealed record RunStartRequest(
     string Message,
     string? SearchMode,
     ChatSessionOptions Options,
-    IReadOnlyCollection<ChatAttachment>? Attachments = null);
+    IReadOnlyCollection<ChatAttachment>? Attachments = null,
+    string? RetryOfRunId = null);
 
 /// <summary>The outcome of admission plus what execution needs. Only an <c>Admitted</c> result can be executed.</summary>
 public sealed record RunAdmission(
@@ -76,6 +77,23 @@ public sealed class RunService
 
     public async Task<RunAdmission> AdmitAsync(RunStartRequest request, CancellationToken cancellationToken)
     {
+        // A retry carries no message of its own: it answers the stored question of the run it retries.
+        IReadOnlyList<ChatAttachment>? retryAttachments = null;
+        if (request.RetryOfRunId != null)
+        {
+            var source = await _store.GetAsync(request.User, request.RetryOfRunId, cancellationToken);
+            var sourceMessage = source == null || source.ConversationId != request.ConversationId
+                ? null
+                : await _store.GetMessageAsync(request.User, request.ConversationId, source.UserMessageId, cancellationToken);
+            if (source == null || sourceMessage == null)
+            {
+                return new RunAdmission(new AdmitResult.Conflict("conflict"), request, null);
+            }
+
+            request = request with { Message = sourceMessage.Content, Attachments = null };
+            retryAttachments = ChatAttachmentSerializer.Deserialize(sourceMessage.AttachmentsJson);
+        }
+
         var providerId = _providers.ResolveProviderId(request.Options.ProviderId);
         var model = _providers.CreateClient(providerId);
         if (model is IAuthenticatedUserAwareChatModelClient userAware)
@@ -99,6 +117,7 @@ public sealed class RunService
 
         // Planning only reads the request: nothing is written to storage before admission has chosen a winner.
         var planned = AttachmentPlanner.Plan(request.RunId, request.ConversationId, request.Attachments, _attachments.IsEnabled);
+        var retryOf = request.RetryOfRunId;
 
         var admit = new AdmitRequest(
             request.User,
@@ -110,14 +129,17 @@ public sealed class RunService
             model.CurrentPresetId,
             requested.CustomPrompt,
             ExecutorId: Guid.NewGuid().ToString("N"),
-            RunFingerprint.Compute(request.ConversationId, request.Message, requested, AttachmentPlanner.FingerprintPart(planned)),
+            RunFingerprint.Compute(
+                request.ConversationId, retryOf == null ? request.Message : $"retry:{retryOf}", requested,
+                AttachmentPlanner.FingerprintPart(planned)),
             new ChatQuotaRequest(
                 request.User,
                 RequestCount: 1,
                 EstimatedTokens: Math.Max(1, request.Message.Length / 4) + planned.Sum(p => (int)Math.Min(int.MaxValue / 8, p.Recorded.SizeBytes ?? 0) / 4),
                 SearchCount: SearchModes.EnablesWebSearch(requested.SearchMode) ? 1 : 0,
                 AttachmentBytes: planned.Sum(p => p.Recorded.SizeBytes ?? 0)),
-            planned.Select(p => p.Recorded).ToList());
+            retryAttachments ?? planned.Select(p => p.Recorded).ToList(),
+            retryOf);
 
         try
         {
@@ -294,8 +316,16 @@ public sealed class RunService
                 augmentation = await augmenter.AugmentAsync(context, augmentation, linked.Token);
             }
 
-            var modelRequest = new ChatModelRequest(
-                augmentation.Message, AttachmentPlanner.ForModel(planned, request.Attachments), searchMode);
+            var outgoing = AttachmentPlanner.ForModel(planned, request.Attachments);
+            if (request.RetryOfRunId != null)
+            {
+                // The retried question's attachments are already stored (or inline); read them back for the model.
+                var again = await WithAttachmentContentAsync(
+                    [new ChatHistoryEntry("user", request.Message, null, run.Record.Attachments)], linked.Token);
+                outgoing = again[0].Attachments?.ToList() ?? [];
+            }
+
+            var modelRequest = new ChatModelRequest(augmentation.Message, outgoing, searchMode);
             await foreach (var chunk in model.StreamChatAsync(modelRequest, linked.Token))
             {
                 var offset = state.Append(chunk.Text, chunk.IsThinking);
@@ -752,6 +782,9 @@ public sealed class RunService
     }
 
     // ------------------------------------------------------------------------------------------------ reads
+
+    public Task<int> DeleteRunsOfConversationAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken) =>
+        _store.DeleteRunsOfConversationAsync(user, conversationId, cancellationToken);
 
     public Task<Conversation?> GetConversationViewAsync(AuthenticatedUser user, Guid conversationId, CancellationToken cancellationToken) =>
         _store.GetConversationForViewAsync(user, conversationId, cancellationToken);

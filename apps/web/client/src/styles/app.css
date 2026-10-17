@@ -36,7 +36,7 @@
 .chat-wrap { flex: 1; min-height: 0; display: flex; }
 .chat { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .bar { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--app); }
-.bar-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bar-title { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 .bar h1 { margin: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .saved { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .thread-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -176,8 +176,8 @@
   .rail[data-open] { transform: none; }
   .drawer-backdrop { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(8,11,16,.45); }
   .bar { padding: 0 8px; gap: 4px; }
-  .bar-title { flex-direction: column; align-items: center; gap: 0; flex: 1; }
-  .bar h1 { font-size: 14px; max-width: 60vw; }
+  .bar-title { flex-direction: column; align-items: center; gap: 0; flex: 1; min-width: 0; }
+  .bar h1 { font-size: 14px; max-width: 100%; }
   .thread { padding: 14px 14px 6px; gap: 20px; }
   .msg { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
   .composer { padding: 4px 12px 10px; }

@@ -110,6 +110,13 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
             case "/fail":
                 throw new InvalidOperationException("Gemini ServerError: upstream unavailable");
 
+            case "/flaky":
+                // fails the first time the model is called, answers every time after that
+                if (probe.StreamCalls == 1) throw new InvalidOperationException("Gemini ServerError: upstream unavailable");
+                yield return new ChatChunk { Text = "Hello " };
+                yield return new ChatChunk { Text = "again" };
+                yield break;
+
             case "/blocked":
                 throw new InvalidOperationException("Gemini response was blocked by safety settings: SAFETY");
 

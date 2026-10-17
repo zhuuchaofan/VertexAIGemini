@@ -23,9 +23,38 @@ public static class RunEndpoints
         group.MapGet("/runs/{runId}", GetRunAsync);
         group.MapGet("/conversations/{conversationId:guid}", GetConversationAsync);
         group.MapGet("/conversations/{conversationId:guid}/messages/{messageId:guid}/attachments/{index:int}", GetAttachmentAsync);
+        group.MapDelete("/conversations/{conversationId:guid}", DeleteConversationAsync);
         group.MapGet("/me/settings", GetDefaultsAsync);
         group.MapPut("/me/settings", PutDefaultsAsync);
         group.MapPut("/conversations/{conversationId:guid}/settings", PutConversationSettingsAsync);
+    }
+
+    /// <summary>
+    /// Deleting is the owner's decision and removes the conversation, its messages, its stored attachments and its run
+    /// records. It is refused while a run is still generating in it, so nothing is deleted out from under a live reply.
+    /// </summary>
+    private static async Task DeleteConversationAsync(
+        Guid conversationId, HttpContext context, IUserContext users, RunService runs,
+        IConversationStore conversations, IOptions<RunSettings> settings)
+    {
+        if (!settings.Value.Enabled) { Results404(context); return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var conversation = await runs.GetConversationViewAsync(user, conversationId, context.RequestAborted);
+        if (conversation == null) { await Error(context, StatusCodes.Status404NotFound, "not_found", "Conversation not found."); return; }
+
+        // Listing settles a run whose executor vanished, so only a run that is really going blocks the delete.
+        var records = await runs.ListAsync(user, conversationId, context.RequestAborted);
+        if (records.Any(run => run.Status == RunStatus.Running))
+        {
+            await Error(context, StatusCodes.Status409Conflict, "run_in_progress", "这个会话正在生成回复，请先停止或等它结束。");
+            return;
+        }
+
+        await conversations.DeleteConversationAsync(conversationId, user);
+        await runs.DeleteRunsOfConversationAsync(user, conversationId, context.RequestAborted);
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
     // ------------------------------------------------------------------------------------------------ settings
@@ -90,7 +119,8 @@ public static class RunEndpoints
         bool? ThinkingEnabled,
         string? ThinkingLevel,
         int? ThinkingBudget,
-        ChatAdvancedOptions? Advanced);
+        ChatAdvancedOptions? Advanced,
+        string? RetryOfRunId = null);
 
     internal static async Task CreateRunAsync(
         ApiRunRequest request,
@@ -126,9 +156,28 @@ public static class RunEndpoints
             return;
         }
 
+        string? retryOf = null;
+        if (!string.IsNullOrWhiteSpace(request.RetryOfRunId))
+        {
+            if (!RunIds.TryParseRunId(request.RetryOfRunId, out var parsedRetry))
+            {
+                await Error(context, StatusCodes.Status400BadRequest, "invalid_run_id", "retryOfRunId must be a UUID.");
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Message) || request.Attachments is { Count: > 0 })
+            {
+                await Error(context, StatusCodes.Status400BadRequest, "retry_with_content",
+                    "A retry answers the stored question and takes no message or attachments of its own.");
+                return;
+            }
+
+            retryOf = parsedRetry;
+        }
+
         var attachments = request.Attachments ?? [];
         var message = request.Message?.Trim() ?? "";
-        if (message.Length == 0 && attachments.Count == 0)
+        if (retryOf == null && message.Length == 0 && attachments.Count == 0)
         {
             await Error(context, StatusCodes.Status400BadRequest, "message_required", "Message is required.");
             return;
@@ -167,7 +216,7 @@ public static class RunEndpoints
                     new ChatSessionOptions(
                         request.ProviderId, request.ModelName, request.PresetId, request.CustomPrompt,
                         request.ThinkingEnabled, request.ThinkingLevel, request.ThinkingBudget, request.Advanced),
-                    attachments),
+                    attachments, retryOf),
                 context.RequestAborted);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
@@ -199,6 +248,18 @@ public static class RunEndpoints
                     conflict.Code == "idempotency_mismatch"
                         ? "同一个 runId 对应的请求内容不一致。"
                         : "请求冲突。");
+                return;
+
+            case AdmitResult.Refused refused:
+                await Error(context, StatusCodes.Status409Conflict, refused.Code, refused.Code switch
+                {
+                    "source_not_terminal" => "上一次生成还没有结束，不能重试。",
+                    "source_has_content" => "上一次已经产生了回复，请直接发送新消息继续。",
+                    "not_latest_turn" => "只能重试最新一轮的失败。",
+                    "already_retried" => "这次失败已经重试过了。",
+                    "attachments_unavailable" => "这条消息的附件没有保存成功，无法重试，请重新发送。",
+                    _ => "无法重试。"
+                });
                 return;
 
             case AdmitResult.Busy busy:
