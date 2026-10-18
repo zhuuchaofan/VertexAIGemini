@@ -95,7 +95,8 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   useEffect(() => () => held.current.forEach(releasePreview), []);
   const [settings, setSettings] = useState<ChatSettings>(defaults);
   const touched = useRef(false);
-  const [settingsOpen, setSettingsOpen] = useState(readInspectorOpen);
+  // The desktop inspector remembers whether it was open; on a phone it is a sheet and always starts closed.
+  const [settingsOpen, setSettingsOpen] = useState(() => !mobile && readInspectorOpen());
   const [sessionState, setSessionState] = useState<"new" | "saved" | "failed">("new");
   const pendingSave = useRef<{ timer: ReturnType<typeof setTimeout>; send: () => void } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -358,7 +359,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
 
   const toggleSettings = () => {
     setSettingsOpen(open => {
-      writeInspectorOpen(!open);
+      if (!mobile) writeInspectorOpen(!open);
       return !open;
     });
   };

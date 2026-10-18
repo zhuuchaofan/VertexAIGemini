@@ -286,7 +286,7 @@ button.att-thumb { cursor: zoom-in; }
 .tag.draft { background: var(--warn-soft); color: var(--warn); border-color: transparent; margin-left: 4px; }
 .composer-foot { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
 .draft-state { color: var(--ok); }
-@media (max-width: 760px) { .composer-foot { display: flex; } .composer-foot span:first-child { display: none; } .conv-actions .overlay-panel { width: auto; } }
+@media (max-width: 760px) { .composer-foot { display: flex; } .composer-foot span:first-child { display: none; } .conv-actions .overlay-panel { left: 0; right: 0; width: auto; } }
 .login-tabs { width: min(320px, 100%); margin-bottom: 4px; }
 .login .ghost { width: 100%; }
 
