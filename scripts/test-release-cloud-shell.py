@@ -45,7 +45,10 @@ if args[:2] == ["config", "get-value"]:
 elif args[:3] == ["run", "services", "describe"]:
     print(json.dumps(service(args[3])))
 elif args[:3] == ["artifacts", "docker", "images"]:
-    sys.exit(0 if os.environ.get("IMAGES", "1") == "1" else 1)
+    if os.environ.get("IMAGES", "1") != "1":
+        sys.exit(1)
+    if args[3] == "describe":
+        print(json.loads(os.environ.get("IMAGE_DIGESTS", "{}")).get(args[4], ""))
 elif args[:3] == ["storage", "buckets", "describe"]:
     sys.exit(0 if os.environ.get("BUCKET_EXISTS") == "1" else 1)
 elif args[:2] == ["storage", "ls"]:
@@ -102,7 +105,7 @@ def state_name(project="test-project", region="asia-east1", api="vertex-ai-api",
 
 def header(**overrides):
     values = dict(PROJECT_ID="test-project", REGION="asia-east1", API_SERVICE="vertex-ai-api",
-                  WEB_SERVICE="vertex-ai-web", COMMIT=COMMIT)
+                  WEB_SERVICE="vertex-ai-web", RELEASE_ID=SHORT, COMMIT=COMMIT)
     values.update(overrides)
     return "".join(f"{k}={v}\n" for k, v in values.items())
 
@@ -333,13 +336,29 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(self.mutating(calls), [])
 
     def test_a_state_file_whose_header_names_another_release_is_refused(self):
-        for field, value in (("PROJECT_ID", "other"), ("API_SERVICE", "other"), ("WEB_SERVICE", "other"), ("COMMIT", "f" * 40)):
+        for field, value in (("PROJECT_ID", "other"), ("API_SERVICE", "other"), ("WEB_SERVICE", "other"), ("RELEASE_ID", "f" * 12)):
             with self.subTest(field):
                 bad = header(**{field: value}) + f"BACKUP_ROOT=gs://b/x\nBACKUP_EPOCH={int(time.time())}\n"
                 result, calls, _ = self.go("enable-v2", state=bad)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("belongs to", result.stderr)
                 self.assertEqual(self.mutating(calls), [])
+
+    def test_release_id_keeps_an_earlier_releases_images_and_records(self):
+        old = "0b82153dec14"
+        legacy = ("PROJECT_ID=test-project\nREGION=asia-east1\nAPI_SERVICE=vertex-ai-api\nWEB_SERVICE=vertex-ai-web\n"
+                  f"COMMIT={old}359069d3912e0466b1a473b6dfdc\nPREV_API_REVISION=api-3\nPREV_WEB_REVISION=web-3\n")
+        result, calls, _ = self.go("rollback", "web", state=legacy, state_file=state_name(short=old), RELEASE_ID=old)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--to-revisions=web-3=100", next(c for c in calls if c[:3] == ["run", "services", "update-traffic"]))
+        # Images are named by the release id, so nothing is rebuilt for a scripts-only change.
+        result, calls, _ = self.go("build", RELEASE_ID=old, IMAGES="0")
+        images = [arg for c in calls if c[:2] == ["builds", "submit"] for arg in c if arg.startswith("--tag=")]
+        self.assertTrue(all(arg.endswith(f":{old}") for arg in images) and len(images) == 2, images)
+        # The wrong release id for that file is refused.
+        result, calls, _ = self.go("rollback", "web", state=legacy, state_file=state_name(short="ffffffffffff"), RELEASE_ID="ffffffffffff")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.mutating(calls), [])
 
     def test_rollback_points_come_only_from_this_releases_state(self):
         other = header(PROJECT_ID="other") + "PREV_API_REVISION=api-x\nPREV_WEB_REVISION=web-x\n"
@@ -408,6 +427,36 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         result, _, _ = self.verify(REV_IMAGES=json.dumps({"api-cand": API_IMAGE + "@sha256:abc", "web-cand": WEB_IMAGE + "@sha256:def"}))
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_digest_only_revision_images_match_by_digest(self):
+        # Cloud Run records "<repo>/<name>@sha256:…" and drops the tag.
+        digests = {API_IMAGE: "sha256:aaa", WEB_IMAGE: "sha256:bbb"}
+        repo = API_IMAGE.rsplit(":", 1)[0]
+        web_repo = WEB_IMAGE.rsplit(":", 1)[0]
+        pinned = {"api-cand": f"{repo}@sha256:aaa", "web-cand": f"{web_repo}@sha256:bbb"}
+        result, _, _ = self.verify(REV_IMAGES=json.dumps(pinned), IMAGE_DIGESTS=json.dumps(digests))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_digest_that_is_not_this_releases_image_does_not_match(self):
+        digests = {API_IMAGE: "sha256:aaa", WEB_IMAGE: "sha256:bbb"}
+        repo = API_IMAGE.rsplit(":", 1)[0]
+        web_repo = WEB_IMAGE.rsplit(":", 1)[0]
+        for images in ({"api-cand": f"{repo}@sha256:other", "web-cand": f"{web_repo}@sha256:bbb"},
+                       {"api-cand": f"{repo}@sha256:aaa", "web-cand": f"{web_repo}@sha256:other"},
+                       {"api-cand": f"elsewhere/vertex-ai-api@sha256:aaa", "web-cand": f"{web_repo}@sha256:bbb"}):
+            with self.subTest(images=images):
+                result, _, _ = self.verify(REV_IMAGES=json.dumps(images), IMAGE_DIGESTS=json.dumps(digests))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("expected", result.stdout)
+
+    def test_deploy_accepts_digest_only_candidates(self):
+        digests = {API_IMAGE: "sha256:aaa", WEB_IMAGE: "sha256:bbb"}
+        repo = API_IMAGE.rsplit(":", 1)[0]
+        web_repo = WEB_IMAGE.rsplit(":", 1)[0]
+        result, _, saved = self.go("deploy", LATEST="svc-00008", TAGGED="web-00002", IMAGE_DIGESTS=json.dumps(digests),
+                                   REV_IMAGES=json.dumps({"svc-00008": f"{repo}@sha256:aaa", "web-00002": f"{web_repo}@sha256:bbb"}))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("CANDIDATE_API_REVISION=svc-00008", saved)
 
     # ---- promote / ui / rollback
 

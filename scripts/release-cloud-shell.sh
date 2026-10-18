@@ -88,19 +88,29 @@ init_state() {
   local key
   key="$(printf '%s' "${PROJECT_ID}_${REGION}_${API_SERVICE}_${WEB_SERVICE}_${SHORT}" | tr -c 'A-Za-z0-9._-' '_')"
   STATE_FILE="${STATE_DIR}/release-${key}.env"
-  local field want
-  for field in PROJECT_ID REGION API_SERVICE WEB_SERVICE COMMIT; do
+  local field want have
+  for field in PROJECT_ID REGION API_SERVICE WEB_SERVICE; do
     want="${!field}"
-    [[ "${field}" == COMMIT ]] && want="${COMMIT}"
-    if [[ -f "${STATE_FILE}" && -n "$(state_get "${field}")" && "$(state_get "${field}")" != "${want}" ]]; then
-      die "${STATE_FILE} belongs to ${field}=$(state_get "${field}"), not ${want}. Remove it only if you are sure it is stale."
+    have="$(state_get "${field}")"
+    if [[ -n "${have}" && "${have}" != "${want}" ]]; then
+      die "${STATE_FILE} belongs to ${field}=${have}, not ${want}. Remove it only if you are sure it is stale."
     fi
   done
+  # Files written before release ids existed carry the full commit instead.
+  have="$(state_get RELEASE_ID)"
+  if [[ -n "${have}" && "${have}" != "${SHORT}" ]]; then
+    die "${STATE_FILE} belongs to RELEASE_ID=${have}, not ${SHORT}. Remove it only if you are sure it is stale."
+  fi
+  have="$(state_get COMMIT)"
+  if [[ -z "$(state_get RELEASE_ID)" && -n "${have}" && "${have}" != "${SHORT}"* ]]; then
+    die "${STATE_FILE} belongs to COMMIT=${have}, not release ${SHORT}. Remove it only if you are sure it is stale."
+  fi
   if [[ ! -f "${STATE_FILE}" ]]; then
     state_set PROJECT_ID "${PROJECT_ID}"
     state_set REGION "${REGION}"
     state_set API_SERVICE "${API_SERVICE}"
     state_set WEB_SERVICE "${WEB_SERVICE}"
+    state_set RELEASE_ID "${SHORT}"
     state_set COMMIT "${COMMIT}"
     state_set CREATED_AT "$(date -u +%Y%m%dT%H%M%SZ)"
   fi
@@ -159,7 +169,9 @@ init_release() {
 
 check_checkout() {
   COMMIT="$(git rev-parse HEAD)"
-  SHORT="$(git rev-parse --short=12 HEAD)"
+  # The release id names the images and the state file. It is the short commit unless you keep going with an
+  # earlier release's images and records from a newer checkout that changed only these scripts (RELEASE_ID=<short>).
+  SHORT="${RELEASE_ID:-$(git rev-parse --short=12 HEAD)}"
   if [[ -n "${EXPECT_COMMIT:-}" && "${COMMIT}" != "${EXPECT_COMMIT}"* ]]; then
     die "This checkout is ${COMMIT} but EXPECT_COMMIT=${EXPECT_COMMIT}. Run: git fetch origin && git checkout ${EXPECT_COMMIT}"
   fi
@@ -189,8 +201,23 @@ revision_image() {
   gcloud run revisions describe "$1" --project="${PROJECT_ID}" --region="${REGION}" --format='value(spec.containers[0].image)'
 }
 
-# An image matches when it is exactly the expected tag, or that tag pinned to a digest.
-image_matches() { [[ "$1" == "$2" || "$1" == "$2"@* ]]; }
+image_digest() {
+  gcloud artifacts docker images describe "$1" --project="${PROJECT_ID}" --format='value(image_summary.digest)' 2>/dev/null
+}
+
+# Cloud Run records a revision's image as <repo>/<name>@sha256:<digest> and drops the tag. An image therefore matches
+# when it is exactly the expected tag, that tag pinned to a digest, or the same repository path at the digest the
+# expected tag points to in Artifact Registry.
+image_matches() {
+  local actual="$1" expected="$2" digest
+  [[ -n "${actual}" ]] || return 1
+  [[ "${actual}" == "${expected}" || "${actual}" == "${expected}"@* ]] && return 0
+  if [[ "${actual}" == *@sha256:* && "${actual%@*}" == "${expected%:*}" ]]; then
+    digest="$(image_digest "${expected}" || true)"
+    [[ -n "${digest}" && "${actual##*@}" == "${digest}" ]] && return 0
+  fi
+  return 1
+}
 
 tag_url() {
   json_field "$(service_json "${WEB_SERVICE}")" "[t[\"url\"] for t in d[\"status\"][\"traffic\"] if t.get(\"tag\") == \"${TAG_NAME}\"][0]"
@@ -210,6 +237,7 @@ cmd_plan() {
 Release plan (read-only)
   Project / region        ${PROJECT_ID} / ${REGION}
   Checkout                ${COMMIT}
+  Release id (images, records)  ${SHORT}
   State file              ${STATE_FILE}
   API                     ${API_SERVICE}  (serving ${API_REV_NOW})
   Web                     ${WEB_SERVICE}  (serving ${WEB_REV_NOW})
