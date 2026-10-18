@@ -22,6 +22,18 @@ The API is Firebase Auth + Firestore only. It does not need PostgreSQL, cookies,
 
 If Firebase/Firestore and Vertex AI live in different Google Cloud projects, grant the Cloud Run runtime service account access to both projects.
 
+## Releasing the new workbench to an existing deployment
+
+For the staged release of the new UI and the v2 run API onto the services that are already running
+(backup, indexes, build, no-traffic web revision, enabling v2, promote, UI switch, rollback) use
+`scripts/release-cloud-shell.sh` and follow `docs/refactor/cloud-shell-release.md`. It reads the existing
+service configuration instead of asking for it again.
+
+New settings introduced by that release: `Runs__Enabled` (API, default `false`), `Runs__MaxDurationSeconds`
+(API, derived from the smaller request timeout), `WEB_DEFAULT_UI` (web, `legacy` or `next`), and a 300 s web
+request timeout. `scripts/deploy-cloud-run.sh` and the GitHub workflow take them as `RUNS_ENABLED` and
+`WEB_DEFAULT_UI`.
+
 ## Scripted Deployment
 
 The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact

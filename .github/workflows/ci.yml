@@ -167,26 +167,55 @@ jobs:
           path: apps/web/client/test-results
           if-no-files-found: ignore
 
-  web-docker:
-    # The same Dockerfile the deployment builds. Builds only, never pushes or deploys.
+  deploy-scripts:
+    # Offline contract tests for the deployment scripts: they run against a fake gcloud and change nothing.
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Shell syntax
+        run: |
+          bash -n scripts/deploy-cloud-run.sh
+          bash -n scripts/release-cloud-shell.sh
+          bash -n scripts/container-smoke.sh
+
+      - name: Deploy script tests
+        run: python3 scripts/test-deploy-cloud-run.py
+
+      - name: Cloud Shell release script tests
+        run: python3 scripts/test-release-cloud-shell.py
+
+  containers:
+    # The same Dockerfiles the deployment builds, run for real behind a Firestore emulator. Builds only, never pushes or deploys.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java (Firestore emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build API image
+        run: docker build --tag vertex-ai-api:ci VertexAI
+
       - name: Build web image
         run: docker build --tag vertex-ai-web:ci apps/web
 
-      - name: Smoke test the image
-        run: |
-          docker run --detach --name web-smoke --publish 18080:8080 \
-            --env BACKEND_URL=http://127.0.0.1:9 --env DISABLE_SERVERLESS_AUTH=true vertex-ai-web:ci
-          for i in $(seq 1 20); do
-            curl --silent --fail http://127.0.0.1:18080/ >/dev/null && break
-            sleep 1
-          done
-          curl --silent --fail http://127.0.0.1:18080/ >/dev/null
-          curl --silent --fail http://127.0.0.1:18080/app/ | grep -q "球球布丁工作室"
-          docker logs web-smoke
-          docker rm --force web-smoke
+      - name: Smoke test both images
+        run: >
+          npx --yes firebase-tools@14 emulators:exec
+          --only firestore
+          --project demo-smoke
+          --config VertexAI.Tests/firebase.emulator.json
+          "scripts/container-smoke.sh vertex-ai-api:ci vertex-ai-web:ci"

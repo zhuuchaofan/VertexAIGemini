@@ -39,6 +39,9 @@ WEB_CONCURRENCY="${WEB_CONCURRENCY:-80}"
 WEB_TIMEOUT="${WEB_TIMEOUT:-300s}"
 WEB_MIN_INSTANCES="${WEB_MIN_INSTANCES:-0}"
 WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-5}"
+# The v2 run routes stay off and "/" keeps showing the old page until you choose otherwise.
+RUNS_ENABLED="${RUNS_ENABLED:-false}"
+WEB_DEFAULT_UI="${WEB_DEFAULT_UI:-legacy}"
 
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$PROJECT_ID}"
 FIRESTORE_PROJECT_ID="${FIRESTORE_PROJECT_ID:-$FIREBASE_PROJECT_ID}"
@@ -47,6 +50,15 @@ FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-$FIREBASE_PROJECT_ID.firebaseapp.c
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 DEFAULT_PROVIDER_ID="${DEFAULT_PROVIDER_ID:-gemini}"
 ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-attachments}"
+
+if [[ "$RUNS_ENABLED" != "true" && "$RUNS_ENABLED" != "false" ]]; then
+  echo "[ERROR] RUNS_ENABLED must be true or false." >&2
+  exit 1
+fi
+if [[ "$WEB_DEFAULT_UI" != "legacy" && "$WEB_DEFAULT_UI" != "next" ]]; then
+  echo "[ERROR] WEB_DEFAULT_UI must be legacy or next." >&2
+  exit 1
+fi
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "[ERROR] PROJECT_ID is required, for example PROJECT_ID=my-gcp-project"
@@ -173,7 +185,7 @@ gcloud run deploy "$API_SERVICE" \
   --timeout="$API_TIMEOUT" \
   --min-instances="$API_MIN_INSTANCES" \
   --max-instances="$API_MAX_INSTANCES" \
-  --update-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET},Runs__MaxDurationSeconds=${RUN_MAX_DURATION_SECONDS}"
+  --update-env-vars="PROJECT_ID=${PROJECT_ID},VertexAI__ProjectId=${PROJECT_ID},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIRESTORE_PROJECT_ID=${FIRESTORE_PROJECT_ID},Firebase__ProjectId=${FIREBASE_PROJECT_ID},Firebase__ApiKey=${FIREBASE_API_KEY},Firebase__AuthDomain=${FIREBASE_AUTH_DOMAIN},Firebase__AppId=${FIREBASE_APP_ID},Workspace__DefaultProviderId=${DEFAULT_PROVIDER_ID},ATTACHMENT_STORAGE_BUCKET=${ATTACHMENT_STORAGE_BUCKET},Persistence__AttachmentStorageBucket=${ATTACHMENT_STORAGE_BUCKET},Runs__MaxDurationSeconds=${RUN_MAX_DURATION_SECONDS},Runs__Enabled=${RUNS_ENABLED}"
 
 gcloud run services add-iam-policy-binding "$API_SERVICE" \
   --project="$PROJECT_ID" \
@@ -211,7 +223,7 @@ gcloud run deploy "$WEB_SERVICE" \
   --timeout="$WEB_TIMEOUT" \
   --min-instances="$WEB_MIN_INSTANCES" \
   --max-instances="$WEB_MAX_INSTANCES" \
-  --update-env-vars="BACKEND_URL=${API_URL}"
+  --update-env-vars="BACKEND_URL=${API_URL},WEB_DEFAULT_UI=${WEB_DEFAULT_UI}"
 
 WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
   --project="$PROJECT_ID" \

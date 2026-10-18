@@ -84,6 +84,25 @@ class DeployTests(unittest.TestCase):
         web = next(call for call in calls if call[1:3] == ["run", "deploy"] and "vertex-ai-web" in call)
         self.assertIn("--timeout=300s", web)
 
+    def test_v2_routes_and_default_ui_are_off_by_default_and_can_be_chosen(self):
+        initial = dict(SERVICE_ACCOUNT="api@example.test", FIREBASE_API_KEY="public-web-config", FIREBASE_APP_ID="web-app")
+        for extra, runs, ui in (({}, "false", "legacy"), ({"RUNS_ENABLED": "true", "WEB_DEFAULT_UI": "next"}, "true", "next")):
+            with self.subTest(extra=extra):
+                result, calls = self.run_script("", (), **initial, **extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                api = next(c for c in calls if c[1:3] == ["run", "deploy"] and "vertex-ai-api" in c)
+                web = next(c for c in calls if c[1:3] == ["run", "deploy"] and "vertex-ai-web" in c)
+                self.assertIn(f"Runs__Enabled={runs}", next(a for a in api if a.startswith("--update-env-vars=")))
+                self.assertIn(f"WEB_DEFAULT_UI={ui}", next(a for a in web if a.startswith("--update-env-vars=")))
+
+    def test_invalid_switches_are_rejected_before_any_mutation(self):
+        for bad in ({"RUNS_ENABLED": "yes"}, {"WEB_DEFAULT_UI": "fancy"}):
+            with self.subTest(bad=bad):
+                result, calls = self.run_script("", (), SERVICE_ACCOUNT="api@example.test",
+                                                FIREBASE_API_KEY="k", FIREBASE_APP_ID="a", **bad)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, [])
+
     def test_short_web_timeout_is_rejected_before_any_mutation(self):
         result, calls = self.run_script(
             "", (), SERVICE_ACCOUNT="api@example.test", WEB_TIMEOUT="60s",

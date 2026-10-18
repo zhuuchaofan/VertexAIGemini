@@ -741,9 +741,19 @@ src/
 | 请求超时是否计入流式持续时间 | 按文档应当包含，**未实测** | 无流量标签修订实测，需你授权 |
 | 可能零次调用（P1'）且配额已扣 | 设计取舍 | 只有 `started` 才不退还；`not_started` 确定没调用，退还 |
 | 取消后真实用量未知 | 无法在取消时得知 | 用量标记 `estimate`，不在检视器里冒充精确值；真实调用验证计划会测量取消后的实际计量 |
-| `docker build` 只做了逐步复现，未在真实 Docker 里执行 | 沙箱限制 | `web-docker` CI job；需要开 PR 才会运行 |
+| 容器 | **已在真实 Docker 里构建并冒烟**（API、Web 两个镜像；Production 镜像 + Firestore 模拟器，`scripts/container-smoke.sh`） | CI `containers` job；沙箱需要注入代理根证书才能构建，CI 与 Cloud Build 用仓库里的原始 Dockerfile。冒烟不含已登录请求（生产镜像按设计拒绝开发用伪用户），也不含真实 Firebase、Vertex、GCS |
 | 分支推送不触发 CI | 事实 | 开 PR 前所有验证都是本地做的，结果见批次 0 报告 |
 | 限流策略调整影响现有保护 | 低 | 只对读取与停止放宽，创建运行仍是每分钟 30 次 |
+
+### 8.3 完整交付状态（部署就绪）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 完整运行详情检视器 | 已完成 | 单元（11）、e2e（5，含 axe、手机底部弹层、刷新后、失败与重试链接）、截图 `docs/design/screenshots/impl/deliver/`；`RunSnapshot` 增加 `responseId` |
+| 新旧界面切换 | 已完成 | Web `WEB_DEFAULT_UI`（`legacy`/`next`）、`/legacy` 永远可用；代理测试 3 条；容器冒烟覆盖两种模式 |
+| 容器构建与冒烟 | 已完成 | `scripts/container-smoke.sh`；CI `containers` job |
+| 部署脚本 | 已完成 | `scripts/release-cloud-shell.sh`（计划、备份、索引、构建、无流量部署、启用 v2、验证、切流量、切界面、回滚、状态），15 条离线契约测试；`deploy-cloud-run.sh` 与工作流增加 `RUNS_ENABLED`、`WEB_DEFAULT_UI` |
+| 发布手册 | 已完成 | [`cloud-shell-release.md`](cloud-shell-release.md)：命令顺序、配置、备份回滚、界面切换、真实验证清单与未验证项 |
 
 ## 12. 下一步
 
