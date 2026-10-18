@@ -1,3 +1,4 @@
+using Grpc.Core;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -773,12 +774,27 @@ public sealed class RunService
         if (last != null && DateTime.UtcNow - last.Value <= TimeSpan.FromSeconds(_settings.LeaseSeconds)) return record;
 
         // Never calls the model: it only writes a terminal state, using the last checkpoint as the content.
-        var result = await _store.FinalizeAsync(
-            new FinalizeRequest(user, record.RunId, FinalizeOrigin.Reconciler, null,
-                RunStatus.Interrupted, RunReasons.ServerLost, null, null,
-                new RunError(RunReasons.ServerLost, "服务端在生成过程中中断，已保存最近一次检查点的内容。", false), 0),
-            cancellationToken);
-        return result.Record;
+        // Several pollers can reach this point together and Firestore aborts the transactions that lose the race.
+        // A lost race is not an error: whoever won wrote the terminal state, so read it back (a few times), and if
+        // it is still not terminal the next poll reconciles.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var result = await _store.FinalizeAsync(
+                    new FinalizeRequest(user, record.RunId, FinalizeOrigin.Reconciler, null,
+                        RunStatus.Interrupted, RunReasons.ServerLost, null, null,
+                        new RunError(RunReasons.ServerLost, "服务端在生成过程中中断，已保存最近一次检查点的内容。", false), 0),
+                    cancellationToken);
+                return result.Record;
+            }
+            catch (RpcException e) when (e.StatusCode == StatusCode.Aborted)
+            {
+                var current = await _store.GetAsync(user, record.RunId, cancellationToken) ?? record;
+                if (current.Status != RunStatus.Running || attempt >= 5) return current;
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------------ reads
