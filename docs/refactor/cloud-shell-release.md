@@ -3,7 +3,7 @@
 这份手册对应一个确定的提交。照着从上到下执行即可，不需要补代码、猜参数，也不需要重新输入已有的 Firebase 配置、模型密钥或 Secret 引用：脚本从线上的两个 Cloud Run 服务里读取现有配置，只新增必要的设置并替换镜像。
 
 - **分支**：`claude-ai-chat-redesign-f8o3rg`（PR #2，草稿；**不要合并到 `main`**，`main` 的推送会自动触发部署流水线）。
-- **提交**：以交付消息里给出的完整 SHA 为准；同一个提交也打了标签 `release/workbench-v2`（见 1.1）。
+- **提交**：以交付消息里给出的完整 SHA 为准（分支末端即该提交；下面的命令会核对 SHA，不一致就拒绝运行）。
 - 所有命令都可以失败后重跑；`DRY_RUN=1` 会只打印将要执行的变更命令。
 
 ## 0. 先看清楚会发生什么
@@ -35,9 +35,9 @@ git fetch origin claude-ai-chat-redesign-f8o3rg
 ### 1.1 取到确定的提交
 
 ```bash
-git checkout --detach release/workbench-v2 2>/dev/null || git checkout --detach origin/claude-ai-chat-redesign-f8o3rg
-git rev-parse HEAD                            # 必须与交付消息里的 SHA 完全一致
 export EXPECT_COMMIT=<交付消息里的完整 SHA>   # 之后每个命令都会据此拒绝错误的检出
+git checkout --detach "$EXPECT_COMMIT"
+git rev-parse HEAD                            # 必须与交付消息里的 SHA 完全一致
 ```
 
 如果名称不是 `asia-east1`，或者服务名不是 `vertex-ai-api` / `vertex-ai-web`，在这里 `export API_SERVICE=… WEB_SERVICE=…`。`plan` 找不到服务时会直接说明，不会创建新服务。
