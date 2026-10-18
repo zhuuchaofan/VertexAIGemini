@@ -23,6 +23,9 @@
 # Progress is recorded per release: one state file per project, region, services and commit, so a backup or
 # rollback point from another release, project or service is never reused.
 #
+# WEB_ONLY=1 (with build, deploy, verify) updates only the web service, for a front-end fix on top of a release that
+# is already live. Use a fresh checkout: the new release id records what is serving now as its rollback point.
+#
 # Settings (all optional; defaults are discovered):
 #   PROJECT_ID  (default: gcloud's current project)   REGION (default asia-east1)
 #   API_SERVICE (default vertex-ai-api)   WEB_SERVICE (default vertex-ai-web)
@@ -43,6 +46,7 @@ STATE_DIR="${RELEASE_STATE_DIR:-$HOME/vai-release}"
 BACKUP_MAX_AGE_HOURS="${BACKUP_MAX_AGE_HOURS:-72}"
 STATE_FILE=""
 DRY_RUN="${DRY_RUN:-0}"
+WEB_ONLY="${WEB_ONLY:-0}"
 TAG_NAME="next"
 
 info() { echo "[INFO] $*"; }
@@ -332,6 +336,7 @@ cmd_build() {
   init_release
   for target in api web; do
     local image context
+    [[ "${WEB_ONLY}" == "1" && "${target}" == api ]] && continue
     if [[ "${target}" == api ]]; then image="${API_IMAGE}"; context=VertexAI; else image="${WEB_IMAGE}"; context=apps/web; fi
     if image_exists "${image}"; then
       info "${image} already exists, skipping build."
@@ -347,7 +352,8 @@ cmd_deploy() {
   local run_max
   run_max="$(run_max_seconds)"
   if [[ "${DRY_RUN}" != "1" ]]; then
-    image_exists "${API_IMAGE}" && image_exists "${WEB_IMAGE}" || die "Images for ${SHORT} are missing. Run: bash scripts/release-cloud-shell.sh build"
+    image_exists "${WEB_IMAGE}" || die "Images for ${SHORT} are missing. Run: bash scripts/release-cloud-shell.sh build"
+    [[ "${WEB_ONLY}" == "1" ]] || image_exists "${API_IMAGE}" || die "Images for ${SHORT} are missing. Run: bash scripts/release-cloud-shell.sh build"
   fi
 
   # Remember what is serving now, once per release, so 'rollback' knows where to go. A re-run keeps the first record.
@@ -357,12 +363,16 @@ cmd_deploy() {
     state_set PREV_WEB_TIMEOUT "${WEB_TIMEOUT_NOW}"
   fi
 
-  warn "The API step below is NOT a no-traffic release: the new API revision takes production traffic as soon as it is ready."
-  warn "Old-UI users are served by the new API code from that moment. To undo: bash scripts/release-cloud-shell.sh rollback api"
-  info "API: new image, generation time limit ${run_max}s, v2 routes ${RUNS_ENABLED_NOW:-false}. Everything else is kept."
-  mutate gcloud run deploy "${API_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
-    --image="${API_IMAGE}" \
-    --update-env-vars="Runs__MaxDurationSeconds=${run_max},Runs__Enabled=${RUNS_ENABLED_NOW:-false}"
+  if [[ "${WEB_ONLY}" == "1" ]]; then
+    info "WEB_ONLY: the API is not touched (serving ${API_REV_NOW})."
+  else
+    warn "The API step below is NOT a no-traffic release: the new API revision takes production traffic as soon as it is ready."
+    warn "Old-UI users are served by the new API code from that moment. To undo: bash scripts/release-cloud-shell.sh rollback api"
+    info "API: new image, generation time limit ${run_max}s, v2 routes ${RUNS_ENABLED_NOW:-false}. Everything else is kept."
+    mutate gcloud run deploy "${API_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
+      --image="${API_IMAGE}" \
+      --update-env-vars="Runs__MaxDurationSeconds=${run_max},Runs__Enabled=${RUNS_ENABLED_NOW:-false}"
+  fi
 
   info "Web: new image as revision tagged '${TAG_NAME}' with no traffic; timeout ${WEB_TIMEOUT}. Visitors still get the current revision."
   mutate gcloud run deploy "${WEB_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
@@ -375,7 +385,9 @@ cmd_deploy() {
     api_candidate="$(json_field "$(service_json "${API_SERVICE}")" 'd["status"]["latestReadyRevisionName"]')"
     web_candidate="$(tag_revision || true)"
     [[ -n "${api_candidate}" && -n "${web_candidate}" ]] || die "Could not determine the candidate revisions after deploying."
-    image_matches "$(revision_image "${api_candidate}")" "${API_IMAGE}" || die "API revision ${api_candidate} does not run ${API_IMAGE}."
+    if [[ "${WEB_ONLY}" != "1" ]]; then
+      image_matches "$(revision_image "${api_candidate}")" "${API_IMAGE}" || die "API revision ${api_candidate} does not run ${API_IMAGE}."
+    fi
     image_matches "$(revision_image "${web_candidate}")" "${WEB_IMAGE}" || die "Web revision ${web_candidate} does not run ${WEB_IMAGE}."
     state_set CANDIDATE_API_REVISION "${api_candidate}"
     state_set CANDIDATE_WEB_REVISION "${web_candidate}"
@@ -487,7 +499,8 @@ cmd_verify() {
   local api_image web_image
   api_image="$(revision_image "${api_candidate}" || true)"
   web_image="$(revision_image "${web_candidate}" || true)"
-  if image_matches "${api_image}" "${API_IMAGE}"; then echo "  ok    API candidate runs ${API_IMAGE}"; else verify_fail "API candidate ${api_candidate} runs '${api_image}', expected ${API_IMAGE}"; fi
+  if [[ "${WEB_ONLY}" == "1" ]]; then echo "  --    API not part of this release (WEB_ONLY): serving ${API_REV_NOW}"
+  elif image_matches "${api_image}" "${API_IMAGE}"; then echo "  ok    API candidate runs ${API_IMAGE}"; else verify_fail "API candidate ${api_candidate} runs '${api_image}', expected ${API_IMAGE}"; fi
   if image_matches "${web_image}" "${WEB_IMAGE}"; then echo "  ok    web candidate runs ${WEB_IMAGE}"; else verify_fail "web candidate ${web_candidate} runs '${web_image}', expected ${WEB_IMAGE}"; fi
   if [[ "${API_REV_NOW}" == "${api_candidate}" ]]; then echo "  ok    the API candidate is the revision serving production traffic"; else verify_fail "API serving ${API_REV_NOW}, not the candidate ${api_candidate}"; fi
 

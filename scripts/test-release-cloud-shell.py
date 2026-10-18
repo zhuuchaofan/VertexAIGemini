@@ -458,6 +458,35 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("CANDIDATE_API_REVISION=svc-00008", saved)
 
+    # ---- WEB_ONLY: a front-end fix on top of a live release
+
+    def test_web_only_builds_and_deploys_just_the_web_service(self):
+        _, calls, _ = self.go("build", WEB_ONLY="1", IMAGES="0")
+        self.assertEqual([c[2] for c in calls if c[:2] == ["builds", "submit"]], ["apps/web"])
+        result, calls, saved = self.go("deploy", WEB_ONLY="1", SERVING="svc-00006", LATEST="svc-00006", TAGGED="web-00007",
+                                       REV_IMAGES=json.dumps({"web-00007": WEB_IMAGE}))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        deploys = [c for c in calls if c[:2] == ["run", "deploy"]]
+        self.assertEqual([c[2] for c in deploys], ["vertex-ai-web"])
+        self.assertIn("--no-traffic", deploys[0])
+        self.assertNotIn("NOT a no-traffic release", result.stderr)
+        self.assertIn("PREV_API_REVISION=svc-00006", saved)  # the rollback point is what serves right now
+        self.assertIn("CANDIDATE_WEB_REVISION=web-00007", saved)
+
+    def test_web_only_deploy_only_needs_the_web_image(self):
+        result, calls, _ = self.go("deploy", WEB_ONLY="1", IMAGES="0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.mutating(calls), [])
+
+    def test_web_only_verify_does_not_demand_the_api_image_of_this_release(self):
+        env = dict(SERVING="api-live", LATEST="api-live", TAGGED="web-cand", WEB_TIMEOUT_NOW="300", CURL_CODES=self.GOOD_CURL,
+                   REV_IMAGES=json.dumps({"api-live": "x/vertex-ai-api:older", "web-cand": WEB_IMAGE}))
+        state = header() + "CANDIDATE_API_REVISION=api-live\nCANDIDATE_WEB_REVISION=web-cand\n"
+        result, _, _ = self.go("verify", state=state, WEB_ONLY="1", **env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result, _, _ = self.go("verify", state=state, **env)
+        self.assertNotEqual(result.returncode, 0)
+
     # ---- promote / ui / rollback
 
     def test_promote_needs_this_releases_candidate_to_be_tagged_and_latest(self):

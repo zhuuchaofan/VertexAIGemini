@@ -33,6 +33,23 @@
 - 候选修订的镜像按**摘要**核对：Cloud Run 把修订的镜像记成 `<仓库>/<名称>@sha256:…`（不带标签），脚本取本次镜像标签在 Artifact Registry 里的摘要来比对，仓库路径或摘要不同都算不匹配。
 - **继续同一次发布、但换了更新的检出时**（比如只修了脚本）：`export RELEASE_ID=<原发布的 12 位短 SHA>`。镜像标签和发布记录都按 `RELEASE_ID` 算，所以已构建的镜像、已有的备份和回滚点都沿用，不会重新构建，也不会把回滚点改成已经是新版的修订。
 
+### 0.2 上线后只修前端：`WEB_ONLY=1`
+
+线上已经是新版、只有网页前端需要小修（API 不变）时，用一个更新的检出和 `WEB_ONLY=1`，只构建、只更新 Web，API 不动：
+
+```bash
+export EXPECT_COMMIT=<新提交的完整 SHA>
+git fetch origin claude-ai-chat-redesign-f8o3rg && git checkout --detach "$EXPECT_COMMIT"
+unset RELEASE_ID                      # 用新提交作为这次的发布编号
+export WEB_ONLY=1
+S="bash scripts/release-cloud-shell.sh"
+$S build && $S deploy && $S verify    # Web 先作为无流量候选，verify 只校验 Web 候选
+# 在测试地址上看过之后：
+$S promote
+```
+
+这次发布的回滚点就是“修复之前正在服务的修订”（`rollback web` 回到那里）。
+
 ## 1. 准备（每次新开 Cloud Shell 都做一遍）
 
 ```bash
