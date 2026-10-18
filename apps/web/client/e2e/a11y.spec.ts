@@ -33,7 +33,7 @@ for (const scheme of ["light", "dark"] as const) {
     await scan(page, "conversation with markdown, table and code");
 
     await page.getByRole("button", { name: "对话设置" }).click();
-    await page.getByRole("complementary", { name: "对话设置" }).getByText("高级").click();
+    await page.getByRole("complementary", { name: "检视器" }).getByText("高级").click();
     await scan(page, "settings inspector");
     await page.getByRole("radio", { name: "我的默认" }).click();
     await scan(page, "settings inspector, defaults tab");

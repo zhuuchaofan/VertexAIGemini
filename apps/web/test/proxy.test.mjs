@@ -170,12 +170,12 @@ test("a client abort does not crash the proxy", async () => {
 
 // ---- /app/ static routing for the Vite client ----
 
-async function startProxyWithClient(clientDir) {
+async function startProxyWithClient(clientDir, extraEnv = {}) {
   const upstream = await startUpstream((req, res) => res.end("{}"));
   const port = await freePort();
   const child = spawn(process.execPath, [serverPath], {
     env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", BACKEND_URL: `http://127.0.0.1:${upstream.port}`,
-      DISABLE_SERVERLESS_AUTH: "true", CLIENT_DIST_DIR: clientDir },
+      DISABLE_SERVERLESS_AUTH: "true", CLIENT_DIST_DIR: clientDir, ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"]
   });
   let output = "";
@@ -233,4 +233,46 @@ test("/app/ returns 404 when the client has not been built", async () => {
     proxy.stop();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("WEB_DEFAULT_UI=next sends / to the new UI and keeps the old page at /legacy", async () => {
+  const dir = await mkdtemp(joinPath(tmpdir(), "client-ui-"));
+  await writeFile(joinPath(dir, "index.html"), "<!doctype html><title>new ui</title>");
+  const proxy = await startProxyWithClient(dir, { WEB_DEFAULT_UI: "next" });
+  try {
+    const base = `http://127.0.0.1:${proxy.port}`;
+    const root = await fetch(`${base}/`, { redirect: "manual" });
+    assert.equal(root.status, 302);
+    assert.equal(root.headers.get("location"), "/app/");
+    assert.equal(root.headers.get("cache-control"), "no-store");
+    const legacy = await fetch(`${base}/legacy`);
+    assert.equal(legacy.status, 200);
+    assert.doesNotMatch(await legacy.text(), /new ui/);
+    assert.equal((await fetch(`${base}/styles.css`)).status, 200);
+  } finally {
+    proxy.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("WEB_DEFAULT_UI=legacy keeps / on the old page and /legacy works too", async () => {
+  const dir = await mkdtemp(joinPath(tmpdir(), "client-ui-"));
+  const proxy = await startProxyWithClient(dir, { WEB_DEFAULT_UI: "legacy" });
+  try {
+    const base = `http://127.0.0.1:${proxy.port}`;
+    assert.equal((await fetch(`${base}/`, { redirect: "manual" })).status, 200);
+    assert.equal((await fetch(`${base}/legacy/`)).status, 200);
+  } finally {
+    proxy.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an invalid WEB_DEFAULT_UI stops the server at startup", async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    env: { ...process.env, PORT: "0", BACKEND_URL: "http://127.0.0.1:1", WEB_DEFAULT_UI: "fancy" },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const [code] = await once(child, "exit");
+  assert.notEqual(code, 0);
 });

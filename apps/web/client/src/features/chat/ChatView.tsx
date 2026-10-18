@@ -11,6 +11,10 @@ import { clearDraft, loadDraft, saveDraft } from "../drafts/drafts";
 import { Composer } from "../composer/Composer";
 import { ModelPicker } from "../composer/ModelPicker";
 import { findModel, fromStored, toRunOptions, toStored, withModel, type ChatSettings } from "../settings/chatSettings";
+import { RunInspector } from "../inspector/RunInspector";
+import type { Observed } from "../inspector/runDetails";
+import { useObserved } from "../inspector/useObserved";
+import { Segmented } from "../composer/Segmented";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
@@ -162,6 +166,10 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
 
   const controller = useRunController({ api, conversationId, pending });
   const { state, reset } = controller;
+  const observed = useObserved(state);
+  const [inspectorTab, setInspectorTab] = useState<"settings" | "run">("settings");
+  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
+  const [inspectedObserved, setInspectedObserved] = useState<Observed | undefined>(undefined);
 
   // When a run ends, the stored conversation holds the reply: load it, then let the live view step aside.
   const endedRun = state.phase === "finished" ? (state.terminal ?? null) : null;
@@ -244,7 +252,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   const labelFor = (providerId: string, modelName: string) => findModel(workspace, providerId, modelName)?.name ?? modelName;
   const replyLabel = detail ? labelFor(detail.providerId, detail.modelName) : labelFor(settings.providerId, settings.modelName);
   // Each reply names the model that really wrote it, which can differ from the conversation's current model.
-  const replyLabelFor = (run: { requested?: { providerId?: string; modelName?: string } | null; effective?: Record<string, unknown> | null } | undefined) => {
+  const replyLabelFor = (run: { requested?: { providerId?: string; modelName?: string } | null; effective?: { modelName?: string; providerId?: string } | null } | undefined) => {
     const modelName = (run?.effective?.modelName as string | undefined) ?? run?.requested?.modelName;
     const providerId = (run?.effective?.providerId as string | undefined) ?? run?.requested?.providerId;
     return modelName ? labelFor(providerId ?? settings.providerId, modelName) : replyLabel;
@@ -337,6 +345,17 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
     pendingSave.current = { timer: setTimeout(flushSave, 500), send };
   };
 
+  const openRun = (runId: string) => {
+    setInspectedRunId(runId);
+    setInspectedObserved({ ...observed.current[runId] } as Observed | undefined);
+  };
+
+  const inspectRun = (runId: string) => {
+    openRun(runId);
+    setInspectorTab("run");
+    setSettingsOpen(true);
+  };
+
   const toggleSettings = () => {
     setSettingsOpen(open => {
       writeInspectorOpen(!open);
@@ -363,7 +382,33 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   const title = detail?.title || (state.message ? state.message.slice(0, 40) : "新对话");
   const saved = detail !== null && !isActive(state);
 
+  const inspectedRun = detail?.runs.find(run => run.runId === inspectedRunId) ?? null;
+  const tabs = (
+    <div className="inspector-tabs">
+      <Segmented
+        label="检视器"
+        value={inspectorTab}
+        options={[
+          { value: "settings" as const, label: "设置" },
+          { value: "run" as const, label: "运行详情" }
+        ]}
+        onChange={setInspectorTab}
+      />
+    </div>
+  );
+
   const panel = (onClose?: () => void) => (
+    <>
+      {tabs}
+      {inspectorTab === "run" ? (
+        <RunInspector run={inspectedRun} observed={inspectedObserved?.sentAt ? inspectedObserved : undefined} onOpenRun={openRun} />
+      ) : (
+        settingsPanel(onClose)
+      )}
+    </>
+  );
+
+  const settingsPanel = (onClose?: () => void) => (
     <SettingsPanel
       workspace={workspace}
       safetyThresholds={safetyThresholds}
@@ -454,7 +499,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
           />
         )}
         {mobile ? (
-          <Overlay open={settingsOpen} onClose={() => setSettingsOpen(false)} title="对话设置" trigger={settingsButton} className="settings-sheet">
+          <Overlay open={settingsOpen} onClose={() => setSettingsOpen(false)} title={inspectorTab === "run" ? "运行详情" : "对话设置"} trigger={settingsButton} className="settings-sheet">
             {panel(() => setSettingsOpen(false))}
           </Overlay>
         ) : (
@@ -502,6 +547,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
                   status={item.reply?.status}
                   run={item.finalRun}
                   onSync={() => setReloadKey(key => key + 1)}
+                  onInspect={item.finalRun ? () => inspectRun(item.finalRun!.runId) : undefined}
                   onRetry={
                     item.finalRun && canRetry(item, position === thread.length - 1, isActive(state) || followId !== null)
                       ? () => void controller.retry(item.finalRun!.runId, toRunOptions(workspace, settings))
@@ -569,9 +615,9 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
       />
     </section>
     {!mobile && settingsOpen && (
-      <aside className="inspector" aria-label="对话设置">
+      <aside className="inspector" aria-label="检视器">
         <header className="inspector-head">
-          <h2>设置</h2>
+          <h2>{inspectorTab === "run" ? "运行详情" : "设置"}</h2>
           <button type="button" className="icon-btn" aria-label="关闭设置" onClick={toggleSettings}>×</button>
         </header>
         {panel()}

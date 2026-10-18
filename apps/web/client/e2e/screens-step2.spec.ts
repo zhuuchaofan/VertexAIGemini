@@ -34,7 +34,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.locator(".bubble.model")).toContainText("received", { timeout: 15_000 });
 
     await page.getByRole("button", { name: "对话设置" }).click();
-    const panel = page.getByRole("complementary", { name: "对话设置" });
+    const panel = page.getByRole("complementary", { name: "检视器" });
     await panel.getByRole("radio", { name: "高" }).click();
     await shot(page, `desktop-${scheme}-1-settings-session`);
 

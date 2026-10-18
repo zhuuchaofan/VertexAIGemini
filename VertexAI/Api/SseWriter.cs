@@ -94,7 +94,8 @@ public sealed record RunSnapshot(
     RunTiming? Timing = null,
     RunOutput? Output = null,
     string? RetryOfRunId = null,
-    string? RetriedByRunId = null)
+    string? RetriedByRunId = null,
+    string? ResponseId = null)
 {
     public static RunSnapshot From(RunRecord run, bool? replayed = null) => new(
         run.RunId, run.ConversationId, run.UserMessageId, run.AssistantMessageId,
@@ -103,7 +104,7 @@ public sealed record RunSnapshot(
         run.Requested, run.Effective, run.Usage, run.FinishReason, run.ModelVersion, run.ProviderCalls,
         new RunTiming(run.CreatedAt, run.ProviderCallStartedAt, run.FirstOutputAt, run.EndedAt),
         run.Status.IsTerminal() ? new RunOutput(run.OutputChars, run.ThinkingChars, run.CitationCount) : null,
-        run.RetryOfRunId, run.RetriedByRunId);
+        run.RetryOfRunId, run.RetriedByRunId, run.ResponseId);
 }
 
 /// <summary>Server-side times. Browser-side durations are measured in the browser and never stored here.</summary>

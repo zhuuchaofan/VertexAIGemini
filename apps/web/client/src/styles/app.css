@@ -289,3 +289,23 @@ button.att-thumb { cursor: zoom-in; }
 @media (max-width: 760px) { .composer-foot { display: flex; } .composer-foot span:first-child { display: none; } .conv-actions .overlay-panel { width: auto; } }
 .login-tabs { width: min(320px, 100%); margin-bottom: 4px; }
 .login .ghost { width: 100%; }
+
+/* ---- run inspector ---- */
+.inspector-tabs { padding: 10px 16px 0; }
+.run-inspector { padding: 4px 16px 20px; overflow-y: auto; min-height: 0; flex: 1; }
+.run-inspector section { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.run-inspector section:last-child { border-bottom: 0; }
+.run-inspector h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.run-inspector .empty-run { color: var(--ink-3); font-size: 13px; padding-top: 16px; }
+.kv { margin: 0; display: grid; gap: 6px; }
+.kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.kv-row dt { color: var(--ink-3); flex: none; }
+.kv-row dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cmp th, .cmp td { padding: 5px 6px 5px 0; text-align: left; vertical-align: top; font-weight: 400; overflow-wrap: anywhere; }
+.cmp thead th { color: var(--ink-3); font-size: 12px; }
+.cmp tbody th { color: var(--ink-3); white-space: nowrap; }
+.cmp tr[data-differs] td:last-child { font-weight: 600; }
+.run-links { display: flex; gap: 12px; margin: 8px 0 0; }
+.msg-actions .inspect { margin-left: 8px; }

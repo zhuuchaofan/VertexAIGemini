@@ -37,6 +37,8 @@ interface ModelProps {
   onSync?: () => void;
   /** Offered on a failed turn that may be tried again. */
   onRetry?: () => void;
+  /** Opens this reply's run in the inspector. */
+  onInspect?: () => void;
 }
 
 const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
@@ -45,7 +47,7 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry }: ModelProps) {
+export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
   const note = runNote(run);
   const tag = run ? badge[run.status] : undefined;
 
@@ -80,9 +82,14 @@ export function ModelMessage({ modelLabel, content, thinking, citations, created
             )}
           </div>
         )}
-        {!live && content && (
+        {!live && (content || (run && onInspect)) && (
           <div className="msg-actions">
-            <CopyButton text={content} />
+            {content && <CopyButton text={content} />}
+            {run && onInspect && (
+              <button type="button" className="link inspect" onClick={onInspect}>
+                运行详情
+              </button>
+            )}
           </div>
         )}
       </div>

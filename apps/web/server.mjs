@@ -13,6 +13,9 @@ const publicDir = new URL("./public/", import.meta.url);
 const clientDir = process.env.CLIENT_DIST_DIR
   ? pathToFileURL(`${resolve(process.env.CLIENT_DIST_DIR)}/`)
   : new URL("./client/dist/", import.meta.url);
+// WEB_DEFAULT_UI picks what "/" shows: "legacy" (default, the old page) or "next" (redirect to /app/).
+// The old page stays reachable at /legacy in both modes, so switching back never needs a redeploy.
+const defaultUi = resolveDefaultUi(process.env.WEB_DEFAULT_UI);
 let serverlessTokenCache = null;
 
 const contentTypes = {
@@ -41,6 +44,17 @@ createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/legacy" || pathname === "/legacy/") {
+      await serveStatic(req, res, publicDir, "/legacy");
+      return;
+    }
+
+    if (pathname === "/" && defaultUi === "next") {
+      res.writeHead(302, { location: "/app/", "cache-control": "no-store" });
+      res.end();
+      return;
+    }
+
     if (pathname.startsWith("/app/")) {
       await serveStatic(req, res, clientDir, "/app");
       return;
@@ -58,6 +72,14 @@ createServer(async (req, res) => {
   console.log(`Web workspace listening on http://${host}:${port}`);
   console.log(`Proxying /api requests to ${backendUrl.origin}`);
 });
+
+function resolveDefaultUi(value) {
+  const ui = (value ?? "legacy").trim().toLowerCase() || "legacy";
+  if (ui !== "legacy" && ui !== "next") {
+    throw new Error(`WEB_DEFAULT_UI must be "legacy" or "next" (got "${value}").`);
+  }
+  return ui;
+}
 
 function resolveBackendUrl() {
   if (process.env.BACKEND_URL) {

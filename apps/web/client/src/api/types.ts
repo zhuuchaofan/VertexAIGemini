@@ -26,9 +26,39 @@ export interface RunSnapshot {
   retryOfRunId?: string | null;
   retriedByRunId?: string | null;
   requested?: RunOptions | null;
-  effective?: Record<string, unknown> | null;
-  usage?: { inputTokens?: number; outputTokens?: number; thoughtsTokens?: number; totalTokens?: number; source: string } | null;
+  effective?: RunEffective | null;
+  usage?: RunUsage | null;
   finishReason?: string | null;
+  modelVersion?: string | null;
+  responseId?: string | null;
+  providerCalls?: { generate: number; summarize: number; countTokens: number } | null;
+  /** Server-side times. Null where the run never got that far. */
+  timing?: { createdAt?: string | null; startedAt?: string | null; firstOutputAt?: string | null; endedAt?: string | null } | null;
+  output?: { chars: number; thinkingChars: number; citations: number } | null;
+}
+
+/** What the server applied to the request. A field the model does not take is null. */
+export interface RunEffective {
+  providerId: string;
+  modelName: string;
+  presetId: string;
+  searchMode: string;
+  thinkingEnabled?: boolean | null;
+  thinkingLevel?: string | null;
+  thinkingBudget?: number | null;
+  temperature?: number | null;
+  topP?: number | null;
+  maxOutputTokens?: number | null;
+  safetyThreshold?: string | null;
+}
+
+/** Tokens as far as known; a missing figure is unknown. `source` is "provider" or "estimate". */
+export interface RunUsage {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  thoughtsTokens?: number | null;
+  totalTokens?: number | null;
+  source: string;
 }
 
 export interface DeltaEvent {

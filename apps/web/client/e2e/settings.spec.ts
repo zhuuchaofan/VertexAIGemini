@@ -11,8 +11,8 @@ const ask = async (p: Page, text: string) => {
 };
 const openSettings = async (p: Page) => {
   await expect(composer(p)).toBeVisible(); // the page must be up before asking whether the panel is already open
-  if ((await p.getByRole("complementary", { name: "对话设置" }).count()) === 0) await p.getByRole("button", { name: "对话设置" }).click();
-  return p.getByRole("complementary", { name: "对话设置" });
+  if ((await p.getByRole("complementary", { name: "检视器" }).count()) === 0) await p.getByRole("button", { name: "对话设置" }).click();
+  return p.getByRole("complementary", { name: "检视器" });
 };
 
 test.beforeEach(async ({ page }) => {
