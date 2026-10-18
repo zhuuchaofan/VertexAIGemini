@@ -41,17 +41,19 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 gcloud storage buckets create "gs://$BACKUP_BUCKET" \
   --project="$FIRESTORE_PROJECT_ID" --location=<与数据库相同的位置> --uniform-bucket-level-access
 
-# 4.2 Firestore 托管导出。异步执行，记下返回的 operation 名称。
-gcloud firestore export "gs://$BACKUP_BUCKET/pre-v2-$STAMP" \
-  --project="$FIRESTORE_PROJECT_ID" --database='(default)' \
-  --collection-ids=conversations,messages,usageQuotas --async
+# 一次备份只有一个根：$ROOT/firestore 是 Firestore 导出，$ROOT/attachments 是附件副本。
+# scripts/release-cloud-shell.sh backup 使用同样的布局并把 $ROOT 记在本次发布的状态文件里。
+ROOT="gs://$BACKUP_BUCKET/pre-v2-$STAMP"
 
-gcloud firestore operations list --project="$FIRESTORE_PROJECT_ID"      # 等 done: true
-gcloud storage ls -r "gs://$BACKUP_BUCKET/pre-v2-$STAMP"                 # 必须看到 *.overall_export_metadata
+# 4.2 Firestore 托管导出（整库，包含所有集合）。命令会等到完成。
+gcloud firestore export "$ROOT/firestore" \
+  --project="$FIRESTORE_PROJECT_ID" --database='(default)'
+
+gcloud storage ls -r "$ROOT/firestore"                                   # 必须看到 *.overall_export_metadata
 
 # 4.3 附件：只复制，不删除目标端任何对象。先 --dry-run 看清楚再执行。
-gcloud storage rsync --recursive --dry-run "gs://$ATTACHMENT_BUCKET" "gs://$BACKUP_BUCKET/attachments-pre-v2-$STAMP"
-gcloud storage rsync --recursive          "gs://$ATTACHMENT_BUCKET" "gs://$BACKUP_BUCKET/attachments-pre-v2-$STAMP"
+gcloud storage rsync --recursive --dry-run "gs://$ATTACHMENT_BUCKET" "$ROOT/attachments"
+gcloud storage rsync --recursive          "gs://$ATTACHMENT_BUCKET" "$ROOT/attachments"
 ```
 
 可选，作为第二层保护：开启 Firestore 时间点恢复（保留 7 天，会产生额外存储费用）。
@@ -60,11 +62,13 @@ gcloud storage rsync --recursive          "gs://$ATTACHMENT_BUCKET" "gs://$BACKU
 gcloud firestore databases update --project="$FIRESTORE_PROJECT_ID" --database='(default)' --enable-pitr
 ```
 
-记录下来备查：导出前缀（`pre-v2-$STAMP`）、operation 名称、完成时间、附件备份前缀。
+记录下来备查：备份根 `$ROOT`（Firestore 导出在 `$ROOT/firestore`，附件在 `$ROOT/attachments`）和完成时间。用脚本备份时它们已记录在状态文件里。
 
 ## 5. 恢复演练（启用前必须通过）
 
 目标：证明备份能还原，并且不影响生产。
+
+`$ROOT` 是备份时记录的根（脚本备份：本次发布状态文件 `~/vai-release/release-*.env` 里的 `BACKUP_ROOT=`；手动备份：第 4 节的 `$ROOT`；忘了时 `gcloud storage ls "gs://$BACKUP_BUCKET/"` 找 `pre-v2-<时间戳>/`），后面所有恢复命令都用它：Firestore 在 `$ROOT/firestore`，附件在 `$ROOT/attachments`。
 
 ```bash
 # 5.1 建一个临时数据库（费用很低，演练后删除）。
@@ -72,7 +76,7 @@ gcloud firestore databases create --project="$FIRESTORE_PROJECT_ID" \
   --database=restore-check --location=<与数据库相同的位置> --type=firestore-native
 
 # 5.2 把备份导入临时数据库，而不是生产库。
-gcloud firestore import "gs://$BACKUP_BUCKET/pre-v2-$STAMP" \
+gcloud firestore import "$ROOT/firestore" \
   --project="$FIRESTORE_PROJECT_ID" --database=restore-check --async
 gcloud firestore operations list --project="$FIRESTORE_PROJECT_ID"      # 等 done: true
 ```
@@ -97,7 +101,7 @@ gcloud firestore databases delete --project="$FIRESTORE_PROJECT_ID" --database=r
 |---|---|
 | v2 行为有问题，但数据没坏 | 关闭 `Runs__Enabled`，或把 Cloud Run 流量切回上一个修订。**不恢复数据**。叠加字段和 `runs` 集合保留，对旧代码无害 |
 | 少数文档被误删或误改 | 按 5.1、5.2 恢复到临时数据库，再**只把受影响的文档**复制回生产（针对性脚本，需要时再写并先在临时库上试） |
-| 附件对象被误删 | 从 `attachments-pre-v2-<STAMP>` 复制缺失的对象回附件桶：`gcloud storage rsync --recursive "gs://$BACKUP_BUCKET/attachments-pre-v2-$STAMP" "gs://$ATTACHMENT_BUCKET"`，先加 `--dry-run`，**不要带 `--delete-unmatched-destination-objects`** |
+| 附件对象被误删 | 从 `$ROOT/attachments` 复制缺失的对象回附件桶：`gcloud storage rsync --recursive "$ROOT/attachments" "gs://$ATTACHMENT_BUCKET"`，先加 `--dry-run`，**不要带 `--delete-unmatched-destination-objects`** |
 | 大面积损坏（最后手段） | 先停止写入（关闭 `Runs__Enabled` 并暂停入口），**先对当前状态再做一次导出**，再对生产库导入备份 |
 
 对生产库直接导入要特别注意：
@@ -111,7 +115,7 @@ gcloud firestore databases delete --project="$FIRESTORE_PROJECT_ID" --database=r
 - [ ] 第 4 节的 Firestore 导出已完成，`overall_export_metadata` 存在，已记录前缀与 operation。
 - [ ] 附件已复制到备份桶，抽样核对过对象数和大小。
 - [ ] 第 5 节恢复演练通过，验证清单全部勾选，临时数据库已删除。
-- [ ] 在无流量标签修订上演练过一次「关闭 `Runs__Enabled` / 切回上一个修订」，确认旧界面立即可用。
+- [ ] 演练过一次「关闭 `Runs__Enabled`」，并核对过 `rollback` 命令要回到的旧修订名（API 新修订部署后立即承接生产流量，所以 API 的回滚路径必须事先演练过），确认旧界面立即可用。
 - [ ] 你已经明确确认可以启用。
 
 ## 8. 费用与清理

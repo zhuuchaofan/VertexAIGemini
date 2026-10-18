@@ -713,7 +713,7 @@ src/
 | v2 接口 | `Runs__Enabled`（默认 false） | 关闭即 404，旧界面不受影响 |
 | 旧接口走运行服务 | `Runs__LegacyAdapter`（默认 false，第三批才可打开） | 关闭即恢复使用 `ChatOrchestrator` |
 | 默认界面 | `WEB_DEFAULT_UI`（`legacy` 或 `next`） | 改回 `legacy`，不需要重新构建 |
-| 整体 | Cloud Run 修订流量 | 把流量切回上一个修订；发布一律先 `--no-traffic --tag next` 验证 |
+| 整体 | Cloud Run 修订流量 | 把流量切回上一个修订；Web 先作为 `--no-traffic --tag next` 候选验证，**API 新修订部署时立即承接生产流量**（回滚：`rollback api`，见发布手册 5.2） |
 | 数据 | 无需回滚 | 全部为可选字段或新集合；旧代码忽略它们。`status=partial` 的助手消息在旧界面里表现为普通消息，没有内容的失败运行在旧界面里不可见，两者都无害 |
 
 约束：
@@ -752,7 +752,7 @@ src/
 | 完整运行详情检视器 | 已完成 | 单元（11）、e2e（5，含 axe、手机底部弹层、刷新后、失败与重试链接）、截图 `docs/design/screenshots/impl/deliver/`；`RunSnapshot` 增加 `responseId` |
 | 新旧界面切换 | 已完成 | Web `WEB_DEFAULT_UI`（`legacy`/`next`）、`/legacy` 永远可用；代理测试 3 条；容器冒烟覆盖两种模式 |
 | 容器构建与冒烟 | 已完成 | `scripts/container-smoke.sh`；CI `containers` job |
-| 部署脚本 | 已完成 | `scripts/release-cloud-shell.sh`（计划、备份、索引、构建、无流量部署、启用 v2、验证、切流量、切界面、回滚、状态），15 条离线契约测试；`deploy-cloud-run.sh` 与工作流增加 `RUNS_ENABLED`、`WEB_DEFAULT_UI` |
+| 部署脚本 | 已完成 | `scripts/release-cloud-shell.sh`（计划、备份、索引、构建、部署（API 立即承接生产流量，Web 为无流量候选）、授权域名、启用 v2、验证候选修订、切流量、切界面、回滚、状态；发布记录按项目+区域+服务+提交隔离；索引按完整定义逐项核验并在启用前重查），15 条离线契约测试；`deploy-cloud-run.sh` 与工作流增加 `RUNS_ENABLED`、`WEB_DEFAULT_UI` |
 | 发布手册 | 已完成 | [`cloud-shell-release.md`](cloud-shell-release.md)：命令顺序、配置、备份回滚、界面切换、真实验证清单与未验证项 |
 
 ## 12. 下一步
