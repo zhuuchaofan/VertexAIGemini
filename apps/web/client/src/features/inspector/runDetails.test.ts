@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunSnapshot } from "../../api/types";
-import { UNKNOWN, browserTimingRows, formatDuration, overviewRows, outputRows, serverTimingRows, settingRows, usageRows } from "./runDetails";
+import { UNKNOWN, browserTimingRows, formatDuration, overviewRows, outputRows, searchRows, serverTimingRows, settingRows, usageRows } from "./runDetails";
 
 const base: RunSnapshot = {
   runId: "r1", conversationId: "c", userMessageId: "u", assistantMessageId: "a", status: "completed", statusReason: null,
@@ -69,5 +69,30 @@ describe("overview", () => {
     const run = { ...base, statusReason: "completed" } as RunSnapshot;
     expect(overviewRows(run).some(r => r.label === "原因")).toBe(false);
     expect(overviewRows({ ...run, status: "stopped", statusReason: "user_stop" }).find(r => r.label === "原因")!.value).toBe("你停止了生成");
+  });
+});
+
+describe("web search", () => {
+  const withSearch = (search: RunSnapshot["search"], calls?: RunSnapshot["providerCalls"]) => ({ ...base, search, providerCalls: calls }) as RunSnapshot;
+
+  it("has no search section when none applies", () => {
+    expect(searchRows(base)).toBeNull();
+  });
+
+  it("describes a search that was used, skipped, failed or unavailable", () => {
+    const used = searchRows(withSearch({ status: "used", query: "西安 天气", sources: 3 }))!;
+    expect(used).toEqual([
+      { label: "状态", value: "已联网检索" },
+      { label: "搜索词", value: "西安 天气" },
+      { label: "来源", value: "3 条" }
+    ]);
+    expect(searchRows(withSearch({ status: "skipped", sources: 0, reason: "判断无需联网" }))!.map(r => r.value)).toEqual(["没有联网", "判断无需联网"]);
+    expect(searchRows(withSearch({ status: "failed", query: "q", sources: 0, reason: "检索失败（TimeoutException）" }))![0]!.value).toContain("没有联网");
+    expect(searchRows(withSearch({ status: "unavailable", sources: 0 }))![0]!.value).toContain("没有启用");
+  });
+
+  it("counts the search requests with the other model calls", () => {
+    const rows = outputRows(withSearch({ status: "used", sources: 1 }, { generate: 1, summarize: 0, countTokens: 0, search: 2 }));
+    expect(rows.at(-1)!.value).toBe("生成 1 · 摘要 0 · 计数 0 · 检索 2");
   });
 });

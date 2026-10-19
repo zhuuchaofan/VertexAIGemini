@@ -1,6 +1,6 @@
 import type { RunSnapshot } from "../../api/types";
 import {
-  browserTimingRows, outputRows, overviewRows, serverTimingRows, settingRows, usageRows, type Observed, type Row
+  browserTimingRows, outputRows, overviewRows, searchRows, serverTimingRows, settingRows, usageRows, type Observed, type Row
 } from "./runDetails";
 
 interface Props {
@@ -35,6 +35,7 @@ export function RunInspector({ run, observed, onOpenRun }: Props) {
   const settings = settingRows(run);
   const usage = usageRows(run);
   const browser = browserTimingRows(observed);
+  const search = searchRows(run);
 
   return (
     <div className="run-inspector" data-run-id={run.runId} tabIndex={0} role="region" aria-label="运行详情内容">
@@ -88,6 +89,13 @@ export function RunInspector({ run, observed, onOpenRun }: Props) {
         </table>
         <p className="hint">“默认”表示没有指定；“不适用”表示该模型不接受这一项。</p>
       </section>
+
+      {search && (
+        <section aria-labelledby="ri-search">
+          <h3 id="ri-search">联网检索</h3>
+          <Rows rows={search} />
+        </section>
+      )}
 
       <section aria-labelledby="ri-server">
         <h3 id="ri-server">服务端时间</h3>

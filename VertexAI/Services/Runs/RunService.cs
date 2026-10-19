@@ -1,3 +1,4 @@
+using VertexAI.Services.Search;
 using Grpc.Core;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -49,6 +50,8 @@ public sealed class RunService
     private readonly RunTestHooks? _hooks;
     private readonly IChatAttachmentStore _attachments;
     private readonly KeyedLock _admissions = new();
+    private readonly IWebSearchService? _webSearch;
+    private readonly TimeProvider _clock;
 
     public RunService(
         IChatProviderCatalog providers,
@@ -59,9 +62,13 @@ public sealed class RunService
         IOptions<GeminiSettings>? gemini = null,
         IEnumerable<IChatRequestAugmenter>? augmenters = null,
         RunTestHooks? hooks = null,
-        IChatAttachmentStore? attachments = null)
+        IChatAttachmentStore? attachments = null,
+        IWebSearchService? webSearch = null,
+        TimeProvider? clock = null)
     {
         _hooks = hooks;
+        _webSearch = webSearch;
+        _clock = clock ?? TimeProvider.System;
         _attachments = attachments ?? new NoOpChatAttachmentStore();
         _providers = providers;
         _store = store;
@@ -326,7 +333,35 @@ public sealed class RunService
                 outgoing = again[0].Attachments?.ToList() ?? [];
             }
 
-            var modelRequest = new ChatModelRequest(augmentation.Message, outgoing, searchMode);
+            var messageForModel = augmentation.Message;
+            if (model is ITimeAwareChatModelClient)
+            {
+                // The model has no clock. A provider with no search of its own gets the web through us: search first,
+                // then answer from what was found. Every outcome is recorded, including "did not search" and "failed".
+                var now = _clock.GetUtcNow();
+                WebSearchOutcome? outcome = null;
+                if (model is IExternalSearchChatModelClient)
+                {
+                    // The "please search the web" nudge is for models that can; this one cannot, so it must not be told to.
+                    messageForModel = request.Message;
+                    if (SearchModes.EnablesWebSearch(searchMode))
+                    {
+                        outcome = _webSearch == null
+                            ? WebSearchOutcome.None(WebSearchStatus.Unavailable, "这个部署没有启用联网检索")
+                            : await _webSearch.SearchAsync(new WebSearchRequest(request.Message, history, searchMode, now), linked.Token);
+                        state.RecordSearch(outcome);
+                        if (outcome.Status == WebSearchStatus.Used && outcome.Citations.Count > 0)
+                        {
+                            state.AddCitations(outcome.Citations);
+                            await send.Emit(new RunEvent.Citations(outcome.Citations));
+                        }
+                    }
+                }
+
+                messageForModel = WebSearchPrompt.Compose(messageForModel, now, outcome);
+            }
+
+            var modelRequest = new ChatModelRequest(messageForModel, outgoing, searchMode);
             await foreach (var chunk in model.StreamChatAsync(modelRequest, linked.Token))
             {
                 var offset = state.Append(chunk.Text, chunk.IsThinking);
@@ -586,11 +621,11 @@ public sealed class RunService
         }
 
         var calls = telemetry is { GenerateCalls: > 0 }
-            ? new RunProviderCalls(telemetry.GenerateCalls, telemetry.SummarizeCalls, telemetry.CountTokensCalls)
+            ? new RunProviderCalls(telemetry.GenerateCalls, telemetry.SummarizeCalls, telemetry.CountTokensCalls, state.SearchCalls)
             : null;
         return new RunMeta(
             usage, telemetry?.FinishReason, telemetry?.ModelVersion, telemetry?.ResponseId, calls,
-            thinking?.Length ?? 0, state.Citations().Count, state.FirstOutputAt);
+            thinking?.Length ?? 0, state.Citations().Count, state.FirstOutputAt, state.Search);
     }
 
     private async Task<RunRecord> FinalizeAsync(
@@ -880,6 +915,20 @@ public sealed class RunService
         }
 
         private readonly List<SearchCitation> _citations = [];
+
+        private RunSearch? _search;
+        private int _searchCalls;
+        public RunSearch? Search { get { lock (_gate) return _search; } }
+        public int SearchCalls { get { lock (_gate) return _searchCalls; } }
+
+        public void RecordSearch(WebSearchOutcome outcome)
+        {
+            lock (_gate)
+            {
+                _searchCalls = outcome.ProviderCalls;
+                _search = new RunSearch(outcome.Status, outcome.Query, outcome.Citations.Count, outcome.Reason);
+            }
+        }
 
         public void AddCitations(IEnumerable<SearchCitation> items)
         {

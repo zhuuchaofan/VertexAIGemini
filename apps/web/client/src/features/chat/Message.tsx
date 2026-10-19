@@ -50,6 +50,10 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
 export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
   const note = runNote(run);
   const tag = run ? badge[run.status] : undefined;
+  const searchTag =
+    run?.search?.status === "used" ? { text: "已联网", tone: "info" as const }
+      : run?.search?.status === "failed" || run?.search?.status === "unavailable" ? { text: "联网失败", tone: "warn" as const }
+        : undefined;
 
   return (
     <div className="msg model">
@@ -58,6 +62,7 @@ export function ModelMessage({ modelLabel, content, thinking, citations, created
         <div className="msg-head">
           <strong>{modelLabel}</strong>
           {tag && <span className={`tag ${tag.tone}`}>{tag.text}</span>}
+          {searchTag && <span className={`tag ${searchTag.tone}`}>{searchTag.text}</span>}
           {createdAt && <time>{formatClock(createdAt)}</time>}
         </div>
         {thinking && <Thinking text={thinking} live={thinkingLive} />}

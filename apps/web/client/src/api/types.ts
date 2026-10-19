@@ -31,10 +31,20 @@ export interface RunSnapshot {
   finishReason?: string | null;
   modelVersion?: string | null;
   responseId?: string | null;
-  providerCalls?: { generate: number; summarize: number; countTokens: number } | null;
+  providerCalls?: { generate: number; summarize: number; countTokens: number; search?: number } | null;
+  /** What happened about the web for a provider with no search of its own. Absent for providers that search natively. */
+  search?: RunSearch | null;
   /** Server-side times. Null where the run never got that far. */
   timing?: { createdAt?: string | null; startedAt?: string | null; firstOutputAt?: string | null; endedAt?: string | null } | null;
   output?: { chars: number; thinkingChars: number; citations: number } | null;
+}
+
+/** `status`: used, skipped (no web needed), failed, or unavailable. */
+export interface RunSearch {
+  status: string;
+  query?: string | null;
+  sources: number;
+  reason?: string | null;
 }
 
 /** What the server applied to the request. A field the model does not take is null. */

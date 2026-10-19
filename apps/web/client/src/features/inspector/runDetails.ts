@@ -149,6 +149,24 @@ export function usageRows(run: RunSnapshot): { source: string; rows: Row[] } {
   };
 }
 
+const searchStatusText: Record<string, string> = {
+  used: "已联网检索",
+  skipped: "没有联网",
+  failed: "检索失败，回答没有联网",
+  unavailable: "这个部署没有启用联网检索"
+};
+
+/** The web search done for a provider with no search of its own; null when none applies (off, or a native search). */
+export function searchRows(run: RunSnapshot): Row[] | null {
+  const search = run.search ?? null;
+  if (!search) return null;
+  const rows: Row[] = [{ label: "状态", value: searchStatusText[search.status] ?? search.status }];
+  if (search.query) rows.push({ label: "搜索词", value: search.query });
+  if (search.status === "used") rows.push({ label: "来源", value: `${search.sources} 条` });
+  if (search.reason) rows.push({ label: "说明", value: search.reason });
+  return rows;
+}
+
 export function outputRows(run: RunSnapshot): Row[] {
   const out = run.output ?? null;
   const calls = run.providerCalls ?? null;
@@ -158,7 +176,9 @@ export function outputRows(run: RunSnapshot): Row[] {
     { label: "引用数", value: out ? String(out.citations) : UNKNOWN },
     {
       label: "模型调用",
-      value: calls ? `生成 ${calls.generate} · 摘要 ${calls.summarize} · 计数 ${calls.countTokens}` : run.providerCallStarted ? UNKNOWN : "未调用"
+      value: calls
+        ? `生成 ${calls.generate} · 摘要 ${calls.summarize} · 计数 ${calls.countTokens}${calls.search ? ` · 检索 ${calls.search}` : ""}`
+        : run.providerCallStarted ? UNKNOWN : "未调用"
     }
   ];
 }

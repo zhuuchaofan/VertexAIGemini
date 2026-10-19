@@ -519,9 +519,12 @@ public sealed class FirestoreRunStore : IRunStore
                     {
                         ["generate"] = meta.ProviderCalls.Generate,
                         ["summarize"] = meta.ProviderCalls.Summarize,
-                        ["countTokens"] = meta.ProviderCalls.CountTokens
+                        ["countTokens"] = meta.ProviderCalls.CountTokens,
+                        ["search"] = meta.ProviderCalls.Search
                     };
                 }
+
+                if (meta.Search != null) runUpdate[Fields.Search] = SearchToMap(meta.Search);
 
                 if (meta.FirstOutputAt != null) runUpdate[Fields.FirstOutputAt] = Timestamp.FromDateTime(meta.FirstOutputAt.Value.ToUniversalTime());
                 runUpdate[Fields.ThinkingChars] = meta.ThinkingChars;
@@ -569,6 +572,7 @@ public sealed class FirestoreRunStore : IRunStore
                 ModelVersion = request.Meta?.ModelVersion,
                 ResponseId = request.Meta?.ResponseId,
                 ProviderCalls = request.Meta?.ProviderCalls,
+                Search = request.Meta?.Search,
                 ThinkingChars = request.Meta?.ThinkingChars ?? 0,
                 CitationCount = request.Meta?.CitationCount ?? 0,
                 FirstOutputAt = request.Meta?.FirstOutputAt
@@ -866,6 +870,7 @@ public sealed class FirestoreRunStore : IRunStore
             ModelVersion = Read<string>(Fields.ModelVersion),
             ResponseId = Read<string>(Fields.ResponseId),
             ProviderCalls = ReadProviderCalls(Read<Dictionary<string, object>>(Fields.ProviderCalls)),
+            Search = ReadSearch(Read<Dictionary<string, object>>(Fields.Search)),
             ThinkingChars = (int)(Read<long?>(Fields.ThinkingChars) ?? 0),
             CitationCount = (int)(Read<long?>(Fields.CitationCount) ?? 0),
             FirstOutputAt = Time(Fields.FirstOutputAt),
@@ -880,7 +885,19 @@ public sealed class FirestoreRunStore : IRunStore
         map.GetValueOrDefault("source") as string ?? "estimate");
 
     private static RunProviderCalls? ReadProviderCalls(Dictionary<string, object>? map) => map == null ? null : new RunProviderCalls(
-        Int(map, "generate") ?? 0, Int(map, "summarize") ?? 0, Int(map, "countTokens") ?? 0);
+        Int(map, "generate") ?? 0, Int(map, "summarize") ?? 0, Int(map, "countTokens") ?? 0, Int(map, "search") ?? 0);
+
+    private static Dictionary<string, object> SearchToMap(RunSearch search)
+    {
+        var map = new Dictionary<string, object> { ["status"] = search.Status, ["sources"] = search.Sources };
+        if (search.Query != null) map["query"] = search.Query;
+        if (search.Reason != null) map["reason"] = search.Reason;
+        return map;
+    }
+
+    private static RunSearch? ReadSearch(Dictionary<string, object>? map) => map == null ? null : new RunSearch(
+        map.GetValueOrDefault("status") as string ?? "skipped", map.GetValueOrDefault("query") as string,
+        Int(map, "sources") ?? 0, map.GetValueOrDefault("reason") as string);
 
     private static class Fields
     {
@@ -893,6 +910,7 @@ public sealed class FirestoreRunStore : IRunStore
         public const string ModelVersion = "modelVersion";
         public const string ResponseId = "responseId";
         public const string ProviderCalls = "providerCalls";
+        public const string Search = "search";
         public const string ThinkingChars = "thinkingChars";
         public const string CitationCount = "citationCount";
         public const string FirstOutputAt = "firstOutputAt";

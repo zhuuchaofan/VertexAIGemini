@@ -64,6 +64,8 @@ try {
       NO_PROXY: "127.0.0.1,localhost",
       no_proxy: "127.0.0.1,localhost",
       Workspace__DefaultProviderId: "mock",
+      // Web search for providers without their own: a deterministic stand-in (development only), no network.
+      WebSearch__Backend: "fake",
       OpenAICompatible__Providers__0__Enabled: "true",
       OpenAICompatible__Providers__0__ProviderId: "deepseek",
       OpenAICompatible__Providers__0__Name: "Fake DeepSeek",

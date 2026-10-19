@@ -1,3 +1,4 @@
+using VertexAI.Services.Search;
 using Google.Cloud.Firestore;
 using Google.Cloud.Storage.V1;
 using System.Security.Cryptography;
@@ -93,6 +94,30 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChatQuotaService>(sp => sp.GetRequiredService<FirestoreChatQuotaService>());
         services.AddScoped<IQuotaUsageReader, FirestoreQuotaUsageReader>();
         services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
+
+        services.Configure<WebSearchSettings>(configuration.GetSection("WebSearch"));
+        services.AddSingleton<IWebSearchBackend>(sp =>
+        {
+            var search = sp.GetRequiredService<IOptions<WebSearchSettings>>().Value;
+            if (search.Backend == "fake")
+            {
+                // A stand-in that invents results must never run in production.
+                if (!sp.GetRequiredService<IHostEnvironment>().IsDevelopment())
+                {
+                    throw new InvalidOperationException("WebSearch:Backend=fake is only allowed in Development.");
+                }
+
+                return new FakeWebSearchBackend();
+            }
+
+            return new GeminiWebSearchBackend(sp.GetRequiredService<IOptions<GeminiSettings>>(), sp.GetRequiredService<IOptions<WebSearchSettings>>());
+        });
+        services.AddSingleton<IWebSearchService>(sp =>
+        {
+            var search = sp.GetRequiredService<IOptions<WebSearchSettings>>().Value;
+            if (!search.Enabled) return new UnavailableWebSearchService();
+            return new WebSearchService(sp.GetRequiredService<IWebSearchBackend>(), TimeSpan.FromSeconds(Math.Max(5, search.TimeoutSeconds)));
+        });
         services.AddScoped<ChatOrchestrator>();
 
         services.Configure<RunSettings>(configuration.GetSection("Runs"));

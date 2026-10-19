@@ -79,7 +79,13 @@ public sealed record RunEffective(
     string? SafetyThreshold);
 
 /// <summary>Our own count of provider requests a run made, by kind.</summary>
-public sealed record RunProviderCalls(int Generate, int Summarize, int CountTokens);
+public sealed record RunProviderCalls(int Generate, int Summarize, int CountTokens, int Search = 0);
+
+/// <summary>
+/// What happened about the web for a provider that has no search of its own. <c>Status</c> is a
+/// <c>WebSearchStatus</c>; <c>Query</c> is what was searched; <c>Sources</c> how many sources came back.
+/// </summary>
+public sealed record RunSearch(string Status, string? Query, int Sources, string? Reason);
 
 /// <summary>What a run learned while it ran. Everything here is optional: unknown stays unknown.</summary>
 public sealed record RunMeta(
@@ -90,7 +96,8 @@ public sealed record RunMeta(
     RunProviderCalls? ProviderCalls,
     int ThinkingChars,
     int CitationCount,
-    DateTime? FirstOutputAt);
+    DateTime? FirstOutputAt,
+    RunSearch? Search = null);
 
 /// <summary>A persisted run. Lease and partial-output fields are internal bookkeeping and never sent to clients.</summary>
 public sealed record RunRecord
@@ -129,6 +136,7 @@ public sealed record RunRecord
     public int ThinkingChars { get; init; }
     public int CitationCount { get; init; }
     public DateTime? FirstOutputAt { get; init; }
+    public RunSearch? Search { get; init; }
     public IReadOnlyList<ChatAttachment> Attachments { get; init; } = [];
 
     /// <summary>The failed run this one tries again, and the run that tried this one again. Both only for retries.</summary>

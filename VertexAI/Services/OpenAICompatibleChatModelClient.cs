@@ -6,7 +6,7 @@ using VertexAI.Services.Chat;
 
 namespace VertexAI.Services;
 
-public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRunTelemetrySource
+public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRunTelemetrySource, IExternalSearchChatModelClient
 {
     private readonly HttpClient _httpClient;
     private readonly OpenAICompatibleProviderSettings _settings;

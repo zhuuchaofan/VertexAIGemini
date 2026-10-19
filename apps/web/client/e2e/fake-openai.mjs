@@ -20,7 +20,9 @@ export function startFakeOpenAI(port) {
       try { body = JSON.parse(raw); } catch { /* not json */ }
       state.lastBody = body;
       const last = [...(body.messages ?? [])].reverse().find(m => m.role === "user");
-      const text = typeof last?.content === "string" ? last.content : (last?.content ?? []).filter(p => p.type === "text").map(p => p.text).join(" ");
+      const raw_text = typeof last?.content === "string" ? last.content : (last?.content ?? []).filter(p => p.type === "text").map(p => p.text).join(" ");
+      // The server puts the date (and, when it searched, the findings) in front of the question; echo only the question.
+      const text = raw_text.replace(/^\[当前时间：[^\]]*\]\s*/, "").replace(/^[\s\S]*\[检索结果结束\]\s*回答时[^\n]*\n\s*/, "");
 
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
       const send = delta => res.write(`data: ${JSON.stringify({ id: "fake-1", model: body.model, choices: [{ delta }] })}\n\n`);

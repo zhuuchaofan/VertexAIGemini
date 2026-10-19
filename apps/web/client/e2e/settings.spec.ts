@@ -53,7 +53,7 @@ test("settings changed for a conversation are sent, remembered across a reload, 
   expect(run.usage.inputTokens).toBeGreaterThan(0);
   expect(run.finishReason).toBe("STOP");
   expect(run.timing.firstOutputAt).toBeTruthy();
-  expect(run.providerCalls).toEqual({ generate: 1, summarize: 0, countTokens: 0 });
+  expect(run.providerCalls).toEqual({ generate: 1, summarize: 0, countTokens: 0, search: 0 });
 });
 
 test("a change on an existing conversation is stored without sending anything", async ({ page }) => {

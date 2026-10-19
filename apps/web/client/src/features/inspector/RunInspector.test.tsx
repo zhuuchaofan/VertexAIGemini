@@ -42,3 +42,17 @@ describe("RunInspector", () => {
     expect(open.mock.calls).toEqual([["run-0"], ["run-2"]]);
   });
 });
+
+describe("RunInspector web search", () => {
+  it("shows the search that was done for the answer", () => {
+    render(<RunInspector run={{ ...run, search: { status: "used", query: "西安 天气", sources: 2 } }} />);
+    expect(screen.getByRole("heading", { name: "联网检索" })).toBeInTheDocument();
+    expect(screen.getByText("西安 天气")).toBeInTheDocument();
+    expect(screen.getByText("2 条")).toBeInTheDocument();
+  });
+
+  it("has no search section for a run that had none", () => {
+    render(<RunInspector run={run} />);
+    expect(screen.queryByRole("heading", { name: "联网检索" })).toBeNull();
+  });
+});

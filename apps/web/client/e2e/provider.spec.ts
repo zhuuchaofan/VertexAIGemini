@@ -68,3 +68,46 @@ test("a file attached to a message goes to the other provider as text, with the 
   expect(body).toContain("remember the milk");
   expect(body).toContain("notes.txt");
 });
+
+test("a question about today is searched first: the model gets the findings, the reply shows its sources and the run records the search", async ({ page, user }) => {
+  await composer(page).fill("今天西安什么天气");
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.locator(".bubble.model")).toContainText("fake provider says: 今天西安什么天气", { timeout: 15_000 });
+  await expect(page.locator(".msg.model .tag", { hasText: "已联网" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Fake Source/ })).toBeVisible();
+
+  // What the model was given: the date, the findings with a numbered source, then the question.
+  const seen = await upstream();
+  const messages = (seen.lastBody as { messages: { role: string; content: string }[] }).messages;
+  const asked = messages[messages.length - 1]!.content;
+  expect(asked).toMatch(/\[当前时间：\d{4}年\d{1,2}月\d{1,2}日/);
+  expect(asked).toContain("FAKE-DIGEST");
+  expect(asked).toContain("[1] Fake Source");
+  expect(asked.endsWith("今天西安什么天气")).toBe(true);
+  expect(asked).not.toContain("请先联网查证");
+
+  // What the server kept, and what the inspector shows.
+  const id = page.url().split("/").pop();
+  const detail = await (await page.request.get(`/api/v2/conversations/${id}`, { headers: userHeader(user) })).json();
+  expect(detail.runs[0].search).toMatchObject({ status: "used", query: "fake query", sources: 1 });
+  expect(detail.runs[0].providerCalls.search).toBe(2);
+
+  await page.getByRole("button", { name: "运行详情" }).last().click();
+  const panel = page.getByRole("complementary", { name: "检视器" });
+  await expect(panel.getByRole("heading", { name: "联网检索" })).toBeVisible();
+  await expect(panel.getByText("已联网检索")).toBeVisible();
+  await expect(panel.getByText("fake query")).toBeVisible();
+});
+
+test("a plain writing request is not searched, and the web switch turns it off", async ({ page, user }) => {
+  await composer(page).fill("写一篇关于秋天的短文");
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.locator(".bubble.model")).toContainText("fake provider says: 写一篇关于秋天的短文", { timeout: 15_000 });
+  await expect(page.locator(".msg.model .tag", { hasText: "已联网" })).toHaveCount(0);
+  const seen = await upstream();
+  const messages = (seen.lastBody as { messages: { role: string; content: string }[] }).messages;
+  expect(messages[messages.length - 1]!.content).not.toContain("FAKE-DIGEST");
+  const id = page.url().split("/").pop();
+  const detail = await (await page.request.get(`/api/v2/conversations/${id}`, { headers: userHeader(user) })).json();
+  expect(detail.runs[0].search.status).toBe("skipped");
+});

@@ -274,6 +274,11 @@ internal sealed class RunHarness
         catalog, Store, Options.Create(Settings), new RunCancellationRegistry(),
         NullLogger<RunService>.Instance, hooks: Hooks, attachments: Attachments);
 
+    /// <summary>The same, with a web search service (and optionally a fixed clock).</summary>
+    public RunService NewService(IChatProviderCatalog catalog, VertexAI.Services.Search.IWebSearchService? search, TimeProvider? clock = null) => new(
+        catalog, Store, Options.Create(Settings), new RunCancellationRegistry(),
+        NullLogger<RunService>.Instance, hooks: Hooks, attachments: Attachments, webSearch: search, clock: clock);
+
     public static string NewRunId() => Guid.NewGuid().ToString("D");
 
     public RunStartRequest Request(string message, string? runId = null, Guid? conversationId = null, AuthenticatedUser? user = null) =>
@@ -380,14 +385,15 @@ internal sealed class ApiTestHost : IDisposable
     public RunHarness Harness { get; }
     public HttpClient Http { get; }
 
-    public ApiTestHost(RunHarness harness, AuthenticatedUser? user, IChatProviderCatalog? catalog = null)
+    public ApiTestHost(RunHarness harness, AuthenticatedUser? user, IChatProviderCatalog? catalog = null,
+        VertexAI.Services.Search.IWebSearchService? search = null, TimeProvider? clock = null)
     {
         Harness = harness;
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton<IUserContext>(new FakeUserContext(user));
-        builder.Services.AddSingleton(catalog == null ? harness.Service : harness.NewService(catalog));
+        builder.Services.AddSingleton(catalog == null ? harness.Service : harness.NewService(catalog, search, clock));
         builder.Services.AddSingleton<IOptions<RunSettings>>(Options.Create(harness.Settings));
         builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
         builder.Services.AddSingleton<IConversationStore>(harness.Conversations);

@@ -11,7 +11,7 @@ namespace VertexAI.Services;
 /// <summary>
 /// Gemini 聊天服务 - 封装与 Vertex AI 的流式交互
 /// </summary>
-public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelClient, IChatRunTelemetrySource, IAsyncDisposable
+public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelClient, IChatRunTelemetrySource, ITimeAwareChatModelClient, IAsyncDisposable
 {
     private readonly Client _client;
     private readonly string _projectId;
