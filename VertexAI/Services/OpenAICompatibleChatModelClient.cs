@@ -10,6 +10,7 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRun
 {
     private readonly HttpClient _httpClient;
     private readonly OpenAICompatibleProviderSettings _settings;
+    private readonly IGoogleAccessTokenSource? _tokenSource;
     private readonly List<ChatHistoryEntry> _history = [];
     private string _modelName;
     private string _currentPresetId = "default";
@@ -18,10 +19,12 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRun
 
     public OpenAICompatibleChatModelClient(
         HttpClient httpClient,
-        OpenAICompatibleProviderSettings settings)
+        OpenAICompatibleProviderSettings settings,
+        IGoogleAccessTokenSource? tokenSource = null)
     {
         _httpClient = httpClient;
         _settings = settings;
+        _tokenSource = tokenSource;
         ModelOptions = OpenAICompatibleCatalog.CreateModelOptions(_settings);
         Presets = OpenAICompatibleCatalog.CreatePresets(_settings);
         _modelName = OpenAICompatibleCatalog.ResolveModelName(_settings.ModelName, ModelOptions);
@@ -102,14 +105,24 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRun
         ChatModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        string bearer;
+        if (_settings.AuthMode == OpenAICompatibleAuth.GoogleAdc)
         {
-            throw new InvalidOperationException($"OpenAI-compatible provider '{_settings.ProviderId}' is enabled but no API key is configured.");
+            bearer = await (_tokenSource ?? GoogleAdcAccessTokenSource.Shared).GetAsync(cancellationToken);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            {
+                throw new InvalidOperationException($"OpenAI-compatible provider '{_settings.ProviderId}' is enabled but no API key is configured.");
+            }
+
+            bearer = _settings.ApiKey;
         }
 
         Telemetry.GenerateCalls++;
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _settings.Endpoint);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         httpRequest.Content = new StringContent(
             JsonSerializer.Serialize(BuildRequestBody(request)),
             Encoding.UTF8,

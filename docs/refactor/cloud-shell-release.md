@@ -232,3 +232,34 @@ bash scripts/release-cloud-shell.sh ui legacy    # 默认回到旧界面
 7. 真实环境下 Cloud Run 对标签修订地址的访问（`https://next---…`）以及它与 Firebase 授权域名的配合：如果该地址在你的组织策略下不可达，改用另一种方式：先 `promote`（`/` 仍是旧界面），通过主域名的 `/app/` 验证，有问题用 `rollback web`。
 8. API 新修订在 `deploy` 时承接生产流量后，旧界面请求由新 API 代码处理：旧接口的回归只由现有自动测试覆盖，没有在真实环境验证。
 9. 容器冒烟没有覆盖“已登录请求”（生产镜像按设计拒绝开发用的伪用户）；已登录路径由 e2e 在同一份代码上覆盖。
+
+## 8. 可选：通过 Vertex AI 使用 Grok（`xai/grok-4.6`）
+
+内置了一个默认关闭的服务商条目 `grok-vertex`，走 Vertex AI 的 OpenAI 兼容接口，**不需要任何 API 密钥**：认证用 Cloud Run 运行账号换出的短期 Google 令牌（`google-adc`）。
+
+前提（都在 Google Cloud 里，我没有验证过）：
+
+1. 在 Vertex AI Model Garden 里该模型已对你的项目启用（有些合作伙伴模型要先点“启用”并同意条款）。
+2. API 服务的运行账号有 `roles/aiplatform.user`（跑 Gemini 已经需要它）。
+3. 你知道模型可用的区域：默认 `global`；不是的话设 `GROK_VERTEX_LOCATION`（例如 `us-central1`）。
+
+先用你自己的账号确认接口真的通（会产生极小的费用）：
+
+```bash
+LOCATION=global   # 按控制台示例里的区域
+HOST=$([ "$LOCATION" = global ] && echo aiplatform.googleapis.com || echo "$LOCATION-aiplatform.googleapis.com")
+curl -sS -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" \
+  "https://$HOST/v1/projects/zhumyproject/locations/$LOCATION/endpoints/openapi/chat/completions" \
+  -d '{"model":"xai/grok-4.6","stream":false,"max_tokens":20,"messages":[{"role":"user","content":"say hi"}]}'
+```
+
+返回 JSON 里有回复内容再继续。然后打开开关（这是一次对生产 API 的配置修改，会生成新的 API 修订并立即承接流量）：
+
+```bash
+gcloud run services update vertex-ai-api --region asia-east1 --update-env-vars=GROK_VERTEX_ENABLED=true
+# 区域不是 global 时再加：--update-env-vars=GROK_VERTEX_LOCATION=us-central1
+```
+
+刷新页面，模型选择里出现 “Grok (Vertex AI)”。关掉：`--update-env-vars=GROK_VERTEX_ENABLED=false`。
+
+没有验证的部分：真实 Vertex 对这个模型的行为。用量字段、结束原因和流式格式要等你真实调用一次才知道；运行详情里拿不到的值会显示“未知”。这个模型没有配置“思考”选项，设置里不会出现思考档位。

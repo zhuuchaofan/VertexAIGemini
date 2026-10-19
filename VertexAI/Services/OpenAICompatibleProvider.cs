@@ -6,13 +6,16 @@ public sealed class OpenAICompatibleProvider : IChatModelProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly OpenAICompatibleProviderSettings _settings;
+    private readonly IGoogleAccessTokenSource? _tokenSource;
 
     public OpenAICompatibleProvider(
         IHttpClientFactory httpClientFactory,
-        OpenAICompatibleProviderSettings settings)
+        OpenAICompatibleProviderSettings settings,
+        IGoogleAccessTokenSource? tokenSource = null)
     {
         _httpClientFactory = httpClientFactory;
         _settings = settings;
+        _tokenSource = tokenSource;
         Info = new ChatProviderInfo(settings.ProviderId, settings.Name, settings.Description);
         ModelOptions = OpenAICompatibleCatalog.CreateModelOptions(settings);
         Presets = OpenAICompatibleCatalog.CreatePresets(settings);
@@ -29,5 +32,6 @@ public sealed class OpenAICompatibleProvider : IChatModelProvider
     public IChatModelClient CreateClient() =>
         new OpenAICompatibleChatModelClient(
             _httpClientFactory.CreateClient(nameof(OpenAICompatibleChatModelClient)),
-            _settings);
+            _settings,
+            _tokenSource);
 }

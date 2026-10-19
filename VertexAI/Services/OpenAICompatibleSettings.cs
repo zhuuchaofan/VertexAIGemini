@@ -26,8 +26,23 @@ public sealed class OpenAICompatibleProviderSettings
     public string Endpoint { get; set; } = "";
     public string ApiKey { get; set; } = "";
     public string ApiKeyEnv { get; set; } = "";
+    /// <summary>"api-key" (default, a fixed key) or "google-adc" (a short-lived Google token from the runtime service account).</summary>
+    public string AuthMode { get; set; } = OpenAICompatibleAuth.ApiKey;
+    /// <summary>Name of an environment variable; the provider is enabled when it is "true". Lets a built-in entry stay off until chosen.</summary>
+    public string EnabledEnv { get; set; } = "";
+    /// <summary>Vertex AI location used to build the endpoint of a "google-adc" provider whose Endpoint is blank.</summary>
+    public string Location { get; set; } = "global";
+    public string LocationEnv { get; set; } = "";
     public string ModelName { get; set; } = "";
     public int MaxHistoryMessages { get; set; } = 20;
     public List<ChatModelOption> Models { get; set; } = [];
     public List<PromptPresetConfig> Presets { get; set; } = [];
+
+    public OpenAICompatibleProviderSettings Clone() => (OpenAICompatibleProviderSettings)MemberwiseClone();
+}
+
+public static class OpenAICompatibleAuth
+{
+    public const string ApiKey = "api-key";
+    public const string GoogleAdc = "google-adc";
 }

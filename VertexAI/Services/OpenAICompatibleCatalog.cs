@@ -15,7 +15,7 @@ internal static class OpenAICompatibleCatalog
         }
 
         return providers
-            .Select(ApplyEnvironmentApiKey)
+            .Select(ApplyEnvironment)
             .Where(IsConfigured)
             .ToList();
     }
@@ -69,33 +69,59 @@ internal static class OpenAICompatibleCatalog
         Presets = settings.Presets
     };
 
-    private static OpenAICompatibleProviderSettings ApplyEnvironmentApiKey(OpenAICompatibleProviderSettings settings)
+
+    /// <summary>Values that come from the environment: the API key, the on/off switch and the Vertex location.</summary>
+    private static OpenAICompatibleProviderSettings ApplyEnvironment(OpenAICompatibleProviderSettings settings)
     {
-        if (!string.IsNullOrWhiteSpace(settings.ApiKey) || string.IsNullOrWhiteSpace(settings.ApiKeyEnv))
+        var result = settings.Clone();
+
+        if (string.IsNullOrWhiteSpace(result.ApiKey) && !string.IsNullOrWhiteSpace(result.ApiKeyEnv))
         {
-            return settings;
+            var apiKey = Environment.GetEnvironmentVariable(result.ApiKeyEnv);
+            if (!string.IsNullOrWhiteSpace(apiKey)) result.ApiKey = apiKey;
         }
 
-        var apiKey = Environment.GetEnvironmentVariable(settings.ApiKeyEnv);
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (!string.IsNullOrWhiteSpace(result.EnabledEnv)
+            && string.Equals(Environment.GetEnvironmentVariable(result.EnabledEnv), "true", StringComparison.OrdinalIgnoreCase))
         {
-            return settings;
+            result.Enabled = true;
         }
 
-        return new()
+        if (!string.IsNullOrWhiteSpace(result.LocationEnv))
         {
-            Enabled = settings.Enabled,
-            ProviderId = settings.ProviderId,
-            Name = settings.Name,
-            Description = settings.Description,
-            Endpoint = settings.Endpoint,
-            ApiKey = apiKey,
-            ApiKeyEnv = settings.ApiKeyEnv,
-            ModelName = settings.ModelName,
-            MaxHistoryMessages = settings.MaxHistoryMessages,
-            Models = settings.Models,
-            Presets = settings.Presets
-        };
+            var location = Environment.GetEnvironmentVariable(result.LocationEnv);
+            if (!string.IsNullOrWhiteSpace(location)) result.Location = location.Trim();
+        }
+
+        if (result.AuthMode == OpenAICompatibleAuth.GoogleAdc)
+        {
+            result.Endpoint = ResolveVertexEndpoint(result.Endpoint, result.Location, CurrentProjectId());
+        }
+
+        return result;
+    }
+
+    private static string? CurrentProjectId() =>
+        new[] { "PROJECT_ID", "VertexAI__ProjectId", "GOOGLE_CLOUD_PROJECT" }
+            .Select(Environment.GetEnvironmentVariable)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    /// <summary>
+    /// The Vertex AI OpenAI-compatible chat endpoint. A blank endpoint is built from the project and location;
+    /// {project} and {location} in a given endpoint are filled in. Empty when the project is not known.
+    /// </summary>
+    public static string ResolveVertexEndpoint(string? endpoint, string? location, string? projectId)
+    {
+        var place = string.IsNullOrWhiteSpace(location) ? "global" : location.Trim();
+        if (string.IsNullOrWhiteSpace(projectId)) return string.IsNullOrWhiteSpace(endpoint) ? "" : endpoint.Replace("{location}", place);
+
+        if (!string.IsNullOrWhiteSpace(endpoint))
+        {
+            return endpoint.Replace("{project}", projectId).Replace("{location}", place);
+        }
+
+        var host = place == "global" ? "aiplatform.googleapis.com" : $"{place}-aiplatform.googleapis.com";
+        return $"https://{host}/v1/projects/{projectId}/locations/{place}/endpoints/openapi/chat/completions";
     }
 
     private static IReadOnlyList<ChatModelOption> NormalizeThinking(string providerId, IReadOnlyList<ChatModelOption> models)
