@@ -134,6 +134,7 @@ var tests = new (string Name, Action Test)[]
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
     ("MockChatModelClient applies custom session prompt", MockChatModelClientTests.AppliesCustomSessionPrompt),
     ("OpenAICompatibleCatalog enables providers from environment keys", OpenAICompatibleCatalogTests.EnablesProvidersFromEnvironmentKeys),
+    ("Vertex provider: Built-in providers keep their positions and Grok comes last", VertexProviderTests.BuiltInProvidersKeepTheirPositionsAndGrokComesLast),
     ("Vertex provider: The endpoint is built from project and location", VertexProviderTests.TheEndpointIsBuiltFromProjectAndLocation),
     ("Vertex provider: The built-in Grok entry stays off until it is switched on", VertexProviderTests.TheBuiltInGrokEntryStaysOffUntilItIsSwitchedOn),
     ("Vertex provider: A Google token goes in the bearer header and no API key is needed", VertexProviderTests.AGoogleTokenGoesInTheBearerHeaderAndNoApiKeyIsNeeded),

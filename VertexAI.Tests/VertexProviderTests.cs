@@ -37,6 +37,15 @@ internal static class VertexProviderTests
             new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
     }
 
+    public static void BuiltInProvidersKeepTheirPositionsAndGrokComesLast()
+    {
+        // Deployments and the end-to-end stack override providers by position (Providers__0__…), so a new built-in
+        // entry must never be inserted before an existing one.
+        var ids = BuiltInSettings().Providers.Select(p => p.ProviderId).ToList();
+        Assert.Equal("deepseek", ids[0]);
+        Assert.Equal("grok-vertex", ids[^1]);
+    }
+
     public static void TheEndpointIsBuiltFromProjectAndLocation()
     {
         Assert.Equal(
