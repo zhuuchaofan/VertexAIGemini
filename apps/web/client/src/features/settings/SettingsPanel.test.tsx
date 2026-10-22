@@ -194,4 +194,24 @@ describe("SettingsPanel", () => {
     await waitFor(() => expect(api.setDefaultRole).toHaveBeenLastCalledWith(null));
     expect(await screen.findByRole("option", { name: "写作搭子" })).toBeInTheDocument();
   });
+
+  it("can move from a role to 自定义 and to a built-in preset, and the list follows", async () => {
+    const api = fakeRoles([{ id: "r1", name: "写作搭子", prompt: "你是写作搭子" }]);
+    render(<Harness roleApi={api} start={{ ...defaultSettings(workspace), presetId: "custom", customPrompt: "你是写作搭子" }} />);
+    const select = await screen.findByLabelText("提示词预设");
+    await waitFor(() => expect(select).toHaveValue("role:r1"));
+
+    fireEvent.change(select, { target: { value: "custom" } });
+    expect(select).toHaveValue("custom");
+    expect(screen.getByLabelText("自定义提示词")).toHaveValue(""); // a blank prompt of its own, not the role's text
+
+    fireEvent.change(screen.getByLabelText("自定义提示词"), { target: { value: "临时试一试" } });
+    expect(select).toHaveValue("custom");
+    expect(screen.getByRole("button", { name: "存为角色" })).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: "role:r1" } });
+    expect(select).toHaveValue("role:r1");
+    fireEvent.change(select, { target: { value: "default" } });
+    expect(select).toHaveValue("default");
+  });
 });

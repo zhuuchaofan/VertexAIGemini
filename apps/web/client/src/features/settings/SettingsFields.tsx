@@ -145,7 +145,11 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
           onChange={event => {
             const value = event.target.value;
             const role = value.startsWith("role:") ? userRoles.find(item => `role:${item.id}` === value) : undefined;
-            onChange(role ? { ...settings, presetId: "custom", customPrompt: role.prompt } : { ...settings, presetId: value });
+            if (role) onChange({ ...settings, presetId: "custom", customPrompt: role.prompt });
+            // Leaving a role for "自定义" starts a blank prompt: keeping the role's text would match the role again and
+            // the list would snap straight back to it.
+            else if (value === "custom" && currentRole) onChange({ ...settings, presetId: "custom", customPrompt: "" });
+            else onChange({ ...settings, presetId: value });
           }}
         >
           {(provider?.presets ?? [])
