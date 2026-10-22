@@ -44,7 +44,16 @@ public static class RunReasons
     public const string Storage = "storage";
 }
 
-public sealed record RunError(string Code, string Message, bool Retryable);
+/// <summary>
+/// Why a run failed. <see cref="Message"/> and <see cref="Hint"/> are for anyone; <see cref="Detail"/> (what the
+/// provider really said) and <see cref="AdminHint"/> (operator steps) are for administrators only and are removed
+/// by <see cref="ForClient"/> before anything reaches a browser.
+/// </summary>
+public sealed record RunError(
+    string Code, string Message, bool Retryable, string? Hint = null, string? Detail = null, string? AdminHint = null)
+{
+    public RunError ForClient(bool isAdmin) => isAdmin ? this : this with { Detail = null, AdminHint = null };
+}
 
 /// <summary>What the browser asked for, normalized. Stored as the run's immutable request snapshot.</summary>
 public sealed record RunRequested(

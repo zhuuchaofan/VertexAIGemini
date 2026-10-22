@@ -364,7 +364,7 @@ public static class RunEndpoints
 
             case AdmitResult.Replay replay:
             {
-                var writer = new SseWriter(context);
+                var writer = new SseWriter(context, user.IsAdmin);
                 await writer.WriteAsync(new RunEvent.Started(replay.Run, Replayed: true));
                 if (replay.Run.Status.IsTerminal()) await writer.WriteAsync(new RunEvent.Done(replay.Run));
                 await writer.WriteAsync(new RunEvent.End(Replayed: true));
@@ -373,7 +373,7 @@ public static class RunEndpoints
 
             case AdmitResult.Rejected rejected:
             {
-                var writer = new SseWriter(context);
+                var writer = new SseWriter(context, user.IsAdmin);
                 await writer.WriteAsync(new RunEvent.Started(rejected.Run, Replayed: false));
                 await writer.WriteAsync(new RunEvent.Done(rejected.Run));
                 return;
@@ -381,7 +381,7 @@ public static class RunEndpoints
 
             case AdmitResult.Admitted:
             {
-                var writer = new SseWriter(context);
+                var writer = new SseWriter(context, user.IsAdmin);
                 using var pings = new CancellationTokenSource();
                 var pinger = PingAsync(writer, pings.Token);
                 try
@@ -433,7 +433,7 @@ public static class RunEndpoints
         var record = RunIds.TryParseRunId(runId, out var id)
             ? await runs.StopAsync(user, id, context.RequestAborted)
             : null;
-        await Snapshot(context, record);
+        await Snapshot(context, record, user.IsAdmin);
     }
 
     internal static async Task GetRunAsync(
@@ -454,7 +454,7 @@ public static class RunEndpoints
         var record = RunIds.TryParseRunId(runId, out var id)
             ? await runs.GetAsync(user, id, context.RequestAborted)
             : null;
-        await Snapshot(context, record);
+        await Snapshot(context, record, user.IsAdmin);
     }
 
     internal static async Task GetConversationAsync(
@@ -515,7 +515,7 @@ public static class RunEndpoints
                 attachments = AttachmentViews(m, records),
                 createdAt = m.CreatedAt
             }),
-            runs = records.Select(run => RunSnapshot.From(run))
+            runs = records.Select(run => RunSnapshot.From(run, user.IsAdmin))
         }, Json);
     }
 
@@ -597,7 +597,7 @@ public static class RunEndpoints
         }
     }
 
-    private static Task Snapshot(HttpContext context, RunRecord? record)
+    private static Task Snapshot(HttpContext context, RunRecord? record, bool isAdmin)
     {
         if (record == null)
         {
@@ -605,7 +605,7 @@ public static class RunEndpoints
             return Task.CompletedTask;
         }
 
-        return context.Response.WriteAsJsonAsync(RunSnapshot.From(record), Json);
+        return context.Response.WriteAsJsonAsync(RunSnapshot.From(record, isAdmin), Json);
     }
 
     private static void Results404(HttpContext context) => context.Response.StatusCode = StatusCodes.Status404NotFound;

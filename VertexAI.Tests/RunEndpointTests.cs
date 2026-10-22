@@ -399,4 +399,43 @@ internal static class RunEndpointTests
         context.Request.Headers[DevUserContext.HeaderName] = "bob";
         Assert.True(first.LocalUserId != Wait(new DevUserContext().GetCurrentUserAsync(context))!.LocalUserId);
     }
+
+    private static bool NoValue(JsonElement element, string name) =>
+        !element.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null;
+
+    public static void OnlyAdministratorsSeeTheDetailsOfAFailure() => Wait(AsyncAdminErrors());
+    private static async Task AsyncAdminErrors()
+    {
+        var h = new RunHarness();
+        var runId = RunHarness.NewRunId();
+        var conversation = Guid.NewGuid();
+
+        // The person who ran it gets the plain explanation, on the stream and when asking again.
+        using (var host = new ApiHost(h, h.User))
+        {
+            var response = await PostAsync(host, Body("/filtered go", runId, conversation));
+            var done = (await ReadEventsAsync(response)).Single(e => e.Name == "done").Data.GetProperty("error");
+            Assert.Equal("safety", done.GetProperty("code").GetString()!);
+            Assert.Contains("内容过滤", done.GetProperty("message").GetString()!);
+            Assert.True(done.TryGetProperty("hint", out var hint) && hint.GetString()!.Contains("重试"));
+            Assert.True(NoValue(done, "detail"));
+            Assert.True(NoValue(done, "adminHint"));
+
+            var again = (await GetJsonAsync(host, $"/api/v2/runs/{runId}")).GetProperty("error");
+            Assert.True(NoValue(again, "detail"));
+            Assert.True(NoValue(again, "adminHint"));
+            var inConversation = (await GetJsonAsync(host, $"/api/v2/conversations/{conversation}")).GetProperty("runs")[0].GetProperty("error");
+            Assert.True(NoValue(inConversation, "detail"));
+        }
+
+        // The same account with the admin claim sees what the provider said and what to do about it.
+        using (var admin = new ApiHost(h, h.User with { IsAdmin = true }))
+        {
+            var error = (await GetJsonAsync(admin, $"/api/v2/runs/{runId}")).GetProperty("error");
+            Assert.Contains("content_filter", error.GetProperty("detail").GetString()!);
+            Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("adminHint").GetString()));
+            var inConversation = (await GetJsonAsync(admin, $"/api/v2/conversations/{conversation}")).GetProperty("runs")[0].GetProperty("error");
+            Assert.False(NoValue(inConversation, "detail"));
+        }
+    }
 }

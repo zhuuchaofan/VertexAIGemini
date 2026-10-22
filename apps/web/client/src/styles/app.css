@@ -313,3 +313,8 @@ button.att-thumb { cursor: zoom-in; }
 .role-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-top: 6px; }
 .role-editor { display: grid; gap: 6px; margin-top: 8px; }
 .role-editor input, .role-editor textarea { width: 100%; }
+
+.note-hint { margin: 6px 0 0; font-weight: 500; }
+.note-admin { margin-top: 6px; font-size: 13px; }
+.note-admin summary { cursor: pointer; color: var(--ink-3); }
+.note-admin p { margin: 6px 0 0; overflow-wrap: anywhere; }

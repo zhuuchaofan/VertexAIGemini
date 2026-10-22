@@ -47,7 +47,7 @@ internal static class RunRecordTests
         Assert.Equal("auto", record.Effective.SearchMode);
         Assert.Equal("scripted", record.Requested!.ModelName);
 
-        var snapshot = RunSnapshot.From(record);
+        var snapshot = RunSnapshot.From(record, isAdmin: false);
         Assert.Equal("STOP", snapshot.FinishReason!);
         Assert.Equal(11, snapshot.Output!.Chars);
     }

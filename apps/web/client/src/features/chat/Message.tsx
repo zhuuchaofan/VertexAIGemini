@@ -1,4 +1,5 @@
 import type { Citation, RunSnapshot, StoredMessage } from "../../api/types";
+import { NoteExtras } from "./NoteExtras";
 import { CopyButton } from "../../ui/CopyButton";
 import { formatClock } from "../conversations/groupByDay";
 import { Citations } from "./render/Citations";
@@ -75,6 +76,7 @@ export function ModelMessage({ modelLabel, content, thinking, citations, created
         {note && (
           <div className={`note ${note.tone}`} role="status" data-run-status={run?.status}>
             <strong>{note.title}</strong> {note.detail}
+            <NoteExtras note={note} />
             {onRetry && (
               <button type="button" className="retry" onClick={onRetry}>
                 重试

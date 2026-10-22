@@ -111,4 +111,54 @@ internal static class RunLogicTests
         Assert.Equal("internal", unknown.Code);
         Assert.False(unknown.Message.Contains("secret"));
     }
+
+    public static void FailuresSayWhatHappenedWhatToDoAndKeepDetailsForAdmins()
+    {
+        // A filter verdict is not "empty": the message names the filter and the finish reason, and offers a way out.
+        var filtered = RunErrors.ForEmptyResponse(new RunErrorContext("grok-vertex", "xai/grok-4.6", "content_filter"));
+        Assert.Equal("safety", filtered.Code);
+        Assert.True(filtered.Retryable);
+        Assert.Contains("内容过滤", filtered.Message);
+        Assert.Contains("content_filter", filtered.Message);
+        Assert.Contains("重试", filtered.Hint!);
+        Assert.Contains("grok-vertex", filtered.Detail!);
+        Assert.False(string.IsNullOrWhiteSpace(filtered.AdminHint));
+
+        // A genuinely empty answer, and one that ran out of length, are told apart.
+        Assert.Equal("empty_response", RunErrors.ForEmptyResponse(new RunErrorContext(null, null, "STOP")).Code);
+        Assert.Contains("长度", RunErrors.ForEmptyResponse(new RunErrorContext(null, null, "length")).Message);
+
+        // Each daily limit is named, with the setting that raises it and the day boundary.
+        foreach (var (raw, what, setting) in new[]
+        {
+            ("Daily request quota exceeded.", "请求次数", "DailyRequestLimit"),
+            ("Daily token quota exceeded.", "Token", "DailyTokenLimit"),
+            ("Daily search quota exceeded.", "联网搜索", "DailySearchLimit"),
+            ("Daily attachment quota exceeded.", "附件", "DailyAttachmentBytesLimit")
+        })
+        {
+            var quota = RunErrors.ForQuota(raw);
+            Assert.Equal("quota", quota.Code);
+            Assert.Contains(what, quota.Message);
+            Assert.Contains("8 点", quota.Hint!);
+            Assert.Contains($"Quota__{setting}", quota.AdminHint!);
+            Assert.False(quota.Message.Contains("exceeded"));
+        }
+        Assert.Equal("quota", RunErrors.Classify(new InvalidOperationException("Daily token quota exceeded.")).Code);
+
+        // Provider and infrastructure text stays out of what everyone sees.
+        var permission = RunErrors.Classify(new InvalidOperationException("IAM_PERMISSION_DENIED on aiplatform.googleapis.com project 123"));
+        Assert.False(permission.Message.Contains("Cloud Run") || permission.Message.Contains("IAM"));
+        Assert.Contains("aiplatform", permission.AdminHint!);
+        var stripped = permission.ForClient(isAdmin: false);
+        Assert.Equal(null, stripped.Detail);
+        Assert.Equal(null, stripped.AdminHint);
+        Assert.Equal(permission.Message, stripped.Message);
+        Assert.Equal(permission.Hint, stripped.Hint);
+        Assert.Equal(permission.Detail, permission.ForClient(isAdmin: true).Detail);
+
+        // Details are cut to a sane length.
+        var long_ = RunErrors.Classify(new InvalidOperationException(new string('x', 5000)));
+        Assert.True(long_.Detail!.Length < 1000);
+    }
 }

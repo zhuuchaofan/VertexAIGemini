@@ -9,10 +9,12 @@ public sealed class SseWriter
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpContext _context;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly bool _isAdmin;
 
-    public SseWriter(HttpContext context)
+    public SseWriter(HttpContext context, bool isAdmin)
     {
         _context = context;
+        _isAdmin = isAdmin;
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers["X-Accel-Buffering"] = "no";
         context.Response.ContentType = "text/event-stream; charset=utf-8";
@@ -23,7 +25,7 @@ public sealed class SseWriter
         switch (@event)
         {
             case RunEvent.Started started:
-                await WriteAsync("run", RunSnapshot.From(started.Run, started.Replayed));
+                await WriteAsync("run", RunSnapshot.From(started.Run, _isAdmin, started.Replayed));
                 break;
             case RunEvent.Delta delta:
                 await WriteAsync("delta", new { offset = delta.Offset, content = delta.Content, thinking = delta.Thinking });
@@ -32,7 +34,7 @@ public sealed class SseWriter
                 await WriteAsync("citations", new { items = citations.Items });
                 break;
             case RunEvent.Done done:
-                await WriteAsync("done", RunSnapshot.From(done.Run));
+                await WriteAsync("done", RunSnapshot.From(done.Run, _isAdmin));
                 break;
             case RunEvent.End end:
                 await WriteAsync("end", new { replayed = end.Replayed });
@@ -98,9 +100,10 @@ public sealed record RunSnapshot(
     string? ResponseId = null,
     RunSearch? Search = null)
 {
-    public static RunSnapshot From(RunRecord run, bool? replayed = null) => new(
+    /// <summary>Administrators also see the provider's own words and the operator steps for a failure; everyone else does not.</summary>
+    public static RunSnapshot From(RunRecord run, bool isAdmin, bool? replayed = null) => new(
         run.RunId, run.ConversationId, run.UserMessageId, run.AssistantMessageId,
-        run.Status.ToWire(), run.StatusReason, run.Attempt, run.Error, run.OutputChars,
+        run.Status.ToWire(), run.StatusReason, run.Attempt, run.Error?.ForClient(isAdmin), run.OutputChars,
         run.HasAssistantMessage, run.ProviderCallStarted, run.AdmittedAt, run.EndedAt, replayed,
         run.Requested, run.Effective, run.Usage, run.FinishReason, run.ModelVersion, run.ProviderCalls,
         new RunTiming(run.CreatedAt, run.ProviderCallStartedAt, run.FirstOutputAt, run.EndedAt),

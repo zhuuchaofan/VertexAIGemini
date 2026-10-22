@@ -61,4 +61,14 @@ describe("thread", () => {
       tone: "err", title: "今日请求次数已用尽，请明天再试", detail: "你的消息已保存，没有产生回复。"
     });
   });
+
+  it("carries what to do about a failure, and the admin details only when the server sent them", () => {
+    const base = { status: "failed" as const, error: { code: "safety", message: "被内容过滤拦截了。", retryable: true, hint: "点重试。" } };
+    const person = runNote(run("r", "u", base));
+    expect(person?.hint).toBe("点重试。");
+    expect(person?.admin).toBeUndefined();
+
+    const admin = runNote(run("r", "u", { ...base, error: { ...base.error, detail: "结束原因 content_filter", adminHint: "换提示词。" } }));
+    expect(admin?.admin).toEqual({ detail: "结束原因 content_filter", hint: "换提示词。" });
+  });
 });

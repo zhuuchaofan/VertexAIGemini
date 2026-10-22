@@ -161,7 +161,7 @@ public sealed class FirestoreRunStore : IRunStore
         {
             runDocument[Fields.StatusReason] = RunReasons.Quota;
             runDocument[Fields.EndedAt] = FieldValue.ServerTimestamp;
-            runDocument[Fields.Error] = ErrorToMap(new RunError(RunReasons.Quota, quota.Error ?? "Quota exceeded.", false));
+            runDocument[Fields.Error] = ErrorToMap(RunErrors.ForQuota(quota.Error ?? "Quota exceeded."));
         }
 
         if (source != null) runDocument[Fields.RetryOfRunId] = request.RetryOfRunId!;
@@ -258,7 +258,7 @@ public sealed class FirestoreRunStore : IRunStore
             AdmittedAt = admitted ? now : null,
             HeartbeatAt = admitted ? now : null,
             EndedAt = admitted ? null : now,
-            Error = admitted ? null : new RunError(RunReasons.Quota, quota.Error ?? "Quota exceeded.", false),
+            Error = admitted ? null : RunErrors.ForQuota(quota.Error ?? "Quota exceeded."),
             QuotaReservation = admitted && quota.Reserved ? request.Quota : null
         };
 
@@ -804,12 +804,19 @@ public sealed class FirestoreRunStore : IRunStore
         ["attachmentBytes"] = quota.AttachmentBytes
     };
 
-    private static Dictionary<string, object> ErrorToMap(RunError error) => new()
+    private static Dictionary<string, object> ErrorToMap(RunError error)
     {
-        ["code"] = error.Code,
-        ["message"] = error.Message,
-        ["retryable"] = error.Retryable
-    };
+        var map = new Dictionary<string, object>
+        {
+            ["code"] = error.Code,
+            ["message"] = error.Message,
+            ["retryable"] = error.Retryable
+        };
+        if (!string.IsNullOrEmpty(error.Hint)) map["hint"] = error.Hint;
+        if (!string.IsNullOrEmpty(error.Detail)) map["detail"] = error.Detail;
+        if (!string.IsNullOrEmpty(error.AdminHint)) map["adminHint"] = error.AdminHint;
+        return map;
+    }
 
     internal RunRecord ToRecord(DocumentSnapshot snapshot)
     {
@@ -823,7 +830,10 @@ public sealed class FirestoreRunStore : IRunStore
             error = new RunError(
                 errorMap.GetValueOrDefault("code") as string ?? RunReasons.Internal,
                 errorMap.GetValueOrDefault("message") as string ?? "",
-                errorMap.GetValueOrDefault("retryable") as bool? ?? false);
+                errorMap.GetValueOrDefault("retryable") as bool? ?? false,
+                errorMap.GetValueOrDefault("hint") as string,
+                errorMap.GetValueOrDefault("detail") as string,
+                errorMap.GetValueOrDefault("adminHint") as string);
         }
 
         ChatQuotaRequest? reservation = null;

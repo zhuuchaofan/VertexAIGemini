@@ -50,7 +50,17 @@ export function canRetry(item: ThreadItem, isLatest: boolean, busy: boolean): bo
 }
 
 /** The note shown for a run that did not complete, or null when there is nothing to say. */
-export function runNote(run: RunSnapshot | undefined): { tone: "info" | "warn" | "err"; title: string; detail: string } | null {
+export interface RunNote {
+  tone: "info" | "warn" | "err";
+  title: string;
+  detail: string;
+  /** What to do about a failure. */
+  hint?: string;
+  /** Administrators only: the provider's own words and what to change. */
+  admin?: { detail?: string; hint?: string };
+}
+
+export function runNote(run: RunSnapshot | undefined): RunNote | null {
   if (!run || run.status === "completed" || run.status === "running") return null;
   const saved = run.hasAssistantMessage ? `已保存已生成的 ${run.outputChars} 字。` : "没有产生回复。";
   const retried = run.retriedByRunId ? "已重试。" : "";
@@ -65,6 +75,12 @@ export function runNote(run: RunSnapshot | undefined): { tone: "info" | "warn" |
         detail: `${saved}${run.hasAssistantMessage || run.retriedByRunId ? retried : "直接发送新消息即可继续。"}`
       };
     default:
-      return { tone: "err", title: run.error?.message ?? "生成失败", detail: `你的消息已保存，${saved}${retried}` };
+      return {
+        tone: "err",
+        title: run.error?.message ?? "生成失败",
+        detail: `你的消息已保存，${saved}${retried}`,
+        hint: run.error?.hint ?? undefined,
+        admin: run.error?.detail || run.error?.adminHint ? { detail: run.error.detail ?? undefined, hint: run.error.adminHint ?? undefined } : undefined
+      };
   }
 }

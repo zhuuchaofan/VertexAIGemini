@@ -41,6 +41,7 @@ internal sealed class ModelProbe
 ///   /ok  streams two chunks and ends        /slow  streams a line every 50 ms until cancelled
 ///   /gate  streams one chunk then waits for ModelProbe.Gate        /fail  provider error
 ///   /blocked  safety block                  /empty  ends with no text
+///   /filtered  no text, finish reason content_filter
 /// </summary>
 internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, IChatRunTelemetrySource
 {
@@ -121,6 +122,11 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
                 throw new InvalidOperationException("Gemini response was blocked by safety settings: SAFETY");
 
             case "/empty":
+                yield break;
+
+            case "/filtered":
+                // the provider ended the stream with a filter verdict and no text
+                Telemetry.FinishReason = "content_filter";
                 yield break;
 
             case "/usage":

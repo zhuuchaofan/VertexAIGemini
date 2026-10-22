@@ -15,6 +15,7 @@ import { RunInspector } from "../inspector/RunInspector";
 import type { Observed } from "../inspector/runDetails";
 import { useObserved } from "../inspector/useObserved";
 import { Segmented } from "../composer/Segmented";
+import { NoteExtras } from "./NoteExtras";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import type { Roles } from "../settings/useRoles";
 import { ModelMessage, UserMessage } from "./Message";
@@ -541,6 +542,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
                   return (
                     <div key={attempt.runId} className={`note ${note.tone} earlier`} role="status" data-run-status={attempt.status}>
                       <strong>第 {attempt.attempt} 次：{note.title}</strong> {note.detail}
+                      <NoteExtras note={note} />
                     </div>
                   );
                 })}

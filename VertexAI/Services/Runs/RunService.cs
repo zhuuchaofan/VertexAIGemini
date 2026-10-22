@@ -383,8 +383,8 @@ public sealed class RunService
 
             if (string.IsNullOrWhiteSpace(state.Content))
             {
-                return await FinalizeAsync(run, state, RunStatus.Failed, RunReasons.EmptyResponse,
-                    RunErrors.Classify(new InvalidOperationException("The response was empty.")), model);
+                var empty = RunErrors.ForEmptyResponse(ErrorContext(model, run));
+                return await FinalizeAsync(run, state, RunStatus.Failed, empty.Code, empty, model);
             }
 
             return await FinalizeAsync(run, state, RunStatus.Completed, "completed", null, model);
@@ -396,10 +396,14 @@ public sealed class RunService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Run {RunId} failed", run.RunId);
-            var error = RunErrors.Classify(ex);
+            var error = RunErrors.Classify(ex, ErrorContext(model, run));
             return await FinalizeAsync(run, state, RunStatus.Failed, error.Code, error, model);
         }
     }
+
+    private static RunErrorContext ErrorContext(IChatModelClient? model, AdmittedRun run) => new(
+        run.Record.Requested?.ProviderId, model?.CurrentModelName ?? run.Record.Requested?.ModelName,
+        (model as IChatRunTelemetrySource)?.Telemetry?.FinishReason);
 
     private async Task<RunRecord> FinishCancelledAsync(
         AdmittedRun run,

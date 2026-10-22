@@ -4,6 +4,12 @@ export interface RunError {
   code: string;
   message: string;
   retryable: boolean;
+  /** What to do about it. */
+  hint?: string | null;
+  /** Administrators only: what the provider really said. The server leaves it out for everyone else. */
+  detail?: string | null;
+  /** Administrators only: operator steps (settings to change, where to look). */
+  adminHint?: string | null;
 }
 
 /** What the server tells clients about a run. */

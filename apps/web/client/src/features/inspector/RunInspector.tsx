@@ -1,4 +1,5 @@
 import type { RunSnapshot } from "../../api/types";
+import { NoteExtras } from "../chat/NoteExtras";
 import {
   browserTimingRows, outputRows, overviewRows, searchRows, serverTimingRows, settingRows, usageRows, type Observed, type Row
 } from "./runDetails";
@@ -43,10 +44,16 @@ export function RunInspector({ run, observed, onOpenRun }: Props) {
         <h3 id="ri-overview">概览</h3>
         <Rows rows={overviewRows(run)} />
         {run.error && (
-          <p className="note err" role="status">
+          <div className="note err" role="status">
             <strong>{run.error.message}</strong> <span className="mono">{run.error.code}</span>
             {run.error.retryable ? " · 可重试" : ""}
-          </p>
+            <NoteExtras
+              note={{
+                hint: run.error.hint ?? undefined,
+                admin: run.error.detail || run.error.adminHint ? { detail: run.error.detail ?? undefined, hint: run.error.adminHint ?? undefined } : undefined
+              }}
+            />
+          </div>
         )}
         {(run.retryOfRunId || run.retriedByRunId) && (
           <p className="run-links">

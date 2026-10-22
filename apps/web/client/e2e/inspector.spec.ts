@@ -62,6 +62,17 @@ test("a failed run shows its error and the attempts link to each other", async (
   await expect(panel.getByRole("button", { name: "查看重试后的一次" })).toBeVisible();
 });
 
+test("a failure says what to do about it and keeps the technical details from a regular account", async ({ page }) => {
+  await ask(page, `/failfirst ${crypto.randomUUID()}`);
+  const note = page.locator('[data-run-status="failed"]');
+  await expect(note).toBeVisible({ timeout: 15_000 });
+  await expect(note).toContainText("模型服务暂时不可用");
+  await expect(note).toContainText("怎么办");
+  await expect(note).toContainText("重试");
+  await expect(page.getByText("管理员信息")).toHaveCount(0);
+  expect(await page.content()).not.toContain("mock upstream unavailable"); // the provider's own words are for admins only
+});
+
 test("the inspector has no accessibility violations", async ({ page }) => {
   await ask(page, "axe check");
   await expect(page.locator(".bubble.model").last()).toContainText("received", { timeout: 15_000 });

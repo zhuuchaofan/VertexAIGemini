@@ -55,4 +55,16 @@ describe("RunInspector web search", () => {
     render(<RunInspector run={run} />);
     expect(screen.queryByRole("heading", { name: "联网检索" })).toBeNull();
   });
+
+  it("shows the way out for everyone and the admin block only when it was sent", () => {
+    const plain = { ...run, error: { code: "safety", message: "被内容过滤拦截了。", retryable: true, hint: "点「重试」。" } };
+    const { rerender } = render(<RunInspector run={plain} />);
+    expect(screen.getByText(/怎么办：点「重试」。/)).toBeInTheDocument();
+    expect(screen.queryByText("管理员信息")).toBeNull();
+
+    rerender(<RunInspector run={{ ...plain, error: { ...plain.error, detail: "结束原因 content_filter", adminHint: "换提示词或换模型。" } }} />);
+    expect(screen.getByText("管理员信息")).toBeInTheDocument();
+    expect(screen.getByText(/结束原因 content_filter/)).toBeInTheDocument();
+    expect(screen.getByText(/解决办法：换提示词或换模型。/)).toBeInTheDocument();
+  });
 });
