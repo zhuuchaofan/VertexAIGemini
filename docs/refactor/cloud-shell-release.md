@@ -287,3 +287,13 @@ gcloud run services update vertex-ai-api --region asia-east1 --update-env-vars=G
 - 要换成新版角色提示词，在会话里重新选一次该角色即可。
 - 无需新的 Firestore 索引、无新增环境变量；发布方式与其他功能相同（`plan / build / deploy / verify / promote`）。
 - 选中某个角色后点「设为默认角色」，之后新建的会话从这个角色开始（默认存在 `userSettings/{uid}.defaultRoleId`，接口 `PUT /api/v2/me/default-role`；删除该角色会同时清除默认）。已有会话不受影响。
+
+## 11. 安装为 App（PWA）
+
+界面提供应用清单（`/app/manifest.webmanifest`）、图标和一个只缓存界面外壳的 service worker（`/app/sw.js`）：
+
+- 手机（Chrome：菜单 →「安装应用」/「添加到主屏幕」；iOS Safari：分享 →「添加到主屏幕」）和桌面 Chrome/Edge 可以安装，以独立窗口打开，图标是「球」。
+- service worker 只缓存 `/app/` 下的页面外壳和带指纹的脚本、样式、图标；**不碰 `/api/`**，会话、设置和回复始终来自服务器，也不会把任何输入内容存进缓存。离线时只能打开界面外壳，不能聊天。
+- 页面总是先走网络，所以新版本发布后下次打开即生效；缓存名是 `app-shell-v1`，需要强制清掉旧缓存时改 `apps/web/client/public/sw.js` 里的版本号。
+- 需要真机确认：安装入口出现、独立窗口打开、顶部状态栏颜色（`theme_color` 为 `#2A4BD0`）、iOS 主屏幕图标。
+

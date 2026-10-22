@@ -111,6 +111,8 @@ if [[ "${location}" == "/app/" ]]; then pass "/ redirects to /app/"; else fail "
 expect_status 404 "GET /legacy is gone" "${web}/legacy"
 expect_status 308 "GET /app" -I "${web}/app"
 expect_status 200 "GET /app/" "${web}/app/"
+expect_status 200 "GET /app/manifest.webmanifest" "${web}/app/manifest.webmanifest"
+expect_status 200 "GET /app/sw.js" "${web}/app/sw.js"
 asset="$(curl -s --max-time 10 "${web}/app/" | grep -o '/app/assets/[^"]*\.js' | head -1 || true)"
 if [[ -n "${asset}" ]]; then
   expect_status 200 "GET ${asset}" "${web}${asset}"

@@ -13,5 +13,6 @@ export default tseslint.config(
     plugins: { "react-hooks": reactHooks },
     rules: { ...reactHooks.configs.recommended.rules }
   },
+  { files: ["public/sw.js"], languageOptions: { globals: globals.serviceworker } },
   { files: ["e2e/**", "playwright.config.ts"], languageOptions: { globals: globals.node }, rules: { "react-hooks/rules-of-hooks": "off" } }
 );

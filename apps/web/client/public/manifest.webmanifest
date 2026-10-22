@@ -1,0 +1,17 @@
+{
+  "name": "球球布丁工作室",
+  "short_name": "球球布丁",
+  "description": "个人 AI 对话工作台",
+  "lang": "zh-CN",
+  "id": "/app/",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#F8F9FB",
+  "theme_color": "#2A4BD0",
+  "icons": [
+    { "src": "/app/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/app/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/app/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
