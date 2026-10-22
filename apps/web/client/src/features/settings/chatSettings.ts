@@ -231,7 +231,7 @@ export function differences(workspace: WorkspaceConfig, settings: ChatSettings, 
   const theirs = toRunOptions(workspace, withModel(workspace, defaults, settings.providerId, settings.modelName));
   if (!same([mine.thinkingEnabled, mine.thinkingLevel, mine.thinkingBudget], [theirs.thinkingEnabled, theirs.thinkingLevel, theirs.thinkingBudget])) keys.push("thinking");
   if (settings.searchMode !== defaults.searchMode) keys.push("searchMode");
-  if (settings.presetId !== defaults.presetId || (settings.presetId === "custom" && settings.customPrompt !== "")) keys.push("preset");
+  if (settings.presetId !== defaults.presetId || (settings.presetId === "custom" && settings.customPrompt !== defaults.customPrompt)) keys.push("preset");
   if (!same(settings.advanced.temperature, defaults.advanced.temperature)) keys.push("temperature");
   if (!same(settings.advanced.topP, defaults.advanced.topP)) keys.push("topP");
   if (!same(settings.advanced.maxOutputTokens, defaults.advanced.maxOutputTokens)) keys.push("maxOutputTokens");
@@ -249,7 +249,7 @@ export function resetSetting(workspace: WorkspaceConfig, settings: ChatSettings,
     case "searchMode":
       return { ...settings, searchMode: defaults.searchMode };
     case "preset":
-      return { ...settings, presetId: defaults.presetId, customPrompt: "" };
+      return { ...settings, presetId: defaults.presetId, customPrompt: defaults.presetId === "custom" ? defaults.customPrompt : "" };
     default: {
       const advanced = { ...settings.advanced };
       if (defaults.advanced[key] === undefined) delete advanced[key];
@@ -257,4 +257,9 @@ export function resetSetting(workspace: WorkspaceConfig, settings: ChatSettings,
       return { ...settings, advanced };
     }
   }
+}
+
+/** What a new conversation starts with: my defaults, with the default role's prompt in place if one is set. */
+export function startingSettings(defaults: ChatSettings, role: { prompt: string } | undefined): ChatSettings {
+  return role ? { ...defaults, presetId: "custom", customPrompt: role.prompt } : defaults;
 }

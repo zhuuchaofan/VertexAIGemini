@@ -286,7 +286,9 @@ export interface RunApi {
   getDefaults(): Promise<StoredSettings | null>;
   putDefaults(settings: StoredSettings): Promise<StoredSettings | null>;
   putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void>;
-  listRoles(): Promise<{ roles: UserRole[]; maxRoles: number }>;
+  listRoles(): Promise<{ roles: UserRole[]; maxRoles: number; defaultRoleId: string | null }>;
+  /** The role a new conversation starts with; null clears it. */
+  setDefaultRole(roleId: string | null): Promise<void>;
   createRole(role: { name: string; prompt: string }): Promise<UserRole>;
   updateRole(id: string, role: { name: string; prompt: string }): Promise<UserRole>;
   deleteRole(id: string): Promise<void>;

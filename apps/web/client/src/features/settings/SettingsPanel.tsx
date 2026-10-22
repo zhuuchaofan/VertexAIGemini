@@ -3,7 +3,7 @@ import type { WorkspaceConfig } from "../../api/types";
 import { Segmented } from "../composer/Segmented";
 import { differences, resetSetting, type ChatSettings } from "./chatSettings";
 import { SettingsFields } from "./SettingsFields";
-import { useRoles, type RoleApi } from "./useRoles";
+import type { Roles } from "./useRoles";
 
 interface Props {
   workspace: WorkspaceConfig;
@@ -16,8 +16,10 @@ interface Props {
   onSaveDefaults: (settings: ChatSettings) => Promise<void>;
   /** Where this conversation's settings live: "new" until the first message creates it. */
   sessionState: "new" | "saved" | "failed";
-  /** Where "我的角色" live. Without it the panel offers only the built-in presets. */
-  roleApi?: RoleApi;
+  /** What a new conversation started from (my defaults plus the default role); "same as default" is measured against it. */
+  initial?: ChatSettings;
+  /** "我的角色". Without it the panel offers only the built-in presets. */
+  roles?: Roles;
   onClose?: () => void;
   idPrefix: string;
 }
@@ -32,8 +34,7 @@ const tabs = [
 
 const sameSettings = (a: ChatSettings, b: ChatSettings) => JSON.stringify({ ...a, customPrompt: "" }) === JSON.stringify({ ...b, customPrompt: "" });
 
-export function SettingsPanel({ workspace, safetyThresholds, settings, onSettings, defaults, onSaveDefaults, sessionState, roleApi, onClose, idPrefix }: Props) {
-  const roles = useRoles(roleApi);
+export function SettingsPanel({ workspace, safetyThresholds, settings, onSettings, defaults, onSaveDefaults, sessionState, initial = defaults, roles, onClose, idPrefix }: Props) {
   const [tab, setTab] = useState<Tab>("session");
   const [draft, setDraft] = useState(defaults);
   const [seenDefaults, setSeenDefaults] = useState(defaults);
@@ -45,7 +46,7 @@ export function SettingsPanel({ workspace, safetyThresholds, settings, onSetting
     setDraft(defaults);
   }
 
-  const differing = differences(workspace, settings, defaults);
+  const differing = differences(workspace, settings, initial);
 
   const saveDefaults = async (value: ChatSettings) => {
     setSave({ kind: "saving" });
@@ -79,7 +80,7 @@ export function SettingsPanel({ workspace, safetyThresholds, settings, onSetting
               allowPrompt
               differing={differing}
               roles={roles}
-              onReset={key => onSettings(resetSetting(workspace, settings, defaults, key))}
+              onReset={key => onSettings(resetSetting(workspace, settings, initial, key))}
               idPrefix={`${idPrefix}-session`}
             />
             {sessionState === "new" && <p className="hint">新对话：发送第一条消息后，这些设置会随会话保存。</p>}
@@ -106,7 +107,7 @@ export function SettingsPanel({ workspace, safetyThresholds, settings, onSetting
             {differing.length > 0 ? (
               <span className="foot-note">
                 与默认不同：{differing.length} 项 ·{" "}
-                <button type="button" className="link" onClick={() => onSettings(differing.reduce((current, key) => resetSetting(workspace, current, defaults, key), settings))}>
+                <button type="button" className="link" onClick={() => onSettings(differing.reduce((current, key) => resetSetting(workspace, current, initial, key), settings))}>
                   全部恢复
                 </button>
               </span>

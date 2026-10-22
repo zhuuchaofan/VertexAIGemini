@@ -55,7 +55,9 @@ export class FakeRunApi implements RunApi {
   async getDefaults() { return this.defaults; }
   async putDefaults(settings: import("../../api/types").StoredSettings) { this.savedDefaults.push(settings); this.defaults = settings; return settings; }
   roles: { id: string; name: string; prompt: string }[] = [];
-  async listRoles() { return { roles: this.roles, maxRoles: 30 }; }
+  defaultRoleId: string | null = null;
+  async listRoles() { return { roles: this.roles, maxRoles: 30, defaultRoleId: this.defaultRoleId }; }
+  async setDefaultRole(roleId: string | null) { this.defaultRoleId = roleId; }
   async createRole(role: { name: string; prompt: string }) { const created = { id: `r${this.roles.length + 1}`, ...role }; this.roles.push(created); return created; }
   async updateRole(id: string, role: { name: string; prompt: string }) { const updated = { id, ...role }; this.roles = this.roles.map(r => (r.id === id ? updated : r)); return updated; }
   async deleteRole(id: string) { this.roles = this.roles.filter(r => r.id !== id); }

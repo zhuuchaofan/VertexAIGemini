@@ -96,6 +96,15 @@ export function RoleEditor({ roles, current, adHocPrompt, onUse, idPrefix }: Pro
           <button type="button" className="link" disabled={busy} onClick={() => remove(current)}>
             删除角色
           </button>
+          {roles.defaultRoleId === current.id ? (
+            <button type="button" className="link" disabled={busy} onClick={() => void run(() => roles.setDefault(null))}>
+              取消默认角色
+            </button>
+          ) : (
+            <button type="button" className="link" disabled={busy} onClick={() => void run(() => roles.setDefault(current.id))}>
+              设为默认角色
+            </button>
+          )}
         </>
       )}
       {!current && adHocPrompt.trim() && (
@@ -107,6 +116,7 @@ export function RoleEditor({ roles, current, adHocPrompt, onUse, idPrefix }: Pro
         新建角色
       </button>
       {full && <span className="hint">最多保存 {roles.maxRoles} 个角色。</span>}
+      {roles.defaultRoleId && !current && <span className="hint">新对话默认使用「{roles.roles.find(role => role.id === roles.defaultRoleId)?.name}」。</span>}
       {error && <p className="field-error" role="alert">{error}</p>}
       {note && <p className="hint" role="status">{note}</p>}
     </div>

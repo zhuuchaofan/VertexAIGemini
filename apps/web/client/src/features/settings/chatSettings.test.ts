@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelOption, WorkspaceConfig } from "../../api/types";
-import { capabilities, defaultSettings, thinkingLabel, toRunOptions, withModel } from "./chatSettings";
+import { capabilities, defaultSettings, startingSettings, thinkingLabel, toRunOptions, withModel } from "./chatSettings";
 
 const gemini: ModelOption = {
   name: "Gemini", modelName: "g-flash", description: "", supportsThinking: true, supportsSampling: false, maxTokens: 65536,
@@ -136,5 +136,15 @@ describe("stored layers", () => {
     const otherModel = withModel(workspace, defaults, "other", "q");
     expect(differences(workspace, otherModel, defaults)).toContain("model");
     expect(resetSetting(workspace, otherModel, defaults, "model").modelName).toBe("g-flash");
+  });
+
+  it("starts a new conversation from the default role, and measures changes against that start", () => {
+    const defaults = defaultSettings(workspace);
+    expect(startingSettings(defaults, undefined)).toBe(defaults);
+    const start = startingSettings(defaults, { prompt: "你是写作搭子" });
+    expect(start).toMatchObject({ presetId: "custom", customPrompt: "你是写作搭子", modelName: defaults.modelName });
+    expect(differences(workspace, start, start)).toEqual([]);
+    expect(differences(workspace, { ...start, customPrompt: "别的" }, start)).toContain("preset");
+    expect(resetSetting(workspace, { ...start, presetId: "default", customPrompt: "" }, start, "preset")).toMatchObject({ presetId: "custom", customPrompt: "你是写作搭子" });
   });
 });

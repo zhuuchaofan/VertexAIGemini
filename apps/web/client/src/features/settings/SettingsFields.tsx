@@ -160,6 +160,7 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
               {userRoles.map(role => (
                 <option key={role.id} value={`role:${role.id}`}>
                   {role.name}
+                  {roles?.defaultRoleId === role.id ? "（默认）" : ""}
                 </option>
               ))}
             </optgroup>

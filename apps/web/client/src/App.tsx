@@ -6,6 +6,8 @@ import { ChatView } from "./features/chat/ChatView";
 import { Sidebar } from "./features/conversations/Sidebar";
 import { listDraftIds } from "./features/drafts/drafts";
 import { useDefaults } from "./features/workspace/useDefaults";
+import { startingSettings } from "./features/settings/chatSettings";
+import { useRoles } from "./features/settings/useRoles";
 import { useWorkspace } from "./features/workspace/useWorkspace";
 import { LoginForm } from "./LoginForm";
 import { useRoute } from "./route";
@@ -97,11 +99,12 @@ interface ReadyProps extends WorkbenchProps {
 
 function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
   const defaults = useDefaults(api, workspace);
+  const roles = useRoles(api);
   const [draftsVersion, setDraftsVersion] = useState(0);
   // Re-read whenever a draft changed or the list did; reading local storage is cheap.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const draftIds = useMemo(() => listDraftIds(), [draftsVersion, listVersion]);
-  if (defaults.status === "loading") {
+  if (defaults.status === "loading" || !roles.loaded) {
     return <main className="boot"><p>正在读取你的默认设置…</p></main>;
   }
 
@@ -134,6 +137,8 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, lis
           conversationId={conversationId}
           workspace={workspace}
           defaults={defaults.defaults}
+          initial={startingSettings(defaults.defaults, roles.roles.find(role => role.id === roles.defaultRoleId))}
+          roles={roles}
           onSaveDefaults={defaults.save}
           safetyThresholds={safetyThresholds}
           onMenu={() => setDrawer(true)}

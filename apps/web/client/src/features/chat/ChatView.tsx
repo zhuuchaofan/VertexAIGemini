@@ -16,6 +16,7 @@ import type { Observed } from "../inspector/runDetails";
 import { useObserved } from "../inspector/useObserved";
 import { Segmented } from "../composer/Segmented";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import type { Roles } from "../settings/useRoles";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
 import { buildThread, canRetry, runNote } from "./thread";
@@ -27,6 +28,9 @@ interface Props {
   workspace: WorkspaceConfig;
   /** "My defaults": what a new conversation starts with. */
   defaults: ChatSettings;
+  /** What a new conversation starts with: the defaults, with the default role's prompt in place. */
+  initial: ChatSettings;
+  roles: Roles;
   onSaveDefaults: (settings: ChatSettings) => Promise<void>;
   /** The filter levels this account may choose from. */
   safetyThresholds: string[];
@@ -77,7 +81,7 @@ function useElapsed(startedAt: number | null, running: boolean): number {
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-export function ChatView({ api, conversationId, workspace, defaults, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, draftKey, onDraftsChanged, onListChanged, onDeleted, pending = localPendingStore }: Props) {
+export function ChatView({ api, conversationId, workspace, defaults, initial, roles, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, draftKey, onDraftsChanged, onListChanged, onDeleted, pending = localPendingStore }: Props) {
   const mobile = useIsMobile();
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -93,7 +97,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
   });
   // Leaving the conversation lets go of the local picture previews.
   useEffect(() => () => held.current.forEach(releasePreview), []);
-  const [settings, setSettings] = useState<ChatSettings>(defaults);
+  const [settings, setSettings] = useState<ChatSettings>(initial);
   const touched = useRef(false);
   // The desktop inspector remembers whether it was open; on a phone it is a sheet and always starts closed.
   const [settingsOpen, setSettingsOpen] = useState(() => !mobile && readInspectorOpen());
@@ -416,9 +420,10 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
       settings={settings}
       onSettings={updateSettings}
       defaults={defaults}
+      initial={initial}
       onSaveDefaults={onSaveDefaults}
       sessionState={sessionState}
-      roleApi={api}
+      roles={roles}
       onClose={onClose}
       idPrefix={mobile ? "sheet" : "inspector"}
     />

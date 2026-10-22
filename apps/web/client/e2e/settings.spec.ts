@@ -194,3 +194,31 @@ test("a saved role is offered in the preset list, is remembered by the conversat
   await expect(again.getByLabel("自定义提示词")).toHaveValue("你是我的写作搭子");
   await expect(again.getByLabel("提示词预设")).toHaveValue("custom");
 });
+
+test("a role set as default is what a new conversation starts with, until the default is cleared", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = [];
+  page.on("request", request => {
+    if (request.method() === "POST" && request.url().endsWith("/api/v2/runs")) bodies.push(request.postDataJSON());
+  });
+
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "新建角色" }).click();
+  await panel.getByLabel("角色名").fill("默认搭子");
+  await panel.getByLabel("提示词", { exact: true }).fill("你是默认搭子");
+  await panel.getByRole("button", { name: "保存角色" }).click();
+  await panel.getByRole("button", { name: "设为默认角色" }).click();
+  await expect(panel.getByRole("button", { name: "取消默认角色" })).toBeVisible();
+
+  // A fresh page load, a fresh conversation: it starts on the default role without touching the settings.
+  await page.goto("/app/");
+  const again = await openSettings(page);
+  await expect(again.getByLabel("提示词预设")).toHaveValue(/^role:/);
+  await ask(page, "hello");
+  await expect(page.locator(".bubble.model")).toContainText("received", { timeout: 15_000 });
+  expect(bodies.at(-1)).toMatchObject({ presetId: "custom", customPrompt: "你是默认搭子" });
+
+  await again.getByRole("button", { name: "取消默认角色" }).click();
+  await page.goto("/app/");
+  const cleared = await openSettings(page);
+  await expect(cleared.getByLabel("提示词预设")).toHaveValue("default");
+});

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ModelOption, WorkspaceConfig } from "../../api/types";
 import { defaultSettings, withModel, type ChatSettings } from "./chatSettings";
 import { SettingsPanel } from "./SettingsPanel";
-import type { RoleApi } from "./useRoles";
+import { useRoles, type RoleApi } from "./useRoles";
 
 const levels: ModelOption = {
   name: "Levels", modelName: "levels", description: "", supportsThinking: true, supportsSampling: false, maxTokens: 8192,
@@ -24,8 +24,10 @@ const workspace: WorkspaceConfig = {
 
 function fakeRoles(initial: { id: string; name: string; prompt: string }[] = []) {
   let roles = initial;
+  let defaultRoleId: string | null = null;
   const api: RoleApi = {
-    listRoles: vi.fn(async () => ({ roles, maxRoles: 30 })),
+    listRoles: vi.fn(async () => ({ roles, maxRoles: 30, defaultRoleId })),
+    setDefaultRole: vi.fn(async id => { defaultRoleId = id; }),
     createRole: vi.fn(async role => { const created = { id: `r${roles.length + 1}`, ...role }; roles = [...roles, created]; return created; }),
     updateRole: vi.fn(async (id, role) => { const updated = { id, ...role }; roles = roles.map(r => (r.id === id ? updated : r)); return updated; }),
     deleteRole: vi.fn(async id => { roles = roles.filter(r => r.id !== id); })
@@ -38,10 +40,11 @@ function Harness({ roleApi, onSaveDefaults = vi.fn().mockResolvedValue(undefined
 }) {
   const defaults = defaultSettings(workspace);
   const [settings, setSettings] = useState<ChatSettings>(start ?? defaults);
+  const roles = useRoles(roleApi);
   return (
     <SettingsPanel
       workspace={workspace} safetyThresholds={thresholds} settings={settings} onSettings={setSettings}
-      defaults={defaults} onSaveDefaults={onSaveDefaults} sessionState="saved" roleApi={roleApi} idPrefix="t"
+      defaults={defaults} onSaveDefaults={onSaveDefaults} sessionState="saved" roles={roleApi ? roles : undefined} idPrefix="t"
     />
   );
 }
@@ -178,5 +181,17 @@ describe("SettingsPanel", () => {
     render(<Harness roleApi={fakeRoles([{ id: "r1", name: "写作搭子", prompt: "x" }])} />);
     fireEvent.click(screen.getByRole("radio", { name: "我的默认" }));
     expect(screen.queryByRole("button", { name: "新建角色" })).toBeNull();
+  });
+
+  it("sets and clears the default role, and marks it in the list", async () => {
+    const api = fakeRoles([{ id: "r1", name: "写作搭子", prompt: "你是写作搭子" }]);
+    render(<Harness roleApi={api} start={{ ...defaultSettings(workspace), presetId: "custom", customPrompt: "你是写作搭子" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "设为默认角色" }));
+    await waitFor(() => expect(api.setDefaultRole).toHaveBeenCalledWith("r1"));
+    expect(await screen.findByRole("option", { name: "写作搭子（默认）" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "取消默认角色" }));
+    await waitFor(() => expect(api.setDefaultRole).toHaveBeenLastCalledWith(null));
+    expect(await screen.findByRole("option", { name: "写作搭子" })).toBeInTheDocument();
   });
 });

@@ -305,6 +305,46 @@ internal static class SettingsTests
         Assert.Equal(HttpStatusCode.OK, (await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "again", prompt = "p" })).StatusCode);
     }
 
+    public static void ADefaultRoleIsKeptCheckedAndClearedWithItsRole() => Wait(Async9());
+    private static async Task Async9()
+    {
+        var h = new RunHarness();
+        using var host = new Host(h, h.User);
+        async Task<string?> DefaultId()
+        {
+            var value = (await GetAsync(host, "/api/v2/me/roles")).GetProperty("defaultRoleId");
+            return value.ValueKind == JsonValueKind.Null ? null : value.GetString();
+        }
+        Assert.Equal(null, await DefaultId());
+
+        var created = await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "默认角色", prompt = "p" });
+        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("role").GetProperty("id").GetString()!;
+
+        Assert.Equal(HttpStatusCode.NotFound, (await host.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = Guid.NewGuid().ToString("N") })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await host.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = "nope" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await host.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = id })).StatusCode);
+        Assert.Equal(id, await DefaultId());
+
+        // Another account has its own default (none) and cannot name this role.
+        var other = new AuthenticatedUser(Guid.NewGuid(), "uid-" + Guid.NewGuid().ToString("N"), "other@example.test");
+        using (var otherHost = new Host(h, other))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await otherHost.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = id })).StatusCode);
+            Assert.Equal(JsonValueKind.Null, (await GetAsync(otherHost, "/api/v2/me/roles")).GetProperty("defaultRoleId").ValueKind);
+        }
+
+        // Defaults saved the usual way do not disturb it, and it can be cleared.
+        Assert.Equal(HttpStatusCode.OK, (await host.Http.PutAsJsonAsync("/api/v2/me/settings", Settings())).StatusCode);
+        Assert.Equal(id, await DefaultId());
+        Assert.Equal(HttpStatusCode.NoContent, (await host.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = (string?)null })).StatusCode);
+        Assert.Equal(null, await DefaultId());
+
+        // Deleting the default role clears the default.
+        await host.Http.PutAsJsonAsync("/api/v2/me/default-role", new { roleId = id });
+        Assert.Equal(HttpStatusCode.NoContent, (await host.Http.DeleteAsync($"/api/v2/me/roles/{id}")).StatusCode);
+        Assert.Equal(null, await DefaultId());
+    }
+
     public static void RoleRoutesAreDarkUntilEnabledAndNeedASignedInUser() => Wait(Async8());
     private static async Task Async8()
     {

@@ -174,10 +174,20 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       if (!response.ok) await fail(response);
     },
 
-    async listRoles(): Promise<{ roles: UserRole[]; maxRoles: number }> {
+    async listRoles(): Promise<{ roles: UserRole[]; maxRoles: number; defaultRoleId: string | null }> {
       const response = await request("/api/v2/me/roles");
       if (!response.ok) await fail(response);
-      return (await response.json()) as { roles: UserRole[]; maxRoles: number };
+      const body = (await response.json()) as { roles: UserRole[]; maxRoles: number; defaultRoleId?: string | null };
+      return { ...body, defaultRoleId: body.defaultRoleId ?? null };
+    },
+
+    async setDefaultRole(roleId: string | null): Promise<void> {
+      const response = await request("/api/v2/me/default-role", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roleId })
+      });
+      if (!response.ok) await fail(response);
     },
 
     async createRole(role: { name: string; prompt: string }): Promise<UserRole> {

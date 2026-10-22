@@ -286,3 +286,4 @@ gcloud run services update vertex-ai-api --region asia-east1 --update-env-vars=G
 - 选中角色时，提示词文本被**复制**进当前会话（会话预设记为 `custom`），每次运行照常把实际使用的提示词记在该次运行的 `requested.customPrompt`。之后再改或删角色，不影响已有会话和历史运行。
 - 要换成新版角色提示词，在会话里重新选一次该角色即可。
 - 无需新的 Firestore 索引、无新增环境变量；发布方式与其他功能相同（`plan / build / deploy / verify / promote`）。
+- 选中某个角色后点「设为默认角色」，之后新建的会话从这个角色开始（默认存在 `userSettings/{uid}.defaultRoleId`，接口 `PUT /api/v2/me/default-role`；删除该角色会同时清除默认）。已有会话不受影响。

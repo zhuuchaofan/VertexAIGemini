@@ -18,6 +18,12 @@ public interface IUserRoleStore
     Task<UserRole?> UpdateAsync(AuthenticatedUser user, string id, string name, string prompt, CancellationToken cancellationToken);
 
     Task<bool> DeleteAsync(AuthenticatedUser user, string id, CancellationToken cancellationToken);
+
+    /// <summary>The role a new conversation starts with, or null. A default that no longer names a role reads as null.</summary>
+    Task<string?> GetDefaultAsync(AuthenticatedUser user, CancellationToken cancellationToken);
+
+    /// <summary>Null clears the default. Returns false when the id names no role of this person.</summary>
+    Task<bool> SetDefaultAsync(AuthenticatedUser user, string? id, CancellationToken cancellationToken);
 }
 
 public static class UserRoleValidator
@@ -46,10 +52,12 @@ public sealed class FirestoreUserRoleStore(FirestoreDb db) : IUserRoleStore
 {
     private const string RolesCollection = "roles";
 
-    private CollectionReference Roles(AuthenticatedUser user) =>
-        db.Collection(FirestoreSettingsStore.UserSettingsCollection)
-            .Document(FirestoreConversationSchema.UserDocumentId(user))
-            .Collection(RolesCollection);
+    private const string DefaultRoleField = "defaultRoleId";
+
+    private DocumentReference UserDocument(AuthenticatedUser user) =>
+        db.Collection(FirestoreSettingsStore.UserSettingsCollection).Document(FirestoreConversationSchema.UserDocumentId(user));
+
+    private CollectionReference Roles(AuthenticatedUser user) => UserDocument(user).Collection(RolesCollection);
 
     private static UserRole Read(DocumentSnapshot snapshot) => new(
         snapshot.Id,
@@ -109,11 +117,43 @@ public sealed class FirestoreUserRoleStore(FirestoreDb db) : IUserRoleStore
     {
         if (!UserRoleValidator.IsRoleId(id)) return false;
         var reference = Roles(user).Document(id);
+        var userDocument = UserDocument(user);
         return await db.RunTransactionAsync(async transaction =>
         {
             var snapshot = await transaction.GetSnapshotAsync(reference, cancellationToken);
+            var owner = await transaction.GetSnapshotAsync(userDocument, cancellationToken);
             if (!snapshot.Exists) return false;
             transaction.Delete(reference);
+            if (owner.Exists && owner.TryGetValue<string>(DefaultRoleField, out var current) && current == id)
+                transaction.Update(userDocument, new Dictionary<string, object> { [DefaultRoleField] = FieldValue.Delete });
+            return true;
+        }, cancellationToken: cancellationToken);
+    }
+
+    public async Task<string?> GetDefaultAsync(AuthenticatedUser user, CancellationToken cancellationToken)
+    {
+        var owner = await UserDocument(user).GetSnapshotAsync(cancellationToken);
+        if (!owner.Exists || !owner.TryGetValue<string>(DefaultRoleField, out var id) || !UserRoleValidator.IsRoleId(id)) return null;
+        var role = await Roles(user).Document(id).GetSnapshotAsync(cancellationToken);
+        return role.Exists ? id : null;
+    }
+
+    public async Task<bool> SetDefaultAsync(AuthenticatedUser user, string? id, CancellationToken cancellationToken)
+    {
+        var userDocument = UserDocument(user);
+        if (id == null)
+        {
+            await userDocument.SetAsync(new Dictionary<string, object> { [DefaultRoleField] = FieldValue.Delete }, SetOptions.MergeAll, cancellationToken);
+            return true;
+        }
+
+        if (!UserRoleValidator.IsRoleId(id)) return false;
+        var reference = Roles(user).Document(id);
+        return await db.RunTransactionAsync(async transaction =>
+        {
+            var role = await transaction.GetSnapshotAsync(reference, cancellationToken);
+            if (!role.Exists) return false;
+            transaction.Set(userDocument, new Dictionary<string, object> { [DefaultRoleField] = id }, SetOptions.MergeAll);
             return true;
         }, cancellationToken: cancellationToken);
     }

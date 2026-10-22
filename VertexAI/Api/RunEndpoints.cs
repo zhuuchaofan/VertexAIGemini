@@ -31,6 +31,7 @@ public static class RunEndpoints
         group.MapPost("/me/roles", CreateRoleAsync);
         group.MapPut("/me/roles/{roleId}", UpdateRoleAsync);
         group.MapDelete("/me/roles/{roleId}", DeleteRoleAsync);
+        group.MapPut("/me/default-role", PutDefaultRoleAsync);
     }
 
     /// <summary>
@@ -113,6 +114,24 @@ public static class RunEndpoints
     // ------------------------------------------------------------------------------------------------ my roles
 
     internal sealed record ApiRoleBody(string? Name, string? Prompt);
+    internal sealed record ApiDefaultRoleBody(string? RoleId);
+
+    private static async Task PutDefaultRoleAsync(
+        ApiDefaultRoleBody? body, HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var roleId = string.IsNullOrWhiteSpace(body?.RoleId) ? null : body!.RoleId;
+        if (!await roles.SetDefaultAsync(user, roleId, context.RequestAborted))
+        {
+            await Error(context, StatusCodes.Status404NotFound, "not_found", "Role not found.");
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+    }
 
     private static async Task ListRolesAsync(
         HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
@@ -122,7 +141,12 @@ public static class RunEndpoints
         if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
 
         await context.Response.WriteAsJsonAsync(
-            new { roles = await roles.ListAsync(user, context.RequestAborted), maxRoles = UserRoleValidator.MaxRoles }, Json);
+            new
+            {
+                roles = await roles.ListAsync(user, context.RequestAborted),
+                maxRoles = UserRoleValidator.MaxRoles,
+                defaultRoleId = await roles.GetDefaultAsync(user, context.RequestAborted)
+            }, Json);
     }
 
     private static async Task CreateRoleAsync(
