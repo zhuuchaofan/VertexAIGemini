@@ -122,7 +122,7 @@ $S status      # 随时查看：当前修订、v2 开关、默认界面、本机
 - `WEB_DEFAULT_UI` = `legacy` 或 `next`（与当前线上一致）
 - `WEB_TIMEOUT` 保持 `300s`
 
-否则第一次自动部署会把这两个开关重置为默认值。**这就是现在不合并 `main` 的原因之一。**
+合并到 `main` 不会触发部署（`deploy-cloud-run.yml` 已改为只能手动运行）；发布一律用本手册的 Cloud Shell 流程。
 
 ## 4. 部署后的真实验证清单
 

@@ -1,10 +1,8 @@
 name: Deploy Cloud Run
 
+# Manual only: merging to main never deploys. Releases are run from Cloud Shell
+# (scripts/release-cloud-shell.sh); this workflow stays available for a deliberate manual run.
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
     inputs:
       deploy_target:
