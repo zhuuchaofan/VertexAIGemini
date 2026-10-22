@@ -18,8 +18,11 @@ const budget: ModelOption = {
 };
 const presets = [{ id: "default", name: "默认助手", prompt: "", description: "" }, { id: "custom", name: "自定义", prompt: "", description: "" }];
 const workspace: WorkspaceConfig = {
-  defaultProviderId: "p",
-  providers: [{ provider: { id: "p", name: "P", description: "" }, models: [levels, plain, budget], presets, defaultPresetId: "default", defaultModelName: "levels" }]
+  defaultProviderId: "gemini",
+  providers: [
+    { provider: { id: "gemini", name: "P", description: "" }, models: [levels, plain, budget], presets, defaultPresetId: "default", defaultModelName: "levels" },
+    { provider: { id: "grok", name: "G", description: "" }, models: [plain], presets, defaultPresetId: "default", defaultModelName: "plain" }
+  ]
 };
 
 function fakeRoles(initial: { id: string; name: string; prompt: string }[] = []) {
@@ -57,13 +60,13 @@ describe("SettingsPanel", () => {
     expect(screen.queryByLabelText("温度")).toBeNull();
     expect(screen.getByText(/忽略温度和 Top-P/)).toBeInTheDocument();
 
-    rerender(<Harness key="plain" start={withModel(workspace, defaultSettings(workspace), "p", "plain")} />);
+    rerender(<Harness key="plain" start={withModel(workspace, defaultSettings(workspace), "gemini", "plain")} />);
     expect(screen.queryByRole("radiogroup", { name: "思考级别" })).toBeNull();
     expect(screen.queryByText("思考")).toBeNull();
     expect(screen.getByLabelText("温度")).toBeInTheDocument();
     expect(screen.getByLabelText("Top-P")).toBeInTheDocument();
 
-    rerender(<Harness key="budget" start={withModel(workspace, defaultSettings(workspace), "p", "budget")} />);
+    rerender(<Harness key="budget" start={withModel(workspace, defaultSettings(workspace), "gemini", "budget")} />);
     expect(screen.getByRole("checkbox", { name: "开启思考" })).toBeInTheDocument();
     expect(screen.getByLabelText("思考预算（token）")).toHaveValue(2000);
   });
@@ -76,8 +79,14 @@ describe("SettingsPanel", () => {
     expect(screen.queryByLabelText("内容过滤")).toBeNull();
   });
 
+  it("says the model has no filter setting instead of offering one it would ignore", () => {
+    render(<Harness start={withModel(workspace, defaultSettings(workspace), "grok", "plain")} />);
+    expect(screen.queryByLabelText("内容过滤")).toBeNull();
+    expect(screen.getByText(/没有可调的内容过滤/)).toBeInTheDocument();
+  });
+
   it("explains an out-of-range number instead of passing it on, and keeps the last good value", () => {
-    render(<Harness start={withModel(workspace, defaultSettings(workspace), "p", "plain")} />);
+    render(<Harness start={withModel(workspace, defaultSettings(workspace), "gemini", "plain")} />);
     const temperature = screen.getByLabelText("温度");
     fireEvent.change(temperature, { target: { value: "3" } });
     expect(screen.getByRole("alert")).toHaveTextContent("0 至 2");

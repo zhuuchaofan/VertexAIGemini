@@ -83,13 +83,21 @@ public static class RunErrors
     private static RunError Filtered(RunErrorContext? context, string detail)
     {
         var reason = string.IsNullOrWhiteSpace(context?.FinishReason) ? "" : $"（结束原因：{context.FinishReason}）";
+        if (!string.Equals(context?.ProviderId, "gemini", StringComparison.OrdinalIgnoreCase))
+            return new RunError(RunReasons.Safety,
+                $"这条回复被模型自带的内容过滤拦截了{reason}。这个模型没有可调的过滤开关。",
+                true,
+                "过滤有一定随机性，可以点「重试」；也可以换一种说法，或换一个预设/模型再试。",
+                detail,
+                "拦截来自模型服务商（Grok 为 xAI，经 Vertex AI 返回 finish_reason=content_filter），应用和 Google Cloud 项目里都没有可关的开关。" +
+                "排查办法：用中性的预设发同一句话，确认是不是提示词触发；很短的开场（比如「开始吧」）配上尺度较大的系统提示词最容易被拦。");
         return new RunError(RunReasons.Safety,
             $"这条回复被模型服务商的内容过滤拦截了{reason}。",
             true,
             "过滤有一定随机性，可以点「重试」；也可以换一种说法，或换一个预设/模型再试。",
             detail,
             "拦截发生在模型服务商那一侧，应用无法关闭它。排查办法：用中性的预设发同一句话，确认是不是提示词触发；很短的开场（比如「开始吧」）配上尺度较大的系统提示词最容易被拦。" +
-            "Gemini 的过滤级别可以在 设置 → 高级 → 内容过滤 里调整（管理员账号可选更宽松的级别）；Grok 等其他模型没有这个开关，只能换提示词或换模型。");
+            "Gemini 的过滤级别可以在 设置 → 高级 → 内容过滤 里调整（管理员账号可选更宽松的级别）。");
     }
 
     private static RunError Empty(RunErrorContext? context, string detail)

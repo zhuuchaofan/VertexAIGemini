@@ -238,7 +238,13 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
               onChange={maxOutputTokens => onChange({ ...settings, advanced: omit({ ...settings.advanced, maxOutputTokens }) })}
             />
           </div>
-          {safetyThresholds.length > 0 && (
+          {safetyThresholds.length > 0 && settings.providerId !== "gemini" && (
+            <div>
+              {heading("内容过滤", "safetyThreshold")}
+              <p className="hint">这个模型没有可调的内容过滤；如果回复被拦，只能换提示词或换模型。</p>
+            </div>
+          )}
+          {safetyThresholds.length > 0 && settings.providerId === "gemini" && (
             <div>
               {heading("内容过滤", "safetyThreshold")}
               <select
