@@ -27,6 +27,10 @@ public static class RunEndpoints
         group.MapGet("/me/settings", GetDefaultsAsync);
         group.MapPut("/me/settings", PutDefaultsAsync);
         group.MapPut("/conversations/{conversationId:guid}/settings", PutConversationSettingsAsync);
+        group.MapGet("/me/roles", ListRolesAsync);
+        group.MapPost("/me/roles", CreateRoleAsync);
+        group.MapPut("/me/roles/{roleId}", UpdateRoleAsync);
+        group.MapDelete("/me/roles/{roleId}", DeleteRoleAsync);
     }
 
     /// <summary>
@@ -100,6 +104,73 @@ public static class RunEndpoints
         {
             // Not yours and not there look the same.
             await Error(context, StatusCodes.Status404NotFound, "not_found", "Conversation not found.");
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+    }
+
+    // ------------------------------------------------------------------------------------------------ my roles
+
+    internal sealed record ApiRoleBody(string? Name, string? Prompt);
+
+    private static async Task ListRolesAsync(
+        HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        await context.Response.WriteAsJsonAsync(
+            new { roles = await roles.ListAsync(user, context.RequestAborted), maxRoles = UserRoleValidator.MaxRoles }, Json);
+    }
+
+    private static async Task CreateRoleAsync(
+        ApiRoleBody? body, HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var (name, prompt, error) = UserRoleValidator.Validate(body?.Name, body?.Prompt);
+        if (error != null) { await Error(context, StatusCodes.Status400BadRequest, "invalid_role", error); return; }
+
+        var role = await roles.CreateAsync(user, name, prompt, context.RequestAborted);
+        if (role == null)
+        {
+            await Error(context, StatusCodes.Status409Conflict, "too_many_roles", $"最多保存 {UserRoleValidator.MaxRoles} 个角色，请先删掉不用的。");
+            return;
+        }
+
+        await context.Response.WriteAsJsonAsync(new { role }, Json);
+    }
+
+    private static async Task UpdateRoleAsync(
+        string roleId, ApiRoleBody? body, HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        var (name, prompt, error) = UserRoleValidator.Validate(body?.Name, body?.Prompt);
+        if (error != null) { await Error(context, StatusCodes.Status400BadRequest, "invalid_role", error); return; }
+
+        var role = await roles.UpdateAsync(user, roleId, name, prompt, context.RequestAborted);
+        if (role == null) { await Error(context, StatusCodes.Status404NotFound, "not_found", "Role not found."); return; }
+
+        await context.Response.WriteAsJsonAsync(new { role }, Json);
+    }
+
+    private static async Task DeleteRoleAsync(
+        string roleId, HttpContext context, IUserContext users, IUserRoleStore roles, IOptions<RunSettings> runSettings)
+    {
+        if (!runSettings.Value.Enabled) { context.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+        var user = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (user == null) { await Error(context, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized"); return; }
+
+        if (!await roles.DeleteAsync(user, roleId, context.RequestAborted))
+        {
+            await Error(context, StatusCodes.Status404NotFound, "not_found", "Role not found.");
             return;
         }
 

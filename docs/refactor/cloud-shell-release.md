@@ -286,3 +286,11 @@ gcloud run services update vertex-ai-api --region asia-east1 --update-env-vars=G
 | `WebSearch__UtcOffsetHours` | `8` | 告诉模型的日期所用的时区 |
 
 没有真实验证的部分：对着真实 Vertex 的“判断 + 带搜索的 Gemini 调用”（含思考档位、返回格式、来源链接是 Google 的跳转链接）。上线后用手机选 Grok，问“今天几号，西安什么天气”，应看到：回复带“已联网”标记和来源，日期正确；点“运行详情”能看到“联网检索”一栏。
+
+## 10. 我的角色库
+
+设置面板的「提示词预设」下拉里，除内置预设外还有「我的角色」分组。角色存放在登录账号自己名下（Firestore `userSettings/{uid}/roles/{id}`，每人最多 30 个，名称 ≤ 40 字，提示词 ≤ 20,000 字符），接口为 `/api/v2/me/roles`（随 `Runs__Enabled` 一起生效）。
+
+- 选中角色时，提示词文本被**复制**进当前会话（会话预设记为 `custom`），每次运行照常把实际使用的提示词记在该次运行的 `requested.customPrompt`。之后再改或删角色，不影响已有会话和历史运行。
+- 要换成新版角色提示词，在会话里重新选一次该角色即可。
+- 无需新的 Firestore 索引、无新增环境变量；发布方式与其他功能相同（`plan / build / deploy / verify / promote`）。

@@ -309,3 +309,7 @@ button.att-thumb { cursor: zoom-in; }
 .cmp tr[data-differs] td:last-child { font-weight: 600; }
 .run-links { display: flex; gap: 12px; margin: 8px 0 0; }
 .msg-actions .inspect { margin-left: 8px; }
+
+.role-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-top: 6px; }
+.role-editor { display: grid; gap: 6px; margin-top: 8px; }
+.role-editor input, .role-editor textarea { width: 100%; }

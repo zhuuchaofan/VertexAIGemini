@@ -418,6 +418,7 @@ export function ChatView({ api, conversationId, workspace, defaults, onSaveDefau
       defaults={defaults}
       onSaveDefaults={onSaveDefaults}
       sessionState={sessionState}
+      roleApi={api}
       onClose={onClose}
       idPrefix={mobile ? "sheet" : "inspector"}
     />

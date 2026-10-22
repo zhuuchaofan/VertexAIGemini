@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ModelOption, WorkspaceConfig } from "../../api/types";
 import { defaultSettings, withModel, type ChatSettings } from "./chatSettings";
 import { SettingsPanel } from "./SettingsPanel";
+import type { RoleApi } from "./useRoles";
 
 const levels: ModelOption = {
   name: "Levels", modelName: "levels", description: "", supportsThinking: true, supportsSampling: false, maxTokens: 8192,
@@ -21,15 +22,26 @@ const workspace: WorkspaceConfig = {
   providers: [{ provider: { id: "p", name: "P", description: "" }, models: [levels, plain, budget], presets, defaultPresetId: "default", defaultModelName: "levels" }]
 };
 
-function Harness({ onSaveDefaults = vi.fn().mockResolvedValue(undefined), thresholds = ["BLOCK_MEDIUM_AND_ABOVE", "BLOCK_ONLY_HIGH"], start }: {
-  onSaveDefaults?: (s: ChatSettings) => Promise<void>; thresholds?: string[]; start?: ChatSettings;
+function fakeRoles(initial: { id: string; name: string; prompt: string }[] = []) {
+  let roles = initial;
+  const api: RoleApi = {
+    listRoles: vi.fn(async () => ({ roles, maxRoles: 30 })),
+    createRole: vi.fn(async role => { const created = { id: `r${roles.length + 1}`, ...role }; roles = [...roles, created]; return created; }),
+    updateRole: vi.fn(async (id, role) => { const updated = { id, ...role }; roles = roles.map(r => (r.id === id ? updated : r)); return updated; }),
+    deleteRole: vi.fn(async id => { roles = roles.filter(r => r.id !== id); })
+  };
+  return api;
+}
+
+function Harness({ roleApi, onSaveDefaults = vi.fn().mockResolvedValue(undefined), thresholds = ["BLOCK_MEDIUM_AND_ABOVE", "BLOCK_ONLY_HIGH"], start }: {
+  roleApi?: RoleApi; onSaveDefaults?: (s: ChatSettings) => Promise<void>; thresholds?: string[]; start?: ChatSettings;
 }) {
   const defaults = defaultSettings(workspace);
   const [settings, setSettings] = useState<ChatSettings>(start ?? defaults);
   return (
     <SettingsPanel
       workspace={workspace} safetyThresholds={thresholds} settings={settings} onSettings={setSettings}
-      defaults={defaults} onSaveDefaults={onSaveDefaults} sessionState="saved" idPrefix="t"
+      defaults={defaults} onSaveDefaults={onSaveDefaults} sessionState="saved" roleApi={roleApi} idPrefix="t"
     />
   );
 }
@@ -129,5 +141,42 @@ describe("SettingsPanel", () => {
     expect(screen.queryByLabelText("自定义提示词")).toBeNull();
     fireEvent.change(screen.getByLabelText("提示词预设"), { target: { value: "custom" } });
     expect(screen.getByLabelText("自定义提示词")).toBeInTheDocument();
+  });
+
+  it("lists my roles beside the presets and copies the chosen one into the conversation", async () => {
+    render(<Harness roleApi={fakeRoles([{ id: "r1", name: "写作搭子", prompt: "你是写作搭子" }])} />);
+    const select = screen.getByLabelText("提示词预设");
+    await waitFor(() => expect(within(select).getByRole("option", { name: "写作搭子" })).toBeInTheDocument());
+
+    fireEvent.change(select, { target: { value: "role:r1" } });
+    expect(select).toHaveValue("role:r1");
+    expect(screen.queryByLabelText("自定义提示词")).toBeNull(); // a role is edited as a role, not as free text
+    expect(screen.getByRole("button", { name: "编辑角色" })).toBeInTheDocument();
+  });
+
+  it("saves the custom prompt as a role and selects it", async () => {
+    const api = fakeRoles();
+    render(<Harness roleApi={api} start={{ ...defaultSettings(workspace), presetId: "custom", customPrompt: "我的提示词" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "存为角色" }));
+    fireEvent.change(screen.getByLabelText("角色名"), { target: { value: "神秘" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存角色" }));
+    await waitFor(() => expect(api.createRole).toHaveBeenCalledWith({ name: "神秘", prompt: "我的提示词" }));
+    await waitFor(() => expect(screen.getByLabelText("提示词预设")).toHaveValue("role:r1"));
+  });
+
+  it("deleting a role leaves the conversation's prompt in place as a custom prompt", async () => {
+    const api = fakeRoles([{ id: "r1", name: "写作搭子", prompt: "你是写作搭子" }]);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<Harness roleApi={api} start={{ ...defaultSettings(workspace), presetId: "custom", customPrompt: "你是写作搭子" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "删除角色" }));
+    await waitFor(() => expect(api.deleteRole).toHaveBeenCalledWith("r1"));
+    await waitFor(() => expect(screen.getByLabelText("自定义提示词")).toHaveValue("你是写作搭子"));
+    expect(screen.getByLabelText("提示词预设")).toHaveValue("custom");
+  });
+
+  it("shows no role controls on the defaults tab", async () => {
+    render(<Harness roleApi={fakeRoles([{ id: "r1", name: "写作搭子", prompt: "x" }])} />);
+    fireEvent.click(screen.getByRole("radio", { name: "我的默认" }));
+    expect(screen.queryByRole("button", { name: "新建角色" })).toBeNull();
   });
 });

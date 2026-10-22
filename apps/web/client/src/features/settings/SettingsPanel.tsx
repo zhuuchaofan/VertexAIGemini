@@ -3,6 +3,7 @@ import type { WorkspaceConfig } from "../../api/types";
 import { Segmented } from "../composer/Segmented";
 import { differences, resetSetting, type ChatSettings } from "./chatSettings";
 import { SettingsFields } from "./SettingsFields";
+import { useRoles, type RoleApi } from "./useRoles";
 
 interface Props {
   workspace: WorkspaceConfig;
@@ -15,6 +16,8 @@ interface Props {
   onSaveDefaults: (settings: ChatSettings) => Promise<void>;
   /** Where this conversation's settings live: "new" until the first message creates it. */
   sessionState: "new" | "saved" | "failed";
+  /** Where "我的角色" live. Without it the panel offers only the built-in presets. */
+  roleApi?: RoleApi;
   onClose?: () => void;
   idPrefix: string;
 }
@@ -29,7 +32,8 @@ const tabs = [
 
 const sameSettings = (a: ChatSettings, b: ChatSettings) => JSON.stringify({ ...a, customPrompt: "" }) === JSON.stringify({ ...b, customPrompt: "" });
 
-export function SettingsPanel({ workspace, safetyThresholds, settings, onSettings, defaults, onSaveDefaults, sessionState, onClose, idPrefix }: Props) {
+export function SettingsPanel({ workspace, safetyThresholds, settings, onSettings, defaults, onSaveDefaults, sessionState, roleApi, onClose, idPrefix }: Props) {
+  const roles = useRoles(roleApi);
   const [tab, setTab] = useState<Tab>("session");
   const [draft, setDraft] = useState(defaults);
   const [seenDefaults, setSeenDefaults] = useState(defaults);
@@ -74,6 +78,7 @@ export function SettingsPanel({ workspace, safetyThresholds, settings, onSetting
               onChange={onSettings}
               allowPrompt
               differing={differing}
+              roles={roles}
               onReset={key => onSettings(resetSetting(workspace, settings, defaults, key))}
               idPrefix={`${idPrefix}-session`}
             />

@@ -166,3 +166,31 @@ test("on a phone settings open as a sheet and apply", async ({ page }) => {
   await expect(page.getByRole("button", { name: /^联网/ })).toContainText("强制查证");
   await expect(page.getByRole("button", { name: "对话设置" })).toBeFocused();
 });
+
+test("a saved role is offered in the preset list, is remembered by the conversation, and survives its own deletion", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = [];
+  page.on("request", request => {
+    if (request.method() === "POST" && request.url().endsWith("/api/v2/runs")) bodies.push(request.postDataJSON());
+  });
+
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "新建角色" }).click();
+  await panel.getByLabel("角色名").fill("写作搭子");
+  await panel.getByLabel("提示词", { exact: true }).fill("你是我的写作搭子");
+  await panel.getByRole("button", { name: "保存角色" }).click();
+  await expect(panel.getByLabel("提示词预设")).toHaveValue(/^role:/);
+
+  await ask(page, "hello");
+  await expect(page.locator(".bubble.model")).toContainText("received", { timeout: 15_000 });
+  expect(bodies[0]).toMatchObject({ presetId: "custom", customPrompt: "你是我的写作搭子" });
+
+  // The role is in the list for a brand-new conversation too, and the first conversation still shows it after a reload.
+  await page.reload();
+  const again = await openSettings(page);
+  await expect(again.getByLabel("提示词预设")).toHaveValue(/^role:/);
+
+  page.once("dialog", dialog => void dialog.accept());
+  await again.getByRole("button", { name: "删除角色" }).click();
+  await expect(again.getByLabel("自定义提示词")).toHaveValue("你是我的写作搭子");
+  await expect(again.getByLabel("提示词预设")).toHaveValue("custom");
+});

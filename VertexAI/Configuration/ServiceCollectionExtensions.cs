@@ -124,6 +124,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RunCancellationRegistry>();
         services.AddScoped<IRunStore, FirestoreRunStore>();
         services.AddScoped<ISettingsStore, FirestoreSettingsStore>();
+        services.AddScoped<IUserRoleStore, FirestoreUserRoleStore>();
         services.AddScoped<RunService>();
 
         return services;

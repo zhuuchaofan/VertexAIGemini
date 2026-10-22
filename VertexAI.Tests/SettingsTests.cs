@@ -41,6 +41,7 @@ internal static class SettingsTests
             builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
             builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
             builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+            builder.Services.AddSingleton<IUserRoleStore>(new FirestoreUserRoleStore(harness.Db));
             builder.Services.AddSingleton<VertexAI.Services.Attachments.IChatAttachmentStore>(harness.Attachments);
             builder.Services.AddSingleton<IChatProviderCatalog>(new ScriptedCatalog(harness.Probe));
             _app = builder.Build();
@@ -252,5 +253,69 @@ internal static class SettingsTests
         using var anonymous = new Host(h, user: null);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.Http.GetAsync("/api/v2/me/settings")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.Http.PutAsJsonAsync("/api/v2/me/settings", Settings())).StatusCode);
+    }
+
+    public static void RolesAreKeptPerAccountAndValidated() => Wait(Async7());
+    private static async Task Async7()
+    {
+        var h = new RunHarness();
+        using var host = new Host(h, h.User);
+        Assert.Equal(0, (await GetAsync(host, "/api/v2/me/roles")).GetProperty("roles").GetArrayLength());
+
+        var created = await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "  写作搭子 ", prompt = " 你是我的写作搭子 " });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var role = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("role");
+        var id = role.GetProperty("id").GetString()!;
+        Assert.Equal("写作搭子", role.GetProperty("name").GetString()!);
+        Assert.Equal("你是我的写作搭子", role.GetProperty("prompt").GetString()!);
+
+        var updated = await host.Http.PutAsJsonAsync($"/api/v2/me/roles/{id}", new { name = "写作搭子 2", prompt = "新的提示词" });
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        var listed = (await GetAsync(host, "/api/v2/me/roles")).GetProperty("roles");
+        Assert.Equal(1, listed.GetArrayLength());
+        Assert.Equal("新的提示词", listed[0].GetProperty("prompt").GetString()!);
+
+        // Another account neither sees nor touches it.
+        var other = new AuthenticatedUser(Guid.NewGuid(), "uid-" + Guid.NewGuid().ToString("N"), "other@example.test");
+        using (var otherHost = new Host(h, other))
+        {
+            Assert.Equal(0, (await GetAsync(otherHost, "/api/v2/me/roles")).GetProperty("roles").GetArrayLength());
+            Assert.Equal(HttpStatusCode.NotFound,
+                (await otherHost.Http.PutAsJsonAsync($"/api/v2/me/roles/{id}", new { name = "x", prompt = "y" })).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await otherHost.Http.DeleteAsync($"/api/v2/me/roles/{id}")).StatusCode);
+        }
+
+        // Refused: empty or oversized fields, an id that cannot name a role.
+        foreach (var bad in new object[]
+        {
+            new { name = "", prompt = "p" }, new { name = "n", prompt = "  " },
+            new { name = new string('长', UserRoleValidator.MaxNameChars + 1), prompt = "p" },
+            new { name = "n", prompt = new string('x', ChatSettingsDocument.MaxCustomPromptChars + 1) }
+        })
+            Assert.Equal(HttpStatusCode.BadRequest, (await host.Http.PostAsJsonAsync("/api/v2/me/roles", bad)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await host.Http.DeleteAsync("/api/v2/me/roles/not-an-id")).StatusCode);
+
+        // The cap holds.
+        for (var i = 1; i < UserRoleValidator.MaxRoles; i++)
+            Assert.Equal(HttpStatusCode.OK, (await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "r" + i, prompt = "p" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "extra", prompt = "p" })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await host.Http.DeleteAsync($"/api/v2/me/roles/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await host.Http.DeleteAsync($"/api/v2/me/roles/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await host.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "again", prompt = "p" })).StatusCode);
+    }
+
+    public static void RoleRoutesAreDarkUntilEnabledAndNeedASignedInUser() => Wait(Async8());
+    private static async Task Async8()
+    {
+        var h = new RunHarness();
+        using (var dark = new Host(h, h.User, enabled: false))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await dark.Http.GetAsync("/api/v2/me/roles")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await dark.Http.PostAsJsonAsync("/api/v2/me/roles", new { name = "n", prompt = "p" })).StatusCode);
+        }
+
+        using var anonymous = new Host(h, user: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.Http.GetAsync("/api/v2/me/roles")).StatusCode);
     }
 }

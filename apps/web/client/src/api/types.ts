@@ -223,6 +223,13 @@ export interface StoredSettings {
   advanced?: AdvancedOptions | null;
 }
 
+/** A named system prompt kept in the person's own account. */
+export interface UserRole {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
 export interface AuthStatus {
   email: string;
   safetyThresholds: string[];
@@ -279,4 +286,8 @@ export interface RunApi {
   getDefaults(): Promise<StoredSettings | null>;
   putDefaults(settings: StoredSettings): Promise<StoredSettings | null>;
   putConversationSettings(conversationId: string, settings: StoredSettings): Promise<void>;
+  listRoles(): Promise<{ roles: UserRole[]; maxRoles: number }>;
+  createRole(role: { name: string; prompt: string }): Promise<UserRole>;
+  updateRole(id: string, role: { name: string; prompt: string }): Promise<UserRole>;
+  deleteRole(id: string): Promise<void>;
 }

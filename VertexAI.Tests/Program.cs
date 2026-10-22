@@ -81,6 +81,8 @@ var tests = new (string Name, Action Test)[]
     ("Settings: A run keeps its own copy whatever is changed afterwards", SettingsTests.ARunKeepsItsOwnCopyWhateverIsChangedAfterwards),
     ("Settings: A conversation from before settings existed falls back to its older columns", SettingsTests.AConversationFromBeforeSettingsExistedFallsBackToItsOlderColumns),
     ("Settings: Routes are dark until enabled and need a signed-in user", SettingsTests.SettingsRoutesAreDarkUntilEnabledAndNeedASignedInUser),
+    ("Roles: Are kept per account and validated", SettingsTests.RolesAreKeptPerAccountAndValidated),
+    ("Roles: Routes are dark until enabled and need a signed-in user", SettingsTests.RoleRoutesAreDarkUntilEnabledAndNeedASignedInUser),
     ("Run endpoints: Citations are stored with the reply once each and returned on reload", RunEndpointTests.CitationsAreStoredWithTheReplyOnceEachAndReturnedOnReload),
     ("Run lifecycle: Concurrent sends of one run execute exactly once", RunLifecycleTests.ConcurrentSendsOfOneRunExecuteExactlyOnce),
     ("Run lifecycle: Sends from several instances still execute exactly once", RunLifecycleTests.SendsFromSeveralInstancesStillExecuteExactlyOnce),

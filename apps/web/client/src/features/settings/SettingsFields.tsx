@@ -1,4 +1,6 @@
-import type { ModelOption, WorkspaceConfig } from "../../api/types";
+import type { ModelOption, UserRole, WorkspaceConfig } from "../../api/types";
+import { RoleEditor } from "./RoleEditor";
+import type { Roles } from "./useRoles";
 import { Segmented } from "../composer/Segmented";
 import { NumberField } from "./NumberField";
 import {
@@ -30,6 +32,8 @@ interface Props {
   /** Settings that differ from the defaults; each gets a note and a way back. Omitted where there is nothing to compare. */
   differing?: SettingKey[];
   onReset?: (key: SettingKey) => void;
+  /** The person's own roles; shown beside the built-in presets where a prompt is allowed. */
+  roles?: Roles;
   idPrefix: string;
 }
 
@@ -53,11 +57,15 @@ function Heading({ text, field, differing, onReset }: { text: string; field: Set
 }
 
 /** Every control here exists only if the chosen model supports it; the rest are not drawn at all. */
-export function SettingsFields({ workspace, safetyThresholds, settings, onChange, allowPrompt, differing, onReset, idPrefix }: Props) {
+export function SettingsFields({ workspace, safetyThresholds, settings, onChange, allowPrompt, differing, onReset, roles, idPrefix }: Props) {
   const model: ModelOption | undefined = findModel(workspace, settings.providerId, settings.modelName);
   const provider = findProvider(workspace, settings.providerId);
   const caps = capabilities(model);
   const thinking = model?.thinking;
+  const userRoles: UserRole[] = allowPrompt ? (roles?.roles ?? []) : [];
+  // A role is copied into the conversation as its custom prompt, so the role in use is the one whose text matches.
+  const currentRole = settings.presetId === "custom" ? userRoles.find(role => role.prompt.trim() === settings.customPrompt.trim()) : undefined;
+  const presetValue = currentRole ? `role:${currentRole.id}` : settings.presetId;
   const heading = (text: string, field: SettingKey) => <Heading text={text} field={field} differing={differing} onReset={onReset} />;
 
   return (
@@ -133,8 +141,12 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
         <select
           id={`${idPrefix}-preset`}
           aria-label="提示词预设"
-          value={settings.presetId}
-          onChange={event => onChange({ ...settings, presetId: event.target.value })}
+          value={presetValue}
+          onChange={event => {
+            const value = event.target.value;
+            const role = value.startsWith("role:") ? userRoles.find(item => `role:${item.id}` === value) : undefined;
+            onChange(role ? { ...settings, presetId: "custom", customPrompt: role.prompt } : { ...settings, presetId: value });
+          }}
         >
           {(provider?.presets ?? [])
             .filter(preset => allowPrompt || preset.id !== "custom")
@@ -143,8 +155,17 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
                 {preset.name}
               </option>
             ))}
+          {allowPrompt && userRoles.length > 0 && (
+            <optgroup label="我的角色">
+              {userRoles.map(role => (
+                <option key={role.id} value={`role:${role.id}`}>
+                  {role.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
-        {allowPrompt && settings.presetId === "custom" && (
+        {allowPrompt && settings.presetId === "custom" && !currentRole && (
           <textarea
             aria-label="自定义提示词"
             rows={4}
@@ -152,6 +173,15 @@ export function SettingsFields({ workspace, safetyThresholds, settings, onChange
             placeholder="输入这个会话的系统提示词"
             value={settings.customPrompt}
             onChange={event => onChange({ ...settings, customPrompt: event.target.value })}
+          />
+        )}
+        {allowPrompt && roles && (
+          <RoleEditor
+            roles={roles}
+            current={currentRole}
+            adHocPrompt={settings.presetId === "custom" ? settings.customPrompt : ""}
+            onUse={prompt => onChange({ ...settings, presetId: "custom", customPrompt: prompt })}
+            idPrefix={idPrefix}
           />
         )}
       </div>

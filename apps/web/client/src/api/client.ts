@@ -13,6 +13,7 @@ import {
   type RunStreamHandlers,
   type RunStreamResult,
   type StoredSettings,
+  type UserRole,
   type WorkspaceConfig
 } from "./types";
 
@@ -170,6 +171,37 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
         headers: { "content-type": "application/json" },
         body: JSON.stringify(settings)
       });
+      if (!response.ok) await fail(response);
+    },
+
+    async listRoles(): Promise<{ roles: UserRole[]; maxRoles: number }> {
+      const response = await request("/api/v2/me/roles");
+      if (!response.ok) await fail(response);
+      return (await response.json()) as { roles: UserRole[]; maxRoles: number };
+    },
+
+    async createRole(role: { name: string; prompt: string }): Promise<UserRole> {
+      const response = await request("/api/v2/me/roles", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(role)
+      });
+      if (!response.ok) await fail(response);
+      return ((await response.json()) as { role: UserRole }).role;
+    },
+
+    async updateRole(id: string, role: { name: string; prompt: string }): Promise<UserRole> {
+      const response = await request(`/api/v2/me/roles/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(role)
+      });
+      if (!response.ok) await fail(response);
+      return ((await response.json()) as { role: UserRole }).role;
+    },
+
+    async deleteRole(id: string): Promise<void> {
+      const response = await request(`/api/v2/me/roles/${id}`, { method: "DELETE" });
       if (!response.ok) await fail(response);
     },
 

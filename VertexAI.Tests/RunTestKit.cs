@@ -398,6 +398,7 @@ internal sealed class ApiTestHost : IDisposable
         builder.Services.AddSingleton(new GeminiSafetyPolicy(Options.Create(new GeminiSettings())));
         builder.Services.AddSingleton<IConversationStore>(harness.Conversations);
         builder.Services.AddSingleton<ISettingsStore>(new FirestoreSettingsStore(harness.Db));
+        builder.Services.AddSingleton<IUserRoleStore>(new FirestoreUserRoleStore(harness.Db));
         builder.Services.AddSingleton<IChatProviderCatalog>(catalog ?? new ScriptedCatalog(harness.Probe));
         builder.Services.AddSingleton<IChatAttachmentStore>(harness.Attachments);
         _app = builder.Build();
