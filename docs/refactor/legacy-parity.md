@@ -1,7 +1,7 @@
 # 旧站功能对照清单
 
 状态说明：**已完成**＝新界面已实现并有自动化测试；**进行中**＝本阶段正在做；**未开始**；**不做**＝有意不迁移（写明原因）。
-每一步结束时更新。旧站指 `apps/web/public/`（`/`），新界面指 `apps/web/client/`（`/app/`）。
+每一步结束时更新。旧站指原来的 `apps/web/public/`（`/`；代码现只在 `old` 分支），新界面指 `apps/web/client/`（`/app/`）。
 
 最后更新：阶段 2 完成（步骤 1–3）。截图见 `docs/design/screenshots/impl/phase2/`（实现截图）；视觉稿在 `docs/design/screenshots/` 下的 d1–d6、m1–m9。
 

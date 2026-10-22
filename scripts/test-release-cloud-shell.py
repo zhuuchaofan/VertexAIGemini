@@ -26,9 +26,6 @@ def service(name):
                 {"name": "Persistence__AttachmentStorageBucket", "value": "att-bucket"}]
         if os.environ.get("RUNS_ENABLED"):
             env.append({"name": "Runs__Enabled", "value": os.environ["RUNS_ENABLED"]})
-    else:
-        if os.environ.get("UI"):
-            env.append({"name": "WEB_DEFAULT_UI", "value": os.environ["UI"]})
     serving = os.environ.get("SERVING", "svc-00001") if api else os.environ.get("WEB_SERVING", os.environ.get("SERVING", "svc-00001"))
     traffic = [{"revisionName": serving, "percent": 100}]
     latest = os.environ.get("LATEST", "svc-00001")
@@ -185,8 +182,9 @@ class ReleaseTests(unittest.TestCase):
         api, web = deploys
         self.assertIn("--update-env-vars=Runs__MaxDurationSeconds=270,Runs__Enabled=false", api)
         self.assertNotIn("--no-traffic", api)
-        for flag in ("--no-traffic", "--tag=next", "--timeout=300s", "--update-env-vars=WEB_DEFAULT_UI=legacy"):
+        for flag in ("--no-traffic", "--tag=next", "--timeout=300s"):
             self.assertIn(flag, web)
+        self.assertFalse(any("WEB_DEFAULT_UI" in arg for arg in web))
         everything = [arg for c in calls for arg in c]
         for forbidden in ("--set-env-vars", "--set-secrets", "--update-secrets", "--clear-secrets", "--service-account",
                           "--allow-unauthenticated", "--no-allow-unauthenticated", "--remove-env-vars"):
@@ -202,10 +200,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn("CANDIDATE_WEB_REVISION", saved)
 
     def test_deploy_keeps_a_choice_already_made(self):
-        _, calls, _ = self.go("deploy", RUNS_ENABLED="true", UI="next")
+        _, calls, _ = self.go("deploy", RUNS_ENABLED="true")
         deploys = [c for c in calls if c[:2] == ["run", "deploy"]]
         self.assertIn("--update-env-vars=Runs__MaxDurationSeconds=270,Runs__Enabled=true", deploys[0])
-        self.assertIn("--update-env-vars=WEB_DEFAULT_UI=next", deploys[1])
 
     def test_rerunning_deploy_keeps_the_first_recorded_revisions(self):
         _, _, saved = self.go("deploy", SERVING="svc-00009",
@@ -487,7 +484,7 @@ class ReleaseTests(unittest.TestCase):
         result, _, _ = self.go("verify", state=state, **env)
         self.assertNotEqual(result.returncode, 0)
 
-    # ---- promote / ui / rollback
+    # ---- promote / rollback
 
     def test_promote_needs_this_releases_candidate_to_be_tagged_and_latest(self):
         result, calls, _ = self.go("promote", state=self.candidate_state())
@@ -505,14 +502,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("--remove-tags=next", traffic[1])
         self.assertIn("PROMOTED_REVISION=web-cand", saved)
 
-    def test_ui_switch_only_touches_the_web_setting(self):
+    def test_the_ui_switch_no_longer_exists(self):
         result, calls, _ = self.go("ui", "next")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        update = next(c for c in calls if c[:3] == ["run", "services", "update"])
-        self.assertEqual(update[3], "vertex-ai-web")
-        self.assertIn("--update-env-vars=WEB_DEFAULT_UI=next", update)
-        result, _, _ = self.go("ui", "fancy")
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.mutating(calls), [])
 
     def test_rollback_scopes(self):
         state = header() + "PREV_API_REVISION=api-1\nPREV_WEB_REVISION=web-1\n"

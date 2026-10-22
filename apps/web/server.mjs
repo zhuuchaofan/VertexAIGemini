@@ -8,14 +8,10 @@ import { pathToFileURL } from "node:url";
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const backendUrl = resolveBackendUrl();
-const publicDir = new URL("./public/", import.meta.url);
 // The new Vite client is served under /app/. CLIENT_DIST_DIR overrides the location (used by tests).
 const clientDir = process.env.CLIENT_DIST_DIR
   ? pathToFileURL(`${resolve(process.env.CLIENT_DIST_DIR)}/`)
   : new URL("./client/dist/", import.meta.url);
-// WEB_DEFAULT_UI picks what "/" shows: "legacy" (default, the old page) or "next" (redirect to /app/).
-// The old page stays reachable at /legacy in both modes, so switching back never needs a redeploy.
-const defaultUi = resolveDefaultUi(process.env.WEB_DEFAULT_UI);
 let serverlessTokenCache = null;
 
 const contentTypes = {
@@ -44,12 +40,13 @@ createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/legacy" || pathname === "/legacy/") {
-      await serveStatic(req, res, publicDir, "/legacy");
+    if (pathname === "/healthz") {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      res.end("ok");
       return;
     }
 
-    if (pathname === "/" && defaultUi === "next") {
+    if (pathname === "/") {
       res.writeHead(302, { location: "/app/", "cache-control": "no-store" });
       res.end();
       return;
@@ -60,7 +57,8 @@ createServer(async (req, res) => {
       return;
     }
 
-    await serveStatic(req, res);
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Not found");
   } catch (error) {
     console.error(error);
     if (!res.headersSent) {
@@ -72,14 +70,6 @@ createServer(async (req, res) => {
   console.log(`Web workspace listening on http://${host}:${port}`);
   console.log(`Proxying /api requests to ${backendUrl.origin}`);
 });
-
-function resolveDefaultUi(value) {
-  const ui = (value ?? "legacy").trim().toLowerCase() || "legacy";
-  if (ui !== "legacy" && ui !== "next") {
-    throw new Error(`WEB_DEFAULT_UI must be "legacy" or "next" (got "${value}").`);
-  }
-  return ui;
-}
 
 function resolveBackendUrl() {
   if (process.env.BACKEND_URL) {
@@ -203,9 +193,9 @@ async function getServerlessIdentityToken() {
   }
 }
 
-async function serveStatic(req, res, root = publicDir, prefix = "") {
+async function serveStatic(req, res, root, prefix) {
   const fullPath = new URL(req.url ?? "/", "https://cloud-run.invalid").pathname;
-  const requestPath = prefix && fullPath.startsWith(prefix) ? fullPath.slice(prefix.length) || "/" : fullPath;
+  const requestPath = fullPath.startsWith(prefix) ? fullPath.slice(prefix.length) || "/" : fullPath;
   const safePath = normalize(decodeURIComponent(requestPath)).replace(/^(\.\.[/\\])+/, "");
   const relativePath = safePath === "/" ? "index.html" : safePath.slice(1);
   const fileUrl = new URL(join(root.pathname, relativePath), "file://");
@@ -239,7 +229,7 @@ async function serveStatic(req, res, root = publicDir, prefix = "") {
   }
 
   // Vite fingerprints everything under assets/, so those files can be cached forever.
-  sendStatic(req, res, body, type, prefix && relativePath.startsWith("assets/"));
+  sendStatic(req, res, body, type, relativePath.startsWith("assets/"));
 }
 
 // Always revalidate (ES module imports carry no version query), but answer 304 via ETag and gzip text.

@@ -102,10 +102,13 @@ expect_status 401 "GET /api/v2/me/settings without a token" "${api}/api/v2/me/se
 expect_status 401 "POST /api/v2/runs without a token" -X POST -H 'content-type: application/json' -d '{}' "${api}/api/v2/runs"
 expect_status 200 "GET /health/ready" "${api}/health/ready"
 
-echo "Web image, old UI at / (the shipped default)"
+echo "Web image"
 start_web
-expect_status 200 "GET /" "${web}/"
-expect_status 200 "GET /legacy" "${web}/legacy"
+expect_status 200 "GET /healthz" "${web}/healthz"
+expect_status 302 "GET / redirects" -I "${web}/"
+location="$(curl -sI --max-time 10 "${web}/" | tr -d '\r' | awk 'tolower($1)=="location:" {print $2}')"
+if [[ "${location}" == "/app/" ]]; then pass "/ redirects to /app/"; else fail "/ redirects to '${location}'"; fi
+expect_status 404 "GET /legacy is gone" "${web}/legacy"
 expect_status 308 "GET /app" -I "${web}/app"
 expect_status 200 "GET /app/" "${web}/app/"
 asset="$(curl -s --max-time 10 "${web}/app/" | grep -o '/app/assets/[^"]*\.js' | head -1 || true)"
@@ -119,13 +122,6 @@ expect_status 200 "GET /api/workspace/config through the proxy" "${web}/api/work
 expect_status 401 "GET /api/conversations through the proxy" "${web}/api/conversations"
 expect_status 401 "GET /api/v2/me/settings through the proxy (v2 on)" "${web}/api/v2/me/settings"
 wait_healthy "${WEB_NAME}"
-
-echo "Web image, new UI at /"
-start_web -e WEB_DEFAULT_UI=next
-expect_status 302 "GET / redirects" -I "${web}/"
-location="$(curl -sI --max-time 10 "${web}/" | tr -d '\r' | awk 'tolower($1)=="location:" {print $2}')"
-if [[ "${location}" == "/app/" ]]; then pass "/ redirects to /app/"; else fail "/ redirects to '${location}'"; fi
-expect_status 200 "GET /legacy still serves the old page" "${web}/legacy"
 
 echo
 if (( failures > 0 )); then

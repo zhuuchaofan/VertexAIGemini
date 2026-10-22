@@ -89,7 +89,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Run web proxy and legacy UI tests
+      - name: Run web proxy tests
         working-directory: apps/web
         run: npm test
 

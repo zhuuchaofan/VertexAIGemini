@@ -14,8 +14,7 @@
 #   bash scripts/release-cloud-shell.sh auth-domain [add]   check (or add) the test URL's host in Firebase authorized domains
 #   bash scripts/release-cloud-shell.sh enable-v2     turn the v2 run routes on (needs a fresh backup and READY indexes, re-checked now)
 #   bash scripts/release-cloud-shell.sh verify        automated checks of THIS release's candidate revisions; fails without one
-#   bash scripts/release-cloud-shell.sh promote       send all web traffic to the candidate (old UI still the default page)
-#   bash scripts/release-cloud-shell.sh ui next|legacy   choose which UI "/" shows
+#   bash scripts/release-cloud-shell.sh promote       send all web traffic to the candidate
 #   bash scripts/release-cloud-shell.sh disable-v2    switch the v2 routes off again
 #   bash scripts/release-cloud-shell.sh rollback [api|web|all]   traffic back to the revisions recorded before this release
 #   bash scripts/release-cloud-shell.sh status
@@ -58,7 +57,7 @@ usage() {
 }
 
 case "${COMMAND}" in
-  plan|backup|indexes|build|deploy|auth-domain|enable-v2|verify|promote|ui|disable-v2|rollback|status) ;;
+  plan|backup|indexes|build|deploy|auth-domain|enable-v2|verify|promote|disable-v2|rollback|status) ;;
   ""|--help|-h|help) usage; exit 0 ;;
   *) usage >&2; die "Unknown command: ${COMMAND}" ;;
 esac
@@ -151,7 +150,6 @@ require_services() {
   API_TIMEOUT_NOW="$(json_field "${API_JSON}" 'd["spec"]["template"]["spec"]["timeoutSeconds"]')"
   WEB_TIMEOUT_NOW="$(json_field "${WEB_JSON}" 'd["spec"]["template"]["spec"]["timeoutSeconds"]')"
   RUNS_ENABLED_NOW="$(json_field "${API_JSON}" 'env("Runs__Enabled")')"
-  UI_NOW="$(json_field "${WEB_JSON}" 'env("WEB_DEFAULT_UI")')"
   FIRESTORE_PROJECT="$(json_field "${API_JSON}" 'env("FIRESTORE_PROJECT_ID") or env("Firebase__ProjectId")')"
   FIRESTORE_PROJECT="${FIRESTORE_PROJECT:-${PROJECT_ID}}"
   ATTACHMENT_BUCKET="$(json_field "${API_JSON}" 'env("Persistence__AttachmentStorageBucket") or env("ATTACHMENT_STORAGE_BUCKET")')"
@@ -253,10 +251,9 @@ Release plan (read-only)
     API  Runs__MaxDurationSeconds  -> ${run_max}
     API  Runs__Enabled             ${RUNS_ENABLED_NOW:-(not set)} -> stays ${RUNS_ENABLED_NOW:-false} until 'enable-v2'
     Web  request timeout           ${WEB_TIMEOUT_NOW}s -> ${WEB_TIMEOUT} (on the candidate revision)
-    Web  WEB_DEFAULT_UI            ${UI_NOW:-(not set: old UI)} -> stays ${UI_NOW:-legacy} until 'ui next'
   Production traffic impact
-    API  'deploy' gives the new API revision ALL production traffic immediately. Today's users of the old UI
-         are then served by the new API code (old endpoints unchanged in behaviour, v2 routes off). Undo with:
+    API  'deploy' gives the new API revision ALL production traffic immediately. Everyone using the site
+         is then served by the new API code. Undo with:
          rollback api   (see the manual, section 5.2)
     Web  the new revision gets no traffic until 'promote'
   Data
@@ -377,8 +374,7 @@ cmd_deploy() {
   info "Web: new image as revision tagged '${TAG_NAME}' with no traffic; timeout ${WEB_TIMEOUT}. Visitors still get the current revision."
   mutate gcloud run deploy "${WEB_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
     --image="${WEB_IMAGE}" --no-traffic --tag="${TAG_NAME}" \
-    --timeout="${WEB_TIMEOUT}" \
-    --update-env-vars="WEB_DEFAULT_UI=${UI_NOW:-legacy}"
+    --timeout="${WEB_TIMEOUT}"
 
   if [[ "${DRY_RUN}" != "1" ]]; then
     local api_candidate web_candidate
@@ -458,7 +454,7 @@ cmd_enable_v2() {
     die "Not every index in firestore.indexes.json is READY right now. Run 'indexes' and wait; v2 stays off."
   fi
   echo "${report}"
-  info "Turning the v2 run routes on. The old UI does not use them, so it keeps working exactly as before."
+  info "Turning the v2 run routes on. "
   mutate gcloud run services update "${API_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
     --update-env-vars="Runs__Enabled=true"
   state_set V2_ENABLED_AT "$(date -u +%Y%m%dT%H%M%SZ)"
@@ -470,7 +466,7 @@ cmd_enable_v2() {
 
 cmd_disable_v2() {
   require_services
-  info "Turning the v2 run routes off. Stored v2 data stays; the old UI is unaffected. Runs still in flight finish on their own."
+  info "Turning the v2 run routes off. Stored v2 data stays. Runs still in flight finish on their own."
   mutate gcloud run services update "${API_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
     --update-env-vars="Runs__Enabled=false"
 }
@@ -531,7 +527,7 @@ cmd_verify() {
   if [[ -n "${base}" ]]; then
     echo "Web candidate (${base})"
     check "/app/ serves the new UI" 200 "$(http_status "${base}/app/")"
-    check "/legacy serves the old UI" 200 "$(http_status "${base}/legacy")"
+    check "/healthz" 200 "$(http_status "${base}/healthz")"
     check "/api/workspace/config" 200 "$(http_status "${base}/api/workspace/config")"
     check "/api/conversations without sign-in" 401 "$(http_status "${base}/api/conversations")"
     check "/api/v2/me/settings without sign-in (v2 $([[ ${v2_want} == 401 ]] && echo on || echo off))" "${v2_want}" "$(http_status "${base}/api/v2/me/settings")"
@@ -558,14 +554,6 @@ cmd_promote() {
   mutate gcloud run services update-traffic "${WEB_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --to-latest
   mutate gcloud run services update-traffic "${WEB_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --remove-tags="${TAG_NAME}"
   state_set PROMOTED_REVISION "${rev}"
-}
-
-cmd_ui() {
-  [[ "${ARG}" == "next" || "${ARG}" == "legacy" ]] || die "Usage: release-cloud-shell.sh ui next|legacy"
-  require_services
-  info "Setting the page at / to the ${ARG} UI. The other one stays reachable at $([[ ${ARG} == next ]] && echo /legacy || echo /app/)."
-  mutate gcloud run services update "${WEB_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
-    --update-env-vars="WEB_DEFAULT_UI=${ARG}"
 }
 
 cmd_rollback() {
@@ -599,7 +587,7 @@ cmd_status() {
   cat <<EOF
 Project / region  ${PROJECT_ID} / ${REGION}
 API  ${API_SERVICE}: serving ${API_REV_NOW}, image ${API_IMAGE_NOW}, v2 routes ${RUNS_ENABLED_NOW:-false}, timeout ${API_TIMEOUT_NOW}s
-Web  ${WEB_SERVICE}: serving ${WEB_REV_NOW}, image ${WEB_IMAGE_NOW}, "/" shows ${UI_NOW:-legacy}, timeout ${WEB_TIMEOUT_NOW}s
+Web  ${WEB_SERVICE}: serving ${WEB_REV_NOW}, image ${WEB_IMAGE_NOW}, timeout ${WEB_TIMEOUT_NOW}s
 Test revision    $(tag_url || true)
 Release state files (${STATE_DIR}):
 $(ls -1 "${STATE_DIR}" 2>/dev/null | sed 's/^/  /')
@@ -617,7 +605,6 @@ case "${COMMAND}" in
   disable-v2) cmd_disable_v2 ;;
   verify) cmd_verify ;;
   promote) cmd_promote ;;
-  ui) cmd_ui ;;
   rollback) cmd_rollback ;;
   status) cmd_status ;;
 esac

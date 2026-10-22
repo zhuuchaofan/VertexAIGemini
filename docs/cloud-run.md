@@ -30,9 +30,10 @@ For the staged release of the new UI and the v2 run API onto the services that a
 service configuration instead of asking for it again.
 
 New settings introduced by that release: `Runs__Enabled` (API, default `false`), `Runs__MaxDurationSeconds`
-(API, derived from the smaller request timeout), `WEB_DEFAULT_UI` (web, `legacy` or `next`), and a 300 s web
-request timeout. `scripts/deploy-cloud-run.sh` and the GitHub workflow take them as `RUNS_ENABLED` and
-`WEB_DEFAULT_UI`.
+(API, derived from the smaller request timeout), and a 300 s web
+request timeout. `scripts/deploy-cloud-run.sh` and the GitHub workflow take the first as `RUNS_ENABLED`.
+The old page and its `WEB_DEFAULT_UI` switch are gone: `/` always redirects to `/app/`. A leftover
+`WEB_DEFAULT_UI` variable on a deployed service is ignored.
 
 ## Scripted Deployment
 

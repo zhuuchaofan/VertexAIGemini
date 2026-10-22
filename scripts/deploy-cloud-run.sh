@@ -39,9 +39,8 @@ WEB_CONCURRENCY="${WEB_CONCURRENCY:-80}"
 WEB_TIMEOUT="${WEB_TIMEOUT:-300s}"
 WEB_MIN_INSTANCES="${WEB_MIN_INSTANCES:-0}"
 WEB_MAX_INSTANCES="${WEB_MAX_INSTANCES:-5}"
-# The v2 run routes stay off and "/" keeps showing the old page until you choose otherwise.
+# The v2 run routes stay off until you choose otherwise.
 RUNS_ENABLED="${RUNS_ENABLED:-false}"
-WEB_DEFAULT_UI="${WEB_DEFAULT_UI:-legacy}"
 
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-$PROJECT_ID}"
 FIRESTORE_PROJECT_ID="${FIRESTORE_PROJECT_ID:-$FIREBASE_PROJECT_ID}"
@@ -53,10 +52,6 @@ ATTACHMENT_STORAGE_BUCKET="${ATTACHMENT_STORAGE_BUCKET:-${PROJECT_ID}-vertex-ai-
 
 if [[ "$RUNS_ENABLED" != "true" && "$RUNS_ENABLED" != "false" ]]; then
   echo "[ERROR] RUNS_ENABLED must be true or false." >&2
-  exit 1
-fi
-if [[ "$WEB_DEFAULT_UI" != "legacy" && "$WEB_DEFAULT_UI" != "next" ]]; then
-  echo "[ERROR] WEB_DEFAULT_UI must be legacy or next." >&2
   exit 1
 fi
 
@@ -223,7 +218,7 @@ gcloud run deploy "$WEB_SERVICE" \
   --timeout="$WEB_TIMEOUT" \
   --min-instances="$WEB_MIN_INSTANCES" \
   --max-instances="$WEB_MAX_INSTANCES" \
-  --update-env-vars="BACKEND_URL=${API_URL},WEB_DEFAULT_UI=${WEB_DEFAULT_UI}"
+  --update-env-vars="BACKEND_URL=${API_URL}"
 
 WEB_URL="$(gcloud run services describe "$WEB_SERVICE" \
   --project="$PROJECT_ID" \

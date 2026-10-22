@@ -16,12 +16,11 @@
 | 备份 | `backup` | 只向备份桶写入 | 无 |
 | 索引 | `indexes` | 新增 Firestore 复合索引（已有的不动），逐项核验 READY | 无 |
 | 构建 | `build` | 只向 Artifact Registry 推镜像 | 无 |
-| 部署 | `deploy` | **API 新修订立即承接生产流量**（v2 路由仍关闭）；Web 新镜像作为**无流量**候选修订，标签 `next` | **有：API 新代码开始处理旧界面的请求**；Web 访客仍使用现有修订 |
+| 部署 | `deploy` | **API 新修订立即承接生产流量**（v2 路由仍关闭）；Web 新镜像作为**无流量**候选修订，标签 `next` | **有：API 新代码开始处理所有请求**；Web 访客仍使用现有修订 |
 | 授权域名 | `auth-domain add` | Firebase 授权域名增加测试地址的主机名 | 无 |
-| 启用 v2 | `enable-v2` | API 环境变量 `Runs__Enabled=true`（新增路由，旧界面不使用）；产生又一个 API 修订 | 无 |
+| 启用 v2 | `enable-v2` | API 环境变量 `Runs__Enabled=true`；产生又一个 API 修订 | 无 |
 | 验证 | `verify` + 第 4 节清单 | 无 | 无 |
-| 切流量 | `promote` | Web 全部流量到候选修订；`/` 仍然显示旧界面 | 新修订的 Web 超时为 300 秒 |
-| 切界面 | `ui next` | `/` 改为显示新界面 | 用户看到新界面；旧界面仍在 `/legacy` |
+| 切流量 | `promote` | Web 全部流量到候选修订 | 新修订的 Web 超时为 300 秒 |
 
 ### 0.1 每次发布一份独立的记录
 
@@ -95,9 +94,8 @@ $S verify      # 校验本次记录的候选修订（镜像、标签、服务流
 `verify` 全部通过后，用 `deploy` 末尾打印的测试地址（形如 `https://next---<web 服务>-….run.app/app/`）做第 4 节的**真实验证**。
 
 ```bash
-$S promote     # 验证通过后：Web 全部流量切到候选修订（"/" 仍是旧界面）
-$S ui next     # 想让所有人默认进入新界面时再执行
-$S status      # 随时查看：当前修订、v2 开关、默认界面、本机的发布记录文件
+$S promote     # 验证通过后：Web 全部流量切到候选修订
+$S status      # 随时查看：当前修订、v2 开关、本机的发布记录文件
 ```
 
 任意一步失败：读错误信息，修复原因（通常是权限或等待索引），**重跑同一个命令**。`deploy` 第一次运行时记录“发布前正在服务的 API 与 Web 修订”，重跑不会覆盖这条记录。
@@ -111,7 +109,6 @@ $S status      # 随时查看：当前修订、v2 开关、默认界面、本机
 | API | `Runs__MaxDurationSeconds` | `min(Web, API 超时) − 30`，默认 270 | `deploy` | 生成时限；到时间会如实记录为超时并保留已生成内容 |
 | API | `Runs__Enabled` | 先 `false`，`enable-v2` 后 `true` | `deploy` / `enable-v2` / `disable-v2` | 关闭时所有 `/api/v2/*` 返回 404，旧界面不受影响 |
 | Web | 请求超时 | 300 秒（原来线上是 60 秒） | `deploy` | 生成会话经 Web 代理流式传输，**较小的超时才是真正的上限** |
-| Web | `WEB_DEFAULT_UI` | 先 `legacy`，`ui next` 后 `next` | `deploy` / `ui` | `/` 显示哪个界面；`/legacy` 永远是旧界面，`/app/` 永远是新界面 |
 | 附件桶 | 无变化 | | | 沿用现有桶和自定义角色（`create/get/delete`）；新版只用“不存在才创建”写入与按名读取、删除 |
 
 ### 3.1 如果以后还会用 GitHub Actions 部署（合并到 `main` 之后）
@@ -119,7 +116,6 @@ $S status      # 随时查看：当前修订、v2 开关、默认界面、本机
 `deploy-cloud-run.yml` 使用 `--set-env-vars`，会按流水线里的值覆盖这两项。合并之前在仓库 Variables 里设置：
 
 - `RUNS_ENABLED` = `true`（与当前线上一致）
-- `WEB_DEFAULT_UI` = `legacy` 或 `next`（与当前线上一致）
 - `WEB_TIMEOUT` 保持 `300s`
 
 合并到 `main` 不会触发部署（`deploy-cloud-run.yml` 已改为只能手动运行）；发布一律用本手册的 Cloud Shell 流程。
@@ -155,7 +151,7 @@ bash scripts/release-cloud-shell.sh auth-domain add     # 保留现有域名，�
 | 10 | 时限 | 发送一个会超过 5 分钟的任务（可选，费用最高，可跳过） | 约 270 秒时以“超时”结束并保留已生成部分，而不是连接断开 | **未真实验证** |
 | 11 | 其他服务商 | 若已配置 OpenAI 兼容服务商：选它发一条 | 正常回复；运行详情中用量要么是服务商报告要么显示“未知”，不会编造 | **未真实验证** |
 
-任何一项不符合预期：先不要 `promote`；运行 `disable-v2` 即可让新界面不可用而旧界面不受影响，把现象告诉我。
+任何一项不符合预期：先不要 `promote`；运行 `disable-v2` 让 v2 接口回到 404，把现象告诉我。
 
 ## 5. 备份、回滚、恢复
 
@@ -177,8 +173,7 @@ v2 对数据是叠加式的：只新增可选字段和 `runs`、`userSettings` �
 ```bash
 S="bash scripts/release-cloud-shell.sh"
 
-$S ui legacy        # 只是想把 "/" 换回旧界面（新界面仍可从 /app/ 访问）
-$S disable-v2       # 新界面不可用（/api/v2/* 返回 404），旧界面完全不受影响；已存的 v2 数据保留
+$S disable-v2       # v2 接口回到 404；已存的 v2 数据保留
 $S rollback web     # 只把 Web 流量回到发布前记录的修订
 $S rollback api     # 只把 API 流量回到发布前记录的修订（见下）
 $S rollback         # 等价于 rollback all：Web 与 API 都回去
@@ -204,20 +199,17 @@ PREV_WEB_REVISION=<旧 Web 修订> bash scripts/release-cloud-shell.sh rollback 
 
 按 `backup-and-restore.md` 第 6 节：优先“恢复到临时数据库后只复制受影响的文档”；对生产库直接导入是最后手段（不会删除备份之后新建的文档，会让所属会话的 `updatedAt`、`tokenCount` 回退）。
 
-## 6. 新旧界面切换
+## 6. 界面地址
+
+旧界面已经从 `main` 删除（代码保留在 `old` 分支）。现在只有一个界面：
 
 | 地址 | 内容 |
 |---|---|
-| `/app/` | 新界面（永远可用） |
-| `/legacy` | 旧界面（永远可用） |
-| `/` | 由 `WEB_DEFAULT_UI` 决定：`legacy`（默认）显示旧界面；`next` 重定向到 `/app/` |
+| `/app/` | 界面 |
+| `/` | 重定向到 `/app/` |
+| `/healthz` | 健康检查，直接返回 `ok` |
 
-```bash
-bash scripts/release-cloud-shell.sh ui next      # 默认进入新界面
-bash scripts/release-cloud-shell.sh ui legacy    # 默认回到旧界面
-```
-
-切换会创建一个新的 Web 修订并立即承接流量，不需要重新构建。旧界面使用的接口没有改变。
+`ui next|legacy` 命令和 `WEB_DEFAULT_UI` 设置已取消；线上服务上遗留的 `WEB_DEFAULT_UI` 变量会被忽略。要回到旧界面，只能回滚到 `old` 分支对应的旧版本，或回滚 Web 修订。
 
 ## 7. 没有真实验证的事项（汇总）
 
