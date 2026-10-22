@@ -207,7 +207,7 @@ PREV_WEB_REVISION=<旧 Web 修订> bash scripts/release-cloud-shell.sh rollback 
 |---|---|
 | `/app/` | 界面 |
 | `/` | 重定向到 `/app/` |
-| `/healthz` | 健康检查，直接返回 `ok` |
+| `/health` | 健康检查，直接返回 `ok`（不用 `/healthz`：Cloud Run 的 `*.run.app` 前端会占用这个路径，返回 404） |
 
 `ui next|legacy` 命令和 `WEB_DEFAULT_UI` 设置已取消；线上服务上遗留的 `WEB_DEFAULT_UI` 变量会被忽略。要回到旧界面，只能回滚到 `old` 分支对应的旧版本，或回滚 Web 修订。
 

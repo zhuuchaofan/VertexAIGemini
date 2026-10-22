@@ -162,7 +162,7 @@ test("a client abort does not crash the proxy", async () => {
       req.destroy();
     }
     await waitFor(() => upstream.seen.length === 3 && upstream.seen.every(r => r.closedAt), 2000, "all upstream requests closed");
-    const response = await fetch(`http://127.0.0.1:${proxy.port}/healthz`);
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/health`);
     assert.equal(response.status, 200);
     assert.equal(proxy.child.exitCode, null, proxy.logs());
   });
@@ -234,7 +234,7 @@ test("/app/ returns 404 when the client has not been built", async () => {
   }
 });
 
-test("/ goes to the app and /healthz answers without the client or the API", async () => {
+test("/ goes to the app and /health answers without the client or the API", async () => {
   const dir = await mkdtemp(joinPath(tmpdir(), "client-ui-"));
   const proxy = await startProxyWithClient(dir);
   try {
@@ -243,7 +243,7 @@ test("/ goes to the app and /healthz answers without the client or the API", asy
     assert.equal(root.status, 302);
     assert.equal(root.headers.get("location"), "/app/");
     assert.equal(root.headers.get("cache-control"), "no-store");
-    const health = await fetch(`${base}/healthz`);
+    const health = await fetch(`${base}/health`);
     assert.equal(health.status, 200);
     assert.equal(await health.text(), "ok");
   } finally {

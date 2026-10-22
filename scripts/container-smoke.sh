@@ -104,7 +104,7 @@ expect_status 200 "GET /health/ready" "${api}/health/ready"
 
 echo "Web image"
 start_web
-expect_status 200 "GET /healthz" "${web}/healthz"
+expect_status 200 "GET /health" "${web}/health"
 expect_status 302 "GET / redirects" -I "${web}/"
 location="$(curl -sI --max-time 10 "${web}/" | tr -d '\r' | awk 'tolower($1)=="location:" {print $2}')"
 if [[ "${location}" == "/app/" ]]; then pass "/ redirects to /app/"; else fail "/ redirects to '${location}'"; fi

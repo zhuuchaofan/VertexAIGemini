@@ -41,7 +41,7 @@ createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/healthz") {
+    if (pathname === "/health") {
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       res.end("ok");
       return;

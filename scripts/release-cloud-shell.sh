@@ -527,7 +527,7 @@ cmd_verify() {
   if [[ -n "${base}" ]]; then
     echo "Web candidate (${base})"
     check "/app/ serves the new UI" 200 "$(http_status "${base}/app/")"
-    check "/healthz" 200 "$(http_status "${base}/healthz")"
+    check "/health" 200 "$(http_status "${base}/health")"
     check "/api/workspace/config" 200 "$(http_status "${base}/api/workspace/config")"
     check "/api/conversations without sign-in" 401 "$(http_status "${base}/api/conversations")"
     check "/api/v2/me/settings without sign-in (v2 $([[ ${v2_want} == 401 ]] && echo on || echo off))" "${v2_want}" "$(http_status "${base}/api/v2/me/settings")"
