@@ -32,9 +32,15 @@ public sealed class FirebaseUserContext : IUserContext
             var decoded = await _auth.VerifyIdTokenAsync(idToken);
             return ToAuthenticatedUser(decoded);
         }
-        catch (Exception ex) when (ex is FirebaseAuthException or InvalidOperationException)
+        catch (OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Firebase token verification failed");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Any verification failure means "not authenticated". The SDK throws FirebaseAuthException for invalid
+            // tokens but raw parser exceptions for malformed ones, which would otherwise escape as an HTTP 500.
+            _logger.LogWarning(ex, "Firebase token verification failed ({Reason})", ex.GetType().Name);
             return null;
         }
     }
@@ -50,7 +56,8 @@ public sealed class FirebaseUserContext : IUserContext
             CreateStableLocalUserId(token.Uid),
             token.Uid,
             ReadEmail(token),
-            ReadAdminClaim(token));
+            ReadAdminClaim(token),
+            ReadEmailVerified(token));
     }
 
     private static string? ReadBearerToken(HttpContext context)
@@ -69,6 +76,11 @@ public sealed class FirebaseUserContext : IUserContext
         token.Claims.TryGetValue("email", out var value)
             ? value as string
             : null;
+
+    private static bool ReadEmailVerified(FirebaseToken token) =>
+        token.Claims.TryGetValue("email_verified", out var value)
+        && value is bool verified
+        && verified;
 
     private static bool ReadAdminClaim(FirebaseToken token) =>
         token.Claims.TryGetValue("admin", out var value)

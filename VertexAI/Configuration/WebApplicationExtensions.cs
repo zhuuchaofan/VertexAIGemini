@@ -12,6 +12,7 @@ public static class WebApplicationExtensions
             ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
         });
         app.UseRateLimiter();
+        app.UseMiddleware<AccessPolicyMiddleware>();
 
         if (app.Environment.IsDevelopment())
         {
@@ -19,7 +20,13 @@ public static class WebApplicationExtensions
         }
         else
         {
-            app.UseExceptionHandler("/Error");
+            // There is no "/Error" endpoint; answer unexpected failures with a plain JSON 500 instead of
+            // a second exception from the handler itself.
+            app.UseExceptionHandler(errorApp => errorApp.Run(context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return context.Response.WriteAsJsonAsync(new { error = "服务器内部错误，请稍后重试" });
+            }));
             app.UseHsts();
 
             if (ShouldUseHttpsRedirection(app.Configuration))

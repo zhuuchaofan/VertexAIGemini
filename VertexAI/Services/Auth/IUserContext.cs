@@ -4,7 +4,8 @@ public sealed record AuthenticatedUser(
     Guid LocalUserId,
     string? FirebaseUid,
     string? Email,
-    bool IsAdmin = false);
+    bool IsAdmin = false,
+    bool EmailVerified = false);
 
 public interface IUserContext
 {

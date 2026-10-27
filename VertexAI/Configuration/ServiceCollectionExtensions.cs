@@ -31,6 +31,8 @@ public static class ServiceCollectionExtensions
         services.Configure<WorkspaceSettings>(configuration.GetSection("Workspace"));
         services.Configure<OpenAICompatibleSettings>(configuration.GetSection("OpenAICompatible"));
         services.Configure<QuotaSettings>(configuration.GetSection("Quota"));
+        services.Configure<AccessSettings>(configuration.GetSection("Access"));
+        services.AddSingleton<AccessPolicy>();
         services.AddApplicationServices(configuration);
         services.AddVertexRateLimiting();
 
