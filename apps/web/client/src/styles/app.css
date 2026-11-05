@@ -322,3 +322,9 @@ button.att-thumb { cursor: zoom-in; }
 .note-admin { margin-top: 6px; font-size: 13px; }
 .note-admin summary { cursor: pointer; color: var(--ink-3); }
 .note-admin p { margin: 6px 0 0; overflow-wrap: anywhere; }
+
+/* iOS Safari zooms the page when a focused field is under 16px. Keep fields at 16px on touch screens instead of
+   disabling zoom, which would also stop people who need it. !important beats the per-field `font: inherit` rules. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select { font-size: 16px !important; }
+}
