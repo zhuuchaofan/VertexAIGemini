@@ -19,6 +19,7 @@ import { NoteExtras } from "./NoteExtras";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { personaFor, STARTERS } from "../persona/persona";
 import { PersonaFace } from "../persona/PersonaFace";
+import { quoteText } from "./messageText";
 import type { Roles } from "../settings/useRoles";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
@@ -375,6 +376,12 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
 
   const persona = personaFor(workspace, settings, roles.roles);
 
+  // Start a reply from a quoted message. Focus first, in the same tap, so a phone raises its keyboard.
+  const quote = (text: string) => {
+    document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+    setDraft(quoteText(text));
+  };
+
   const running = state.phase === "sending" || state.phase === "streaming" || state.phase === "stopping";
   const status = (() => {
     switch (state.phase) {
@@ -556,7 +563,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
           {thread.map((item, position) => (
             <article key={item.key} className="turn">
               {item.user && (
-                <UserMessage message={item.user}>
+                <UserMessage message={item.user} onQuote={quote}>
                   {item.user.attachments && item.user.attachments.length > 0 && (
                     <AttachmentList api={api} conversationId={conversationId} messageId={item.user.id} items={item.user.attachments} />
                   )}
@@ -576,6 +583,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
               {(item.reply || item.finalRun) && (
                 <ModelMessage
                   persona={persona}
+                  onQuote={quote}
                   modelLabel={replyLabelFor(item.finalRun)}
                   content={item.reply?.content ?? ""}
                   thinking={item.reply?.thinkingContent}
