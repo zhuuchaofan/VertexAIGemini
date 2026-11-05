@@ -15,7 +15,7 @@
 .rail-list { flex: 1; min-height: 0; overflow: auto; margin: 0 -4px; padding: 0 4px; }
 .rail-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .group { margin: 12px 8px 4px; display: block; font-size: 12px; font-weight: 500; color: var(--ink-3); }
-.rail .item { width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 8px 10px; display: grid; gap: 1px; }
+.rail .item { width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 8px 40px 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .rail .item:hover { background: color-mix(in srgb, var(--line) 70%, transparent); }
 .rail .item.active { background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(17,24,39,.06); }
 .rail .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 7px; }
@@ -49,7 +49,7 @@
 
 .msg { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; }
 .msg .avatar, .msg .brand-mark { margin-top: 1px; }
-.msg-body { min-width: 0; display: grid; gap: 8px; align-content: start; }
+.msg-body { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; }
 .msg-head { display: flex; align-items: center; gap: 8px; line-height: 1.2; }
 .msg-head time { color: var(--ink-3); font-size: 12px; font-family: var(--font-mono); }
 .tag { font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--ink-2); border: 1px solid var(--line); font-weight: 500; }
@@ -221,6 +221,10 @@
 .advanced-body { display: grid; gap: 14px; padding: 4px 12px 14px; }
 .settings-sheet .settings-panel { max-height: 72dvh; }
 .settings-sheet .overlay-panel { padding-bottom: 0; }
+@media (max-width: 760px) {
+  .settings-sheet .overlay-panel { display: flex; flex-direction: column; overflow: hidden; }
+  .settings-sheet .settings-panel { max-height: none; flex: 1; min-height: 0; }
+}
 @media (max-width: 760px) { .inspector { display: none; } }
 
 /* ---- attachments ---- */
@@ -318,3 +322,9 @@ button.att-thumb { cursor: zoom-in; }
 .note-admin { margin-top: 6px; font-size: 13px; }
 .note-admin summary { cursor: pointer; color: var(--ink-3); }
 .note-admin p { margin: 6px 0 0; overflow-wrap: anywhere; }
+
+/* iOS Safari zooms the page when a focused field is under 16px. Keep fields at 16px on touch screens instead of
+   disabling zoom, which would also stop people who need it. !important beats the per-field `font: inherit` rules. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select { font-size: 16px !important; }
+}
