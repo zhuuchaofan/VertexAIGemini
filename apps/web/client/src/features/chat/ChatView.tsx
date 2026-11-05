@@ -17,6 +17,8 @@ import { useObserved } from "../inspector/useObserved";
 import { Segmented } from "../composer/Segmented";
 import { NoteExtras } from "./NoteExtras";
 import { SettingsPanel } from "../settings/SettingsPanel";
+import { personaFor, STARTERS } from "../persona/persona";
+import { PersonaFace } from "../persona/PersonaFace";
 import type { Roles } from "../settings/useRoles";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
@@ -105,6 +107,8 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
   const [sessionState, setSessionState] = useState<"new" | "saved" | "failed">("new");
   const pendingSave = useRef<{ timer: ReturnType<typeof setTimeout>; send: () => void } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // Far from the newest message: offer a way back down.
+  const [awayFromEnd, setAwayFromEnd] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -310,9 +314,9 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
     setAttachments(base.filter(item => item.id !== id));
   };
 
-  const submit = async () => {
-    const text = composerText.trim();
-    const files = shownAttachments;
+  const submit = async (override?: string) => {
+    const text = (override ?? composerText).trim();
+    const files = override === undefined ? shownAttachments : [];
     if ((!text && files.length === 0) || preparing > 0 || !canSend(state)) return;
     setDraft("");
     setAttachments([]);
@@ -368,6 +372,8 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
       return !open;
     });
   };
+
+  const persona = personaFor(workspace, settings, roles.roles);
 
   const running = state.phase === "sending" || state.phase === "streaming" || state.phase === "stopping";
   const status = (() => {
@@ -515,14 +521,35 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
         )}
       </header>
 
-      <div className="thread-scroll">
+      <div
+        className="thread-scroll"
+        onScroll={event => {
+          const box = event.currentTarget;
+          const away = box.scrollHeight - box.scrollTop - box.clientHeight > 320;
+          setAwayFromEnd(current => (current === away ? current : away));
+        }}
+      >
         <div className="thread" role="log" aria-live="polite">
           {loadError && <div className="note err">{loadError}</div>}
           {!detail && !live && !loadError && thread.length === 0 && (
             <div className="empty">
-              <span className="brand-mark" aria-hidden="true">球</span>
-              <h2>有什么可以帮你？</h2>
-              <p>直接输入问题。下方可以切换模型、思考深度和联网方式。</p>
+              <PersonaFace persona={persona} large />
+              <h2>{persona.emoji ? persona.name : "有什么可以帮你？"}</h2>
+              <p>{persona.greeting}</p>
+              <div className="starters" role="group" aria-label="试试问我">
+                {STARTERS.map(starter => (
+                  <button
+                    key={starter.title}
+                    type="button"
+                    className="starter"
+                    disabled={!canSend(state) || preparing > 0}
+                    onClick={() => void submit(starter.prompt)}
+                  >
+                    <span className="starter-emoji" aria-hidden="true">{starter.emoji}</span>
+                    <span>{starter.title}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -548,6 +575,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
                 })}
               {(item.reply || item.finalRun) && (
                 <ModelMessage
+                  persona={persona}
                   modelLabel={replyLabelFor(item.finalRun)}
                   content={item.reply?.content ?? ""}
                   thinking={item.reply?.thinkingContent}
@@ -576,6 +604,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
               )}
               {(state.content || state.thinking || state.phase === "streaming") && (
                 <ModelMessage
+                  persona={persona}
                   modelLabel={liveLabel}
                   content={state.content}
                   thinking={state.thinking}
@@ -594,6 +623,13 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
           )}
           <div ref={endRef} />
         </div>
+        {awayFromEnd && (
+          <div className="to-bottom-wrap">
+            <button type="button" className="to-bottom" aria-label="回到最新消息" onClick={() => endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" })}>
+              ↓
+            </button>
+          </div>
+        )}
       </div>
 
       <Composer

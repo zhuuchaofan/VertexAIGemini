@@ -43,7 +43,8 @@
 .thread { width: min(780px, 100%); margin: 0 auto; padding: 22px 20px 8px; display: flex; flex-direction: column; gap: 26px; }
 .turn { display: grid; gap: 22px; }
 .empty { margin: 14vh auto 0; text-align: center; display: grid; gap: 8px; justify-items: center; max-width: 360px; }
-.empty .brand-mark { width: 46px; height: 46px; border-radius: 15px; font-size: 21px; }
+.empty .brand-mark, .empty .persona-face { width: 56px; height: 56px; border-radius: 20px; font-size: 26px; }
+.empty .persona-face { font-size: 30px; }
 .empty h2 { margin: 6px 0 0; font-size: 18px; }
 .empty p { margin: 0; color: var(--ink-2); }
 
@@ -327,4 +328,33 @@ button.att-thumb { cursor: zoom-in; }
    disabling zoom, which would also stop people who need it. !important beats the per-field `font: inherit` rules. */
 @media (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select { font-size: 16px !important; }
+}
+
+/* ---- persona and starters: a soft, rounded look ---- */
+.persona-face { border-radius: 10px; font-size: 17px; line-height: 1; border: 0; background: color-mix(in srgb, hsl(var(--persona-h, 225) 90% 60%) 24%, var(--panel)); }
+.starters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; width: min(420px, 100%); }
+.starter { display: flex; align-items: center; gap: 10px; padding: 13px 14px; text-align: left; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--ink); font-size: 14px; box-shadow: 0 1px 2px rgba(17,24,39,.04); transition: transform .12s ease, border-color .12s ease; }
+.starter:hover { border-color: var(--accent-line); }
+.starter:active { transform: scale(.97); }
+.starter:disabled { opacity: .55; cursor: default; }
+.starter-emoji { font-size: 20px; line-height: 1; flex: none; }
+@media (prefers-reduced-motion: reduce) { .starter { transition: none; } }
+
+/* ---- phone feel ---- */
+html { -webkit-text-size-adjust: 100%; }
+button, a, select, summary { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.thread-scroll { overscroll-behavior: contain; }
+.to-bottom-wrap { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; pointer-events: none; }
+.to-bottom { pointer-events: auto; transform: translateY(-14px) translateY(-100%); width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink-2); font-size: 18px; line-height: 1; box-shadow: var(--shadow); }
+@media (max-width: 760px) {
+  /* Fingertip-sized targets (about 44px) and room for the notch and the home indicator. */
+  .icon-btn { width: 44px; height: 44px; font-size: 20px; }
+  .overlay-head .icon-btn { width: 40px; height: 40px; }
+  .bar { height: calc(52px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  .composer { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .conv-actions.sidebar { top: 7px; right: 2px; }
+  .conv-actions.sidebar .dots { width: 44px; height: 44px; }
+  .rail .item { padding-right: 52px; }
+  .rail .item { min-height: 56px; }
+  .chip { min-height: 36px; }
 }
