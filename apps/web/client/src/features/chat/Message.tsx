@@ -1,3 +1,5 @@
+import type { Persona } from "../persona/persona";
+import { PersonaFace } from "../persona/PersonaFace";
 import type { Citation, RunSnapshot, StoredMessage } from "../../api/types";
 import { NoteExtras } from "./NoteExtras";
 import { CopyButton } from "../../ui/CopyButton";
@@ -24,6 +26,7 @@ export function UserMessage({ message, children }: { message: Pick<StoredMessage
 }
 
 interface ModelProps {
+  persona?: Persona;
   modelLabel: string;
   content: string;
   thinking?: string | null;
@@ -48,7 +51,7 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
+export function ModelMessage({ persona, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
   const note = runNote(run);
   const tag = run ? badge[run.status] : undefined;
   const searchTag =
@@ -58,7 +61,7 @@ export function ModelMessage({ modelLabel, content, thinking, citations, created
 
   return (
     <div className="msg model">
-      <span className="avatar brand-mark" aria-hidden="true">球</span>
+      <PersonaFace persona={persona} />
       <div className="msg-body">
         <div className="msg-head">
           <strong>{modelLabel}</strong>

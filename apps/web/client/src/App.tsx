@@ -12,6 +12,8 @@ import { useWorkspace } from "./features/workspace/useWorkspace";
 import { LoginForm } from "./LoginForm";
 import { useRoute } from "./route";
 import { useTheme } from "./theme/useTheme";
+import { useIsMobile } from "./ui/useMedia";
+import { useEdgeSwipe } from "./ui/useEdgeSwipe";
 
 export function App() {
   const session = useSession();
@@ -100,6 +102,8 @@ interface ReadyProps extends WorkbenchProps {
 function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
   const defaults = useDefaults(api, workspace);
   const roles = useRoles(api);
+  const phone = useIsMobile();
+  useEdgeSwipe(phone, drawer, setDrawer);
   const [draftsVersion, setDraftsVersion] = useState(0);
   // Re-read whenever a draft changed or the list did; reading local storage is cheap.
   // eslint-disable-next-line react-hooks/exhaustive-deps
