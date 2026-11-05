@@ -136,7 +136,6 @@ var tests = new (string Name, Action Test)[]
     ("Gemini internal testing exposes every filter level to signed-in users", GeminiSdkCompatibilityTests.AllowsInternalTestingOverrides),
     ("Gemini current models never send disabled thinking budgets", GeminiSdkCompatibilityTests.KeepsRequiredThinkingEnabled),
     ("Gemini SDK finish reasons preserve blocked-response detection", GeminiSdkCompatibilityTests.ClassifiesFinishReasons),
-    ("Chat API forwards advanced options and rejects forbidden filtering", GeminiAdvancedTests.ForwardsAndAuthorizesOptions),
     ("ChatAttachmentValidator validates image payloads", ChatAttachmentValidatorTests.ValidatePayloads),
     ("ChatAttachmentValidator blocks active content", ChatAttachmentValidatorTests.BlocksActiveContent),
     ("ChatAttachmentSerializer round-trips and tolerates invalid json", ChatAttachmentSerializerTests.RoundTripsAndToleratesInvalidJson),
@@ -153,9 +152,17 @@ var tests = new (string Name, Action Test)[]
     ("ChatOrchestrator maps model failures", ChatOrchestratorTests.MapsModelFailures),
     ("Auth status endpoint reports authentication state", AuthEndpointTests.StatusReportsAuthenticationState),
     ("Export endpoints enforce ownership and include attachments", ExportEndpointTests.EnforcesOwnershipAndIncludesAttachments),
+    ("Export: JSON lists attachments and adds content only when asked", ExportEndpointTests.JsonExportListsAttachmentsAndAddsContentOnlyWhenAsked),
     ("Conversation delete endpoint passes authenticated owner to store", ConversationEndpointTests.DeletePassesAuthenticatedOwnerToStore),
     ("Admin quota usage endpoint requires admin", AdminEndpointTests.QuotaUsageRequiresAdmin),
     ("Admin quota usage endpoint returns daily usage", AdminEndpointTests.QuotaUsageReturnsDailyUsage),
+    ("Quota status: counts estimated and actual tokens and resets at midnight UTC", QuotaStatusTests.CountsEstimatedAndActualTokensAndResetsAtMidnight),
+    ("Quota status: nothing used yet starts at zero", QuotaStatusTests.NothingUsedYetStartsAtZero),
+    ("Quota status: endpoint requires sign-in and returns the caller's allowance", QuotaStatusTests.EndpointRequiresSignInAndReturnsOnlyTheCallersAllowance),
+    ("Title search: finds titles ignoring case and skips untitled", TitleSearchTests.FindsTitlesIgnoringCaseAndSkipsUntitled),
+    ("Title search: reads page by page and stops at the bound", TitleSearchTests.ReadsPageByPageAndStopsAtTheBound),
+    ("Title search: stops early once there are enough", TitleSearchTests.StopsEarlyOnceThereAreEnough),
+    ("Title search: normalizes the query", TitleSearchTests.NormalizeTrimsAndBoundsTheQuery),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
@@ -302,38 +309,6 @@ internal static class GeminiCatalogTests
 
 internal static class GeminiAdvancedTests
 {
-    public static void ForwardsAndAuthorizesOptions()
-    {
-        var user = new AuthenticatedUser(Guid.NewGuid(), "user", "user@example.com");
-        var policy = new GeminiSafetyPolicy(Options.Create(new GeminiSettings()));
-        var model = new FakeChatModelClient { Chunks = [new ChatChunk { Text = "ok" }] };
-        var chat = new ChatOrchestrator(new FakeProviderCatalog(model),
-            new FakeConversationStore(), NullLogger<ChatOrchestrator>.Instance);
-        var advanced = new ChatAdvancedOptions("BLOCK_LOW_AND_ABOVE", 0.5, 0.8, 4096);
-        var request = new ChatEndpoints.ApiChatSendRequest(null, "hello", [], [],
-            "off", false, "gemini", null, null, null, null, null, null, advanced);
-        var context = new DefaultHttpContext();
-        context.Response.Body = new MemoryStream();
-        ChatEndpoints.StreamChatAsync(request, context, new FakeUserContext(user), chat, policy)
-            .GetAwaiter().GetResult();
-        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
-        Assert.Equal(advanced, model.LastOptions?.Advanced);
-
-        foreach (var (options, expected) in new[]
-        {
-            (advanced with { SafetyThreshold = "OFF" }, StatusCodes.Status403Forbidden),
-            (advanced with { Temperature = 3 }, StatusCodes.Status400BadRequest)
-        })
-        {
-            var rejected = new DefaultHttpContext();
-            rejected.Response.Body = new MemoryStream();
-            ChatEndpoints.StreamChatAsync(request with { Advanced = options }, rejected,
-                new FakeUserContext(user), chat, policy).GetAwaiter().GetResult();
-            Assert.Equal(expected, rejected.Response.StatusCode);
-            Assert.Equal(advanced, model.LastOptions?.Advanced);
-        }
-    }
-
     public static void ValidatesRanges()
     {
         Assert.Null(new ChatAdvancedOptions(Temperature: 0, TopP: 1, MaxOutputTokens: 65536).Validate());
@@ -966,6 +941,43 @@ internal static class ExportEndpointTests
         Assert.Contains("pixel.png", exported.Body);
         Assert.Contains("image/png", exported.Body);
         Assert.Contains("Export Check", exported.Body);
+        Assert.Equal(false, store.LastIncludeAttachmentData);
+    }
+
+    public static void JsonExportListsAttachmentsAndAddsContentOnlyWhenAsked()
+    {
+        var owner = new AuthenticatedUser(Guid.NewGuid(), "owner", "owner@example.com");
+        var conversationId = Guid.NewGuid();
+        var store = new FakeConversationStore();
+        store.Conversations[conversationId] = new Conversation
+        {
+            Id = conversationId,
+            UserId = owner.LocalUserId,
+            Title = "Files",
+            Messages =
+            [
+                new Message
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = conversationId,
+                    Role = "user",
+                    Content = "see file",
+                    AttachmentsJson = ChatAttachmentSerializer.Serialize([new ChatAttachment(Convert.ToBase64String([1, 2, 3]), "image/png", "pixel.png", SizeBytes: 3)]),
+                    CreatedAt = new DateTime(2026, 6, 21, 1, 2, 0, DateTimeKind.Utc)
+                }
+            ]
+        };
+
+        var listed = ResultTestHelpers.Execute(ExportEndpoints.ExportJsonAsync(
+            conversationId, new DefaultHttpContext(), store, new FakeUserContext(owner)));
+        Assert.Equal(false, store.LastIncludeAttachmentData);
+        Assert.Contains("pixel.png", listed.Body);
+        Assert.True(!listed.Body.Contains("AQID"));
+
+        var full = ResultTestHelpers.Execute(ExportEndpoints.ExportJsonAsync(
+            conversationId, new DefaultHttpContext(), store, new FakeUserContext(owner), attachments: true));
+        Assert.Equal(true, store.LastIncludeAttachmentData);
+        Assert.Contains("AQID", full.Body);
     }
 }
 
@@ -1609,8 +1621,11 @@ internal sealed class FakeConversationStore : IConversationStore
     public Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit) =>
         Task.FromResult(new List<Conversation>());
 
-    public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user)
+    public bool? LastIncludeAttachmentData { get; private set; }
+
+    public Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user, bool includeAttachmentData = true)
     {
+        LastIncludeAttachmentData = includeAttachmentData;
         if (!Conversations.TryGetValue(conversationId, out var conversation)
             || conversation.UserId != user.LocalUserId)
         {

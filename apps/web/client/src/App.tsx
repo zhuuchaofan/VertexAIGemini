@@ -9,6 +9,7 @@ import { useDefaults } from "./features/workspace/useDefaults";
 import { startingSettings } from "./features/settings/chatSettings";
 import { useRoles } from "./features/settings/useRoles";
 import { useWorkspace } from "./features/workspace/useWorkspace";
+import { useQuota } from "./features/quota/useQuota";
 import { LoginForm } from "./LoginForm";
 import { useRoute } from "./route";
 import { useAccent, useTheme } from "./theme/useTheme";
@@ -108,6 +109,7 @@ interface ReadyProps extends WorkbenchProps {
 
 function ReadyWorkbench({ api, email, onSignOut, route, theme, accent, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
   const defaults = useDefaults(api, workspace);
+  const quota = useQuota(api, listVersion);
   const roles = useRoles(api);
   const phone = useIsMobile();
   useEdgeSwipe(phone, drawer, setDrawer);
@@ -130,6 +132,7 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, accent, fresh, on
         email={accountEmail || email}
         theme={theme.choice}
         onCycleTheme={theme.cycle}
+        quota={quota}
         accent={accent.accent}
         onAccent={accent.choose}
         onOpen={route.openConversation}
