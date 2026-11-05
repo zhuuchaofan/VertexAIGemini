@@ -114,12 +114,13 @@
 .thinking-body { margin: 0; padding: 4px 14px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--ink-2); font-size: 13px; line-height: 1.65; max-height: 280px; overflow: auto; border-top: 1px solid var(--line); }
 .citations { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 8px 12px 10px; }
 .citations h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: var(--ink-3); }
-.citations ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.citations ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.citations li { min-width: 0; }
 .citations a { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; color: var(--ink); text-decoration: none; font-size: 13px; min-width: 0; }
 .citations a:hover .cite-title { text-decoration: underline; }
 .cite-n { flex: none; width: 18px; height: 18px; display: inline-grid; place-items: center; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
-.cite-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cite-host { margin-left: auto; flex: none; color: var(--ink-3); font-size: 12px; }
+.cite-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cite-host { margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: 12px; }
 
 /* ---- composer ---- */
 .composer { width: min(780px, 100%); margin: 0 auto; padding: 6px 20px 12px; display: grid; gap: 8px; flex: none; }

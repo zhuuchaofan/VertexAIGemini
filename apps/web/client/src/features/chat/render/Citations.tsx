@@ -8,6 +8,12 @@ function host(uri: string): string {
   }
 }
 
+/** Search grounding links go through Google's redirector, so their host says nothing about the real source. */
+function showHost(item: Citation): boolean {
+  const name = host(item.uri);
+  return name !== "vertexaisearch.cloud.google.com" && Boolean(item.title) && item.title !== name;
+}
+
 function safe(uri: string): boolean {
   try {
     const { protocol } = new URL(uri);
@@ -29,7 +35,7 @@ export function Citations({ items }: { items: Citation[] }) {
             <a href={item.uri} target="_blank" rel="noopener noreferrer">
               <span className="cite-n">{index + 1}</span>
               <span className="cite-title">{item.title || host(item.uri)}</span>
-              <span className="cite-host">{host(item.uri)}</span>
+              {showHost(item) && <span className="cite-host">{host(item.uri)}</span>}
             </a>
           </li>
         ))}
