@@ -14,6 +14,7 @@ import { useRoute } from "./route";
 import { useTheme } from "./theme/useTheme";
 import { useIsMobile } from "./ui/useMedia";
 import { useEdgeSwipe } from "./ui/useEdgeSwipe";
+import { UpdateBanner } from "./ui/UpdateBanner";
 
 export function App() {
   const session = useSession();
@@ -46,6 +47,8 @@ export function App() {
   }
 
   return (
+    <>
+    <UpdateBanner />
     <Workbench
       key={session.email ?? "signed-in"}
       api={api}
@@ -63,6 +66,7 @@ export function App() {
       drawer={drawer}
       setDrawer={setDrawer}
     />
+    </>
   );
 }
 

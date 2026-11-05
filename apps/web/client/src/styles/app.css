@@ -358,3 +358,8 @@ button, a, select, summary { touch-action: manipulation; -webkit-tap-highlight-c
   .rail .item { min-height: 56px; }
   .chip { min-height: 36px; }
 }
+
+/* ---- update note ---- */
+.update-banner { position: fixed; z-index: 80; left: 0; right: 0; margin: 0 auto; width: max-content; white-space: nowrap; bottom: calc(112px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 24px); padding: 6px 6px 6px 16px; border: 1px solid var(--accent-line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 14px; box-shadow: var(--shadow); }
+.update-go { border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 600; padding: 8px 14px; min-height: 36px; }
+.update-later { width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); font-size: 18px; line-height: 1; }
