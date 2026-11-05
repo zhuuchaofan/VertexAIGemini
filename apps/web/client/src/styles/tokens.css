@@ -75,3 +75,19 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .login input { padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel); color: var(--ink); }
 .login button { padding: 9px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 
+
+/* ---- accent colours (the default blue is the base above) ---- */
+:root[data-accent="pudding"] { --accent:#A86400; --accent-ink:#FFFFFF; --accent-soft:#FFF1D0; --accent-line:#F0D59A; --hl-kw:#A86400; }
+:root[data-accent="mint"] { --accent:#0F7B5F; --accent-ink:#FFFFFF; --accent-soft:#DDF4EB; --accent-line:#A9DCC9; --hl-kw:#0F7B5F; }
+:root[data-accent="sakura"] { --accent:#C2306F; --accent-ink:#FFFFFF; --accent-soft:#FCE4EE; --accent-line:#F2B6CF; --hl-kw:#C2306F; }
+:root[data-accent="lavender"] { --accent:#6B4FCF; --accent-ink:#FFFFFF; --accent-soft:#ECE6FD; --accent-line:#C9BCF3; --hl-kw:#6B4FCF; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-accent="pudding"] { --accent:#F2C466; --accent-ink:#2A1B00; --accent-soft:#3A2B10; --accent-line:#6B5224; --hl-kw:#F2C466; }
+  :root:not([data-theme="light"])[data-accent="mint"] { --accent:#6FD9B4; --accent-ink:#06231A; --accent-soft:#12312A; --accent-line:#2A5F4D; --hl-kw:#6FD9B4; }
+  :root:not([data-theme="light"])[data-accent="sakura"] { --accent:#FF9CC0; --accent-ink:#2B0A18; --accent-soft:#3A1626; --accent-line:#7A3A55; --hl-kw:#FF9CC0; }
+  :root:not([data-theme="light"])[data-accent="lavender"] { --accent:#B7A4FF; --accent-ink:#170C3A; --accent-soft:#261D47; --accent-line:#4F4690; --hl-kw:#B7A4FF; }
+}
+:root[data-theme="dark"][data-accent="pudding"] { --accent:#F2C466; --accent-ink:#2A1B00; --accent-soft:#3A2B10; --accent-line:#6B5224; --hl-kw:#F2C466; }
+:root[data-theme="dark"][data-accent="mint"] { --accent:#6FD9B4; --accent-ink:#06231A; --accent-soft:#12312A; --accent-line:#2A5F4D; --hl-kw:#6FD9B4; }
+:root[data-theme="dark"][data-accent="sakura"] { --accent:#FF9CC0; --accent-ink:#2B0A18; --accent-soft:#3A1626; --accent-line:#7A3A55; --hl-kw:#FF9CC0; }
+:root[data-theme="dark"][data-accent="lavender"] { --accent:#B7A4FF; --accent-ink:#170C3A; --accent-soft:#261D47; --accent-line:#4F4690; --hl-kw:#B7A4FF; }

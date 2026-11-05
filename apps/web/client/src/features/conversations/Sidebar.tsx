@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ConversationSummary, RunApi } from "../../api/types";
-import { themeLabels, type ThemeChoice } from "../../theme/useTheme";
+import { ACCENTS, themeLabels, type Accent, type ThemeChoice } from "../../theme/useTheme";
 import { ConversationActions } from "./ConversationActions";
 import { formatWhen, groupByDay } from "./groupByDay";
 import { RenameField } from "./RenameField";
@@ -13,6 +13,8 @@ interface Props {
   email: string | null;
   theme: ThemeChoice;
   onCycleTheme: () => void;
+  accent: Accent;
+  onAccent: (accent: Accent) => void;
   onOpen: (id: string) => void;
   onNew: () => void;
   onSignOut: () => void;
@@ -27,7 +29,7 @@ interface Props {
   draftIds?: ReadonlySet<string>;
 }
 
-export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
+export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, accent, onAccent, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -179,6 +181,21 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, on
               加载更多
             </button>
           )}
+        </div>
+
+        <div className="accent-row" role="group" aria-label="主题色">
+          {ACCENTS.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className="accent-dot"
+              style={{ background: item.swatch }}
+              aria-label={item.label}
+              aria-pressed={accent === item.id}
+              title={item.label}
+              onClick={() => onAccent(item.id)}
+            />
+          ))}
         </div>
 
         <div className="account">

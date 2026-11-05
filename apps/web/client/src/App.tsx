@@ -11,14 +11,16 @@ import { useRoles } from "./features/settings/useRoles";
 import { useWorkspace } from "./features/workspace/useWorkspace";
 import { LoginForm } from "./LoginForm";
 import { useRoute } from "./route";
-import { useTheme } from "./theme/useTheme";
+import { useAccent, useTheme } from "./theme/useTheme";
 import { useIsMobile } from "./ui/useMedia";
 import { useEdgeSwipe } from "./ui/useEdgeSwipe";
+import { UpdateBanner } from "./ui/UpdateBanner";
 
 export function App() {
   const session = useSession();
   const route = useRoute();
   const theme = useTheme();
+  const accent = useAccent();
   const api = useMemo(() => createApiClient(session.headers), [session.headers]);
   // A new conversation gets its id up front, so even its first message can be sent again safely.
   const [fresh, setFresh] = useState(() => crypto.randomUUID());
@@ -46,6 +48,8 @@ export function App() {
   }
 
   return (
+    <>
+    <UpdateBanner />
     <Workbench
       key={session.email ?? "signed-in"}
       api={api}
@@ -53,6 +57,7 @@ export function App() {
       onSignOut={() => void session.signOut()}
       route={route}
       theme={theme}
+      accent={accent}
       fresh={fresh}
       onNew={() => {
         setFresh(crypto.randomUUID());
@@ -63,6 +68,7 @@ export function App() {
       drawer={drawer}
       setDrawer={setDrawer}
     />
+    </>
   );
 }
 
@@ -72,6 +78,7 @@ interface WorkbenchProps {
   onSignOut: () => void;
   route: ReturnType<typeof useRoute>;
   theme: ReturnType<typeof useTheme>;
+  accent: ReturnType<typeof useAccent>;
   fresh: string;
   onNew: () => void;
   listVersion: number;
@@ -99,7 +106,7 @@ interface ReadyProps extends WorkbenchProps {
   accountEmail: string;
 }
 
-function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
+function ReadyWorkbench({ api, email, onSignOut, route, theme, accent, fresh, onNew, listVersion, bumpList, drawer, setDrawer, workspace, safetyThresholds, accountEmail }: ReadyProps) {
   const defaults = useDefaults(api, workspace);
   const roles = useRoles(api);
   const phone = useIsMobile();
@@ -123,6 +130,8 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, fresh, onNew, lis
         email={accountEmail || email}
         theme={theme.choice}
         onCycleTheme={theme.cycle}
+        accent={accent.accent}
+        onAccent={accent.choose}
         onOpen={route.openConversation}
         onNew={onNew}
         onSignOut={onSignOut}

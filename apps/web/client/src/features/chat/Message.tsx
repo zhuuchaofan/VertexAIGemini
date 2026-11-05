@@ -8,8 +8,13 @@ import { Citations } from "./render/Citations";
 import { Markdown } from "./render/Markdown";
 import { Thinking } from "./render/Thinking";
 import { runNote } from "./thread";
+import { useState } from "react";
+import { useLongPress } from "../../ui/useLongPress";
+import { MessageSheet } from "./MessageSheet";
 
-export function UserMessage({ message, children }: { message: Pick<StoredMessage, "content" | "createdAt">; children?: React.ReactNode }) {
+export function UserMessage({ message, children, onQuote }: { message: Pick<StoredMessage, "content" | "createdAt">; children?: React.ReactNode; onQuote?: (text: string) => void }) {
+  const [menu, setMenu] = useState(false);
+  const press = useLongPress(() => message.content && setMenu(true));
   return (
     <div className="msg user">
       <span className="avatar you" aria-hidden="true">你</span>
@@ -19,7 +24,8 @@ export function UserMessage({ message, children }: { message: Pick<StoredMessage
           {message.createdAt && <time>{formatClock(message.createdAt)}</time>}
         </div>
         {children}
-        {message.content && <div className="bubble user">{message.content}</div>}
+        {message.content && <div className="bubble user" {...press}>{message.content}</div>}
+        {menu && <MessageSheet text={message.content} onClose={() => setMenu(false)} onQuote={onQuote} />}
       </div>
     </div>
   );
@@ -27,6 +33,7 @@ export function UserMessage({ message, children }: { message: Pick<StoredMessage
 
 interface ModelProps {
   persona?: Persona;
+  onQuote?: (text: string) => void;
   modelLabel: string;
   content: string;
   thinking?: string | null;
@@ -51,7 +58,9 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ persona, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
+export function ModelMessage({ persona, onQuote, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
+  const [menu, setMenu] = useState(false);
+  const press = useLongPress(() => !live && content && setMenu(true));
   const note = runNote(run);
   const tag = run ? badge[run.status] : undefined;
   const searchTag =
@@ -71,10 +80,11 @@ export function ModelMessage({ persona, modelLabel, content, thinking, citations
         </div>
         {thinking && <Thinking text={thinking} live={thinkingLive} />}
         {(content || live) && (
-          <div className={live ? "bubble model streaming" : "bubble model"} data-status={status ?? "final"}>
+          <div className={live ? "bubble model streaming" : "bubble model"} data-status={status ?? "final"} {...(live ? {} : press)}>
             <Markdown text={content} streaming={live} />
           </div>
         )}
+        {menu && <MessageSheet text={content} onClose={() => setMenu(false)} onQuote={onQuote} onInspect={run && onInspect ? onInspect : undefined} />}
         {citations && citations.length > 0 && <Citations items={citations} />}
         {note && (
           <div className={`note ${note.tone}`} role="status" data-run-status={run?.status}>
