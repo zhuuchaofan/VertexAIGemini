@@ -379,3 +379,8 @@ button, a, select, summary { touch-action: manipulation; -webkit-tap-highlight-c
 .accent-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line-2); padding: 0; }
 .accent-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink-2); }
 @media (max-width: 760px) { .accent-dot { width: 32px; height: 32px; } .accent-row { gap: 16px; } }
+
+/* ---- citation markers in the text ---- */
+a.cite-ref { position: relative; display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 4px; margin: 0 1px; vertical-align: 1px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; line-height: 1; text-decoration: none; font-variant-numeric: tabular-nums; }
+a.cite-ref::after { content: ""; position: absolute; inset: -10px -4px; } /* a fingertip-sized target around the small badge */
+a.cite-ref:hover, a.cite-ref:active { background: var(--accent); color: var(--accent-ink); }
