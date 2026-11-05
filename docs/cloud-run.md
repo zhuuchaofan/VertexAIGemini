@@ -35,6 +35,20 @@ request timeout. `scripts/deploy-cloud-run.sh` and the GitHub workflow take the 
 The old page and its `WEB_DEFAULT_UI` switch are gone: `/` always redirects to `/app/`. A leftover
 `WEB_DEFAULT_UI` variable on a deployed service is ignored.
 
+## Automatic web deployment
+
+`cloudbuild-web.yaml` builds `apps/web` and replaces only the image of the existing `vertex-ai-web` service, so
+its environment, secrets and scaling are untouched. Connect it once in the Google Cloud console:
+
+1. Cloud Build > Triggers > Create trigger. Connect the GitHub repository (Cloud Build GitHub App).
+2. Event: push to branch `^main$`. Included files filter: `apps/web/**` and `cloudbuild-web.yaml`.
+3. Configuration: Cloud Build configuration file, `cloudbuild-web.yaml`.
+4. The trigger's service account needs Cloud Run Admin, Service Account User on the web service's runtime
+   service account, and Artifact Registry Writer on the `vertex-ai` repository.
+
+Each deploy takes all traffic at once; roll back by sending traffic to the previous revision in Cloud Run.
+The API is not deployed this way: it needs the staged release in `docs/refactor/cloud-shell-release.md`.
+
 ## Scripted Deployment
 
 The repository includes `scripts/deploy-cloud-run.sh`. It creates the Artifact

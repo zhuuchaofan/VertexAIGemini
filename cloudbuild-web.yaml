@@ -1,0 +1,33 @@
+# Cloud Build: build the web image from apps/web and swap it into the existing Cloud Run service.
+# Only the image changes; environment variables, secrets, service accounts and scaling stay as they are on the service.
+# Used by a Cloud Build trigger on pushes to main (see docs/cloud-run.md, "Automatic web deployment").
+substitutions:
+  _REGION: asia-east1
+  _REPOSITORY: vertex-ai
+  _SERVICE: vertex-ai-web
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/vertex-ai-web:${COMMIT_SHA}", "apps/web"]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/vertex-ai-web:${COMMIT_SHA}"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/vertex-ai-web:${COMMIT_SHA}
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/vertex-ai-web:${COMMIT_SHA}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
