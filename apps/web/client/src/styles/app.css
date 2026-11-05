@@ -15,7 +15,7 @@
 .rail-list { flex: 1; min-height: 0; overflow: auto; margin: 0 -4px; padding: 0 4px; }
 .rail-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .group { margin: 12px 8px 4px; display: block; font-size: 12px; font-weight: 500; color: var(--ink-3); }
-.rail .item { width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 8px 10px; display: grid; gap: 1px; }
+.rail .item { width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 8px 40px 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .rail .item:hover { background: color-mix(in srgb, var(--line) 70%, transparent); }
 .rail .item.active { background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(17,24,39,.06); }
 .rail .title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 7px; }
@@ -221,6 +221,10 @@
 .advanced-body { display: grid; gap: 14px; padding: 4px 12px 14px; }
 .settings-sheet .settings-panel { max-height: 72dvh; }
 .settings-sheet .overlay-panel { padding-bottom: 0; }
+@media (max-width: 760px) {
+  .settings-sheet .overlay-panel { display: flex; flex-direction: column; overflow: hidden; }
+  .settings-sheet .settings-panel { max-height: none; flex: 1; min-height: 0; }
+}
 @media (max-width: 760px) { .inspector { display: none; } }
 
 /* ---- attachments ---- */
