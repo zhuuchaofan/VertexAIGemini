@@ -20,6 +20,7 @@ public static class ConversationEndpoints
         [FromQuery] int? offset,
         [FromQuery] int? limit,
         [FromQuery] string? cursor,
+        [FromQuery] string? q,
         HttpContext context,
         IUserContext users,
         IConversationStore conversations)
@@ -29,6 +30,17 @@ public static class ConversationEndpoints
 
         var pageOffset = Math.Max(0, offset ?? 0);
         var pageLimit = Math.Clamp(limit ?? 30, 1, 100);
+
+        var search = TitleSearch.Normalize(q);
+        if (search is not null)
+        {
+            var matches = await TitleSearch.FindAsync(
+                (after, size) => conversations.GetUserConversationsPageAsync(currentUser, after, size),
+                search,
+                pageLimit);
+            return Results.Ok(new ConversationListResponse(matches.Select(ToSummary).ToList(), 0, pageLimit, false, null));
+        }
+
         var items = offset is > 0
             ? await conversations.GetUserConversationsAsync(currentUser, pageOffset, pageLimit + 1)
             : await conversations.GetUserConversationsPageAsync(currentUser, cursor, pageLimit + 1);

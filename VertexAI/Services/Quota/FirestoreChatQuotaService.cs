@@ -7,7 +7,7 @@ using VertexAI.Services.Firestore;
 
 namespace VertexAI.Services.Quota;
 
-public sealed class FirestoreChatQuotaService : IChatQuotaService
+public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusReader
 {
     public const string CollectionName = "usageQuotas";
     public const string UserIdField = "userId";
@@ -63,6 +63,18 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService
             },
             SetOptions.MergeAll,
             cancellationToken);
+    }
+
+    public async Task<QuotaStatus> GetAsync(AuthenticatedUser user, CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        if (ShouldBypass(user))
+        {
+            return QuotaStatus.Unlimited(now);
+        }
+
+        var snapshot = await GetDailyDocument(user).GetSnapshotAsync(cancellationToken);
+        return QuotaStatus.From(snapshot.Exists ? ToUsageEntry(snapshot) : null, _settings, now);
     }
 
     private bool ShouldBypass(AuthenticatedUser user) =>

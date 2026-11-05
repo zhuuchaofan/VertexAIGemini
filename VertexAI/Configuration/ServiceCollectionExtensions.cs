@@ -95,6 +95,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<FirestoreChatQuotaService>();
         services.AddScoped<IChatQuotaService>(sp => sp.GetRequiredService<FirestoreChatQuotaService>());
         services.AddScoped<IQuotaUsageReader, FirestoreQuotaUsageReader>();
+        services.AddScoped<IQuotaStatusReader>(sp => sp.GetRequiredService<FirestoreChatQuotaService>());
         services.AddScoped<IChatRequestAugmenter, WebSearchInstructionAugmenter>();
 
         services.Configure<WebSearchSettings>(configuration.GetSection("WebSearch"));

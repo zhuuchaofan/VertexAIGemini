@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using VertexAI.Services.Auth;
 using VertexAI.Services.Chat;
 
@@ -25,7 +26,8 @@ public static class ExportEndpoints
         var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        var conversation = await conversations.GetConversationAsync(conversationId, currentUser);
+        // The text export only names the attachments, so their content is not fetched.
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser, includeAttachmentData: false);
         if (conversation == null)
         {
             return Results.NotFound("对话不存在或无权访问");
@@ -82,12 +84,16 @@ public static class ExportEndpoints
         Guid conversationId,
         HttpContext httpContext,
         IConversationStore conversations,
-        IUserContext users)
+        IUserContext users,
+        [FromQuery] bool? attachments = null)
     {
         var currentUser = await ApiUserContext.GetCurrentUserAsync(httpContext, users);
         if (currentUser == null) return Results.Unauthorized();
 
-        var conversation = await conversations.GetConversationAsync(conversationId, currentUser);
+        // By default the attachments are listed (name, type, size) without their content, which is what makes an
+        // export with many files slow and large. ?attachments=true asks for the content too.
+        var withContent = attachments == true;
+        var conversation = await conversations.GetConversationAsync(conversationId, currentUser, includeAttachmentData: withContent);
         if (conversation == null)
         {
             return Results.NotFound("对话不存在或无权访问");
@@ -115,7 +121,9 @@ public static class ExportEndpoints
                     m.Role,
                     m.Content,
                     m.ThinkingContent,
-                    ChatAttachmentSerializer.Deserialize(m.AttachmentsJson),
+                    ChatAttachmentSerializer.Deserialize(m.AttachmentsJson)
+                        .Select(a => new ExportAttachment(a.FileName, a.MimeType, a.SizeBytes, withContent ? a.Base64Data : null))
+                        .ToList(),
                     m.CreatedAt))
                 .ToList());
 
@@ -146,6 +154,14 @@ public static class ExportEndpoints
         string Role,
         string Content,
         string? ThinkingContent,
-        IReadOnlyList<ChatAttachment> Attachments,
+        IReadOnlyList<ExportAttachment> Attachments,
         DateTime CreatedAt);
+
+    /// <summary>An attachment in a JSON export. Its content (base64) is present only when asked for.</summary>
+    private sealed record ExportAttachment(
+        string? FileName,
+        string MimeType,
+        long? SizeBytes,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        string? Base64Data);
 }
