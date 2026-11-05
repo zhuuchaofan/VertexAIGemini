@@ -81,7 +81,7 @@ export function ModelMessage({ persona, onQuote, modelLabel, content, thinking, 
         {thinking && <Thinking text={thinking} live={thinkingLive} />}
         {(content || live) && (
           <div className={live ? "bubble model streaming" : "bubble model"} data-status={status ?? "final"} {...(live ? {} : press)}>
-            <Markdown text={content} streaming={live} />
+            <Markdown text={content} streaming={live} citations={citations} />
           </div>
         )}
         {menu && <MessageSheet text={content} onClose={() => setMenu(false)} onQuote={onQuote} onInspect={run && onInspect ? onInspect : undefined} />}
