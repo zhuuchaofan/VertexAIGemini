@@ -372,3 +372,9 @@ button, a, select, summary { touch-action: manipulation; -webkit-tap-highlight-c
 .msg-sheet-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 50px; padding: 0 12px; border: 0; border-radius: 12px; background: none; color: var(--ink); font-size: 16px; text-align: left; }
 .msg-sheet-item:hover, .msg-sheet-item:active { background: var(--panel-2); }
 .select-text { -webkit-user-select: text; user-select: text; max-height: 50dvh; overflow: auto; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 16px; }
+
+/* ---- accent picker ---- */
+.accent-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 4px 4px; }
+.accent-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--line-2); padding: 0; }
+.accent-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink-2); }
+@media (max-width: 760px) { .accent-dot { width: 32px; height: 32px; } .accent-row { gap: 16px; } }
