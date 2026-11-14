@@ -67,6 +67,8 @@ export interface RunController {
   send(text: string, options?: RunOptions, attachments?: OutgoingAttachment[]): Promise<void>;
   /** Tries the stored question of a failed run again, with the current settings. */
   retry(failedRunId: string, options?: RunOptions): Promise<void>;
+  /** Answers the newest question again although it already has a reply. `sourceRunId` is its last try. */
+  regenerate(sourceRunId: string, options?: RunOptions): Promise<void>;
   stop(): Promise<void>;
   reset(): void;
   /** The composer took back the unsent text; keep the explanation, drop the pending copy. */
@@ -157,7 +159,7 @@ export function useRunController(options: RunControllerOptions): RunController {
   }, [conversationId, pending, now]);
 
   const start = useCallback(
-    async (text: string, runOptions?: RunOptions, attachments?: OutgoingAttachment[], retryOf?: string) => {
+    async (text: string, runOptions?: RunOptions, attachments?: OutgoingAttachment[], retryOf?: string, regenerate = false) => {
       const message = text.trim();
       const files = attachments ?? [];
       if ((!message && files.length === 0 && !retryOf) || sending.current || !canSend(stateRef.current)) return;
@@ -174,7 +176,7 @@ export function useRunController(options: RunControllerOptions): RunController {
         for (let attempt = 0; ; attempt += 1) {
           try {
             const result = await api.createRun(
-              { ...runOptions, runId, conversationId, message, ...(files.length > 0 ? { attachments: files } : {}), ...(retryOf ? { retryOfRunId: retryOf } : {}) },
+              { ...runOptions, runId, conversationId, message, ...(files.length > 0 ? { attachments: files } : {}), ...(retryOf ? { retryOfRunId: retryOf } : {}), ...(retryOf && regenerate ? { regenerate: true } : {}) },
               {
                 onRun: snapshot => dispatch({ type: "run", run: snapshot }),
                 onDelta: delta => dispatch({ type: "delta", delta }),
@@ -234,6 +236,11 @@ export function useRunController(options: RunControllerOptions): RunController {
     [start]
   );
 
+  const regenerate = useCallback(
+    (sourceRunId: string, runOptions?: RunOptions) => start("", runOptions, undefined, sourceRunId, true),
+    [start]
+  );
+
   const stop = useCallback(async () => {
     const current = stateRef.current;
     if (current.phase !== "streaming" || !current.runId) return;
@@ -269,5 +276,5 @@ export function useRunController(options: RunControllerOptions): RunController {
 
   const unsentRestored = useCallback(() => dispatch({ type: "unsentRestored" }), []);
 
-  return { state, send, retry, stop, reset, unsentRestored };
+  return { state, send, retry, regenerate, stop, reset, unsentRestored };
 }

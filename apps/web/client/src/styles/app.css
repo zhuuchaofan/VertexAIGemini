@@ -415,3 +415,8 @@ a.cite-ref:hover, a.cite-ref:active { background: var(--accent); color: var(--ac
 .memory-add { display: flex; gap: 8px; }
 .memory-add input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; }
 @media (min-width: 761px) { .memory .overlay-panel { width: 340px; } }
+
+/* ---- answer versions ---- */
+.versions { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.versions .act { min-width: 32px; min-height: 32px; font-size: 16px; }
+.versions .act:disabled { opacity: .35; cursor: default; }

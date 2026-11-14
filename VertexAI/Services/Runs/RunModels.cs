@@ -166,7 +166,8 @@ public sealed record AdmitRequest(
     string Fingerprint,
     ChatQuotaRequest Quota,
     IReadOnlyList<ChatAttachment>? Attachments = null,
-    string? RetryOfRunId = null);
+    string? RetryOfRunId = null,
+    bool Regenerate = false);
 
 /// <summary>
 /// The only proof that a request may call the model. It can only be produced by <see cref="IRunStore.AdmitAsync"/>

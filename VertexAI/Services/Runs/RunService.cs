@@ -25,7 +25,9 @@ public sealed record RunStartRequest(
     string? SearchMode,
     ChatSessionOptions Options,
     IReadOnlyCollection<ChatAttachment>? Attachments = null,
-    string? RetryOfRunId = null);
+    string? RetryOfRunId = null,
+    // With RetryOfRunId: answer that run's question again although it already has a reply.
+    bool Regenerate = false);
 
 /// <summary>The outcome of admission plus what execution needs. Only an <c>Admitted</c> result can be executed.</summary>
 public sealed record RunAdmission(
@@ -158,7 +160,9 @@ public sealed class RunService
             requested.CustomPrompt,
             ExecutorId: Guid.NewGuid().ToString("N"),
             RunFingerprint.Compute(
-                request.ConversationId, retryOf == null ? request.Message : $"retry:{retryOf}", requested,
+                request.ConversationId,
+                retryOf == null ? request.Message : request.Regenerate ? $"regenerate:{retryOf}" : $"retry:{retryOf}",
+                requested,
                 AttachmentPlanner.FingerprintPart(planned)),
             new ChatQuotaRequest(
                 request.User,
@@ -167,7 +171,8 @@ public sealed class RunService
                 SearchCount: SearchModes.EnablesWebSearch(requested.SearchMode) ? 1 : 0,
                 AttachmentBytes: planned.Sum(p => p.Recorded.SizeBytes ?? 0)),
             retryAttachments ?? planned.Select(p => p.Recorded).ToList(),
-            retryOf);
+            retryOf,
+            request.Regenerate);
 
         try
         {
@@ -298,7 +303,10 @@ public sealed class RunService
                 var recent = await _store.GetRecentMessagesAsync(
                     request.User, run.ConversationId, _maxHistoryTurns * 4 + 2, CancellationToken.None);
                 // The current question is the trailing user message and is excluded by the selector.
-                history = RunContextSelector.Select(recent, _maxHistoryTurns);
+                // Only what came before this run's question is context. A regenerated question already has replies
+                // stored after it, and none of them may reach the model as if they were an earlier turn.
+                var before = recent.TakeWhile(message => message.Id != run.Record.UserMessageId).ToList();
+                history = RunContextSelector.Select(before, _maxHistoryTurns);
             }
 
             if (linked.IsCancellationRequested)

@@ -31,10 +31,12 @@ public static class RunContextSelector
 
             if (pendingUser != null && !string.IsNullOrWhiteSpace(message.Content))
             {
-                turns.Add((pendingUser, message));
+                // A question answered again by a regenerate counts once, with its newest reply. Only replies written
+                // by runs count this way; in conversations from before runs existed, a stray extra reply is ignored.
+                var answered = turns.Count > 0 && ReferenceEquals(turns[^1].User, pendingUser);
+                if (!answered) turns.Add((pendingUser, message));
+                else if (message.RunId != null && turns[^1].Reply.RunId != null) turns[^1] = (pendingUser, message);
             }
-
-            pendingUser = null;
         }
 
         // A trailing user message is the one being answered now (or an orphan) and is never context.

@@ -50,6 +50,10 @@ interface ModelProps {
   onRetry?: () => void;
   /** Opens this reply's run in the inspector. */
   onInspect?: () => void;
+  /** Offered on the newest answered turn: answer the question again. */
+  onRegenerate?: () => void;
+  /** Shown when the question has more than one answer. `index` is 0-based. */
+  versions?: { index: number; count: number; onPrev: () => void; onNext: () => void };
 }
 
 const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
@@ -58,7 +62,7 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ persona, onQuote, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
+export function ModelMessage({ persona, onQuote, onRegenerate, versions, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
   const [menu, setMenu] = useState(false);
   const press = useLongPress(() => !live && content && setMenu(true));
   const note = runNote(run);
@@ -84,7 +88,7 @@ export function ModelMessage({ persona, onQuote, modelLabel, content, thinking, 
             <Markdown text={content} streaming={live} citations={citations} />
           </div>
         )}
-        {menu && <MessageSheet text={content} onClose={() => setMenu(false)} onQuote={onQuote} onInspect={run && onInspect ? onInspect : undefined} />}
+        {menu && <MessageSheet text={content} onClose={() => setMenu(false)} onQuote={onQuote} onInspect={run && onInspect ? onInspect : undefined} onRegenerate={onRegenerate} />}
         {citations && citations.length > 0 && <Citations items={citations} />}
         {note && (
           <div className={`note ${note.tone}`} role="status" data-run-status={run?.status}>
@@ -102,9 +106,21 @@ export function ModelMessage({ persona, onQuote, modelLabel, content, thinking, 
             )}
           </div>
         )}
-        {!live && (content || (run && onInspect)) && (
+        {!live && (content || (run && onInspect) || onRegenerate) && (
           <div className="msg-actions">
+            {versions && versions.count > 1 && (
+              <span className="versions" role="group" aria-label="回答版本">
+                <button type="button" className="act" aria-label="上一个回答" disabled={versions.index === 0} onClick={versions.onPrev}>‹</button>
+                <span aria-live="polite">{versions.index + 1} / {versions.count}</span>
+                <button type="button" className="act" aria-label="下一个回答" disabled={versions.index >= versions.count - 1} onClick={versions.onNext}>›</button>
+              </span>
+            )}
             {content && <CopyButton text={content} />}
+            {onRegenerate && (
+              <button type="button" className="act" onClick={onRegenerate}>
+                重新生成
+              </button>
+            )}
             {run && onInspect && (
               <button type="button" className="link inspect" onClick={onInspect}>
                 运行详情

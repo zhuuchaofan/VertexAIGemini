@@ -215,7 +215,9 @@ public static class RunEndpoints
         string? ThinkingLevel,
         int? ThinkingBudget,
         ChatAdvancedOptions? Advanced,
-        string? RetryOfRunId = null);
+        string? RetryOfRunId = null,
+        // With RetryOfRunId: answer the latest question again although it already has a reply.
+        bool? Regenerate = null);
 
     internal static async Task CreateRunAsync(
         ApiRunRequest request,
@@ -269,6 +271,12 @@ public static class RunEndpoints
 
             retryOf = parsedRetry;
         }
+        else if (request.Regenerate == true)
+        {
+            await Error(context, StatusCodes.Status400BadRequest, "regenerate_needs_run",
+                "Regenerating needs retryOfRunId: the run whose question is answered again.");
+            return;
+        }
 
         var attachments = request.Attachments ?? [];
         var message = request.Message?.Trim() ?? "";
@@ -311,7 +319,7 @@ public static class RunEndpoints
                     new ChatSessionOptions(
                         request.ProviderId, request.ModelName, request.PresetId, request.CustomPrompt,
                         request.ThinkingEnabled, request.ThinkingLevel, request.ThinkingBudget, request.Advanced),
-                    attachments, retryOf),
+                    attachments, retryOf, Regenerate: retryOf != null && request.Regenerate == true),
                 context.RequestAborted);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
@@ -350,7 +358,7 @@ public static class RunEndpoints
                 {
                     "source_not_terminal" => "上一次生成还没有结束，不能重试。",
                     "source_has_content" => "上一次已经产生了回复，请直接发送新消息继续。",
-                    "not_latest_turn" => "只能重试最新一轮的失败。",
+                    "not_latest_turn" => "只能重试或重新生成最新一轮。",
                     "already_retried" => "这次失败已经重试过了。",
                     "attachments_unavailable" => "这条消息的附件没有保存成功，无法重试，请重新发送。",
                     _ => "无法重试。"

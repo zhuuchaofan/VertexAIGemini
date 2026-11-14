@@ -23,7 +23,7 @@ import { quoteText } from "./messageText";
 import type { Roles } from "../settings/useRoles";
 import { ModelMessage, UserMessage } from "./Message";
 import { canSend, isActive } from "./runMachine";
-import { buildThread, canRetry, runNote } from "./thread";
+import { buildThread, canRetry, regenerateSource, runNote } from "./thread";
 import { localPendingStore, useRunController, type PendingStore } from "./useRunController";
 
 interface Props {
@@ -250,6 +250,9 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
   const composerText = draft || state.unsentMessage || "";
 
   const thread = useMemo(() => buildThread(detail), [detail]);
+  // Which answer is shown for a question with several. A choice made when there were fewer answers no longer applies,
+  // so a new answer is shown as soon as it arrives.
+  const [versionChoice, setVersionChoice] = useState<Record<string, { count: number; index: number }>>({});
   const elapsed = useElapsed(state.startedAt, isActive(state));
 
   useEffect(() => {
@@ -585,26 +588,43 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
                     </div>
                   );
                 })}
-              {(item.reply || item.finalRun) && (
-                <ModelMessage
-                  persona={persona}
-                  onQuote={quote}
-                  modelLabel={replyLabelFor(item.finalRun)}
-                  content={item.reply?.content ?? ""}
-                  thinking={item.reply?.thinkingContent}
-                  citations={item.reply?.citations}
-                  createdAt={item.reply?.createdAt}
-                  status={item.reply?.status}
-                  run={item.finalRun}
-                  onSync={() => setReloadKey(key => key + 1)}
-                  onInspect={item.finalRun ? () => inspectRun(item.finalRun!.runId) : undefined}
-                  onRetry={
-                    item.finalRun && canRetry(item, position === thread.length - 1, isActive(state) || followId !== null)
-                      ? () => void controller.retry(item.finalRun!.runId, toRunOptions(workspace, settings))
-                      : undefined
-                  }
-                />
-              )}
+              {(() => {
+                if (!item.reply && !item.finalRun) return null;
+                const isLatest = position === thread.length - 1;
+                const busy = isActive(state) || followId !== null;
+                // While this question is being answered again, its earlier answer steps aside for the new one below.
+                if (live && state.retryOf && item.reply && item.attempts.some(attempt => attempt.runId === state.retryOf)) return null;
+
+                const count = item.replies.length;
+                const chosen = versionChoice[item.key];
+                const index = chosen && chosen.count === count ? chosen.index : Math.max(0, count - 1);
+                const version = item.replies[index];
+                const shownRun = version?.run ?? item.finalRun;
+                const choose = (next: number) => setVersionChoice(current => ({ ...current, [item.key]: { count, index: next } }));
+                const source = regenerateSource(item, isLatest, busy);
+                return (
+                  <ModelMessage
+                    persona={persona}
+                    onQuote={quote}
+                    modelLabel={replyLabelFor(shownRun)}
+                    content={version?.message.content ?? ""}
+                    thinking={version?.message.thinkingContent}
+                    citations={version?.message.citations}
+                    createdAt={version?.message.createdAt}
+                    status={version?.message.status}
+                    run={shownRun}
+                    onSync={() => setReloadKey(key => key + 1)}
+                    onInspect={shownRun ? () => inspectRun(shownRun.runId) : undefined}
+                    onRetry={
+                      item.finalRun && canRetry(item, isLatest, busy)
+                        ? () => void controller.retry(item.finalRun!.runId, toRunOptions(workspace, settings))
+                        : undefined
+                    }
+                    onRegenerate={source ? () => void controller.regenerate(source, toRunOptions(workspace, settings)) : undefined}
+                    versions={count > 1 ? { index, count, onPrev: () => choose(index - 1), onNext: () => choose(index + 1) } : undefined}
+                  />
+                );
+              })()}
             </article>
           ))}
 

@@ -91,7 +91,8 @@ public sealed class FirestoreRunStore : IRunStore
             }
         }
 
-        // A retry may only continue a failed turn that is still the latest and was not retried: check the source now,
+        // A retry may only continue a failed turn that is still the latest and was not retried (a regenerate may also
+        // answer a turn that has a reply): check the source now,
         // in the same transaction that creates the new run, so two retries of one run cannot both be admitted.
         RunRecord? source = null;
         DocumentSnapshot? sourceMessage = null;
@@ -104,7 +105,7 @@ public sealed class FirestoreRunStore : IRunStore
             if (source.Uid != uid || source.ConversationId != request.ConversationId) return new AdmitResult.Conflict("conflict");
 
             if (source.Status == RunStatus.Running) return new AdmitResult.Refused("source_not_terminal");
-            if (source.HasAssistantMessage) return new AdmitResult.Refused("source_has_content");
+            if (source.HasAssistantMessage && !request.Regenerate) return new AdmitResult.Refused("source_has_content");
             if (!string.IsNullOrEmpty(source.RetriedByRunId)) return new AdmitResult.Refused("already_retried");
             if (!conversationSnapshot.TryGetValue<string>(FirestoreConversationSchema.LastRunId, out var lastRunId)
                 || lastRunId != request.RetryOfRunId)
@@ -137,7 +138,7 @@ public sealed class FirestoreRunStore : IRunStore
             [Fields.UserMessageId] = userMessageId.ToString("D"),
             [Fields.AssistantMessageId] = assistantMessageId.ToString("D"),
             [Fields.Attempt] = (source?.Attempt ?? 0) + 1,
-            [Fields.Trigger] = source == null ? "send" : "retry",
+            [Fields.Trigger] = source == null ? "send" : request.Regenerate ? "regenerate" : "retry",
             [Fields.Status] = (admitted ? RunStatus.Running : RunStatus.Failed).ToWire(),
             [Fields.Fingerprint] = request.Fingerprint,
             [Fields.ProviderCall] = "not_started",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationDetail, RunSnapshot, StoredMessage } from "../../api/types";
-import { buildThread, canRetry, runNote } from "./thread";
+import { buildThread, canRetry, regenerateSource, runNote } from "./thread";
 import { snapshot } from "./testkit";
 
 const message = (id: string, role: "user" | "model", runId: string | null, extra: Partial<StoredMessage> = {}): StoredMessage => ({
@@ -50,6 +50,37 @@ describe("thread", () => {
       [failed]
     ))[0]!;
     expect(canRetry(withGoodFile, true, false)).toBe(true);
+  });
+
+  it("keeps a regenerated answer with its question as a newer version, not as a reply of its own", () => {
+    const first = run("r1", "u1", { status: "completed", attempt: 1, hasAssistantMessage: true, retriedByRunId: "r2" });
+    const second = run("r2", "u1", { status: "completed", attempt: 2, retryOfRunId: "r1", hasAssistantMessage: true });
+    const items = buildThread(detail(
+      [message("u1", "user", "r1"), message("a-r1", "model", "r1"), message("a-r2", "model", "r2")],
+      [first, second]
+    ));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.replies.map(version => version.message.id)).toEqual(["a-r1", "a-r2"]);
+    expect(items[0]!.reply?.id).toBe("a-r2");
+    expect(items[0]!.finalRun?.runId).toBe("r2");
+  });
+
+  it("offers to regenerate the newest answered turn from its last try, including after a failed regenerate", () => {
+    const answered = run("r1", "u1", { status: "completed", hasAssistantMessage: true });
+    const item = buildThread(detail([message("u1", "user", "r1"), message("a-r1", "model", "r1")], [answered]))[0]!;
+    expect(regenerateSource(item, true, false)).toBe("r1");
+    expect(regenerateSource(item, false, false)).toBeNull(); // an older turn
+    expect(regenerateSource(item, true, true)).toBeNull(); // something is generating
+
+    const failedAgain = buildThread(detail(
+      [message("u1", "user", "r1"), message("a-r1", "model", "r1")],
+      [run("r1", "u1", { status: "completed", hasAssistantMessage: true, retriedByRunId: "r2" }), run("r2", "u1", { status: "failed", attempt: 2, retryOfRunId: "r1" })]
+    ))[0]!;
+    expect(failedAgain.reply?.id).toBe("a-r1"); // the earlier answer is still shown
+    expect(regenerateSource(failedAgain, true, false)).toBe("r2");
+
+    const unanswered = buildThread(detail([message("u1", "user", "r1")], [run("r1", "u1", { status: "failed" })]))[0]!;
+    expect(regenerateSource(unanswered, true, false)).toBeNull(); // that is a retry, not a regenerate
   });
 
   it("explains each way a run can end without saying more than is known", () => {
