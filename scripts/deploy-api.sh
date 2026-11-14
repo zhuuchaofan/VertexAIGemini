@@ -36,8 +36,10 @@ main() {
   [[ -z "$(git status --porcelain --untracked-files=no)" ]] || die "工作区有未提交的改动，先提交或 git stash，免得被切换提交覆盖。"
 
   echo "== 取代码：${REF}"
-  git fetch -q origin
-  git checkout -q --detach "${REF}"
+  # Only main is fetched: fetching every branch can fail on stale local refs (e.g. "origin/claude" next to
+  # "origin/claude/..."), and nothing else is needed for the default. Any other REF must already be known locally.
+  git fetch -q origin main || die "拉取 main 失败。可以先运行 git remote prune origin 再试。"
+  git checkout -q --detach "${REF}" || die "找不到 ${REF}。如果是别的分支，先运行 git fetch origin <分支名>。"
   COMMIT="$(git rev-parse --short HEAD)"
   IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${COMMIT}"
   git log --oneline -1
