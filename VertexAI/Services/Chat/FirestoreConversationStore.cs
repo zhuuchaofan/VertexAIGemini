@@ -236,6 +236,42 @@ public sealed class FirestoreConversationStore : IConversationStore
         });
     }
 
+    public async Task<List<Conversation>> GetPinnedConversationsAsync(AuthenticatedUser user, int limit)
+    {
+        // Two equality filters and no ordering: Firestore serves this from its automatic single-field indexes,
+        // so pinning needs no composite index. The handful of pinned conversations are ordered here.
+        var uid = FirestoreConversationSchema.UserDocumentId(user);
+        var snapshot = await _db.Collection(FirestoreConversationSchema.ConversationsCollection)
+            .WhereEqualTo(FirestoreConversationSchema.Uid, uid)
+            .WhereEqualTo(FirestoreConversationSchema.Pinned, true)
+            .Limit(Math.Max(1, limit))
+            .GetSnapshotAsync();
+
+        return snapshot.Documents
+            .Select(FirestoreConversationMapper.ToConversation)
+            .Where(conversation => conversation?.PinnedAt != null)
+            .Cast<Conversation>()
+            .OrderByDescending(conversation => conversation.PinnedAt)
+            .ToList();
+    }
+
+    public async Task<bool> SetPinnedAsync(Guid conversationId, AuthenticatedUser user, bool pinned)
+    {
+        var conversationRef = GetConversationDocument(conversationId);
+        var snapshot = await conversationRef.GetSnapshotAsync();
+        if (!FirestoreConversationSchema.OwnsConversation(snapshot, user))
+        {
+            return false;
+        }
+
+        await conversationRef.UpdateAsync(new Dictionary<string, object>
+        {
+            [FirestoreConversationSchema.Pinned] = pinned,
+            [FirestoreConversationSchema.PinnedAt] = pinned ? Timestamp.FromDateTime(DateTime.UtcNow) : FieldValue.Delete
+        });
+        return true;
+    }
+
     public async Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user)
     {
         var conversationRef = GetConversationDocument(conversationId);

@@ -69,6 +69,10 @@ internal static class FirestoreConversationMapper
                 ? VertexAI.Services.Runs.SettingsMapper.FromMap(settings)
                 : null,
             TokenCount = ReadInt(snapshot, FirestoreConversationSchema.TokenCount),
+            PinnedAt = snapshot.TryGetValue<bool>(FirestoreConversationSchema.Pinned, out var pinned) && pinned
+                && snapshot.TryGetValue<Timestamp>(FirestoreConversationSchema.PinnedAt, out var pinnedAt)
+                    ? pinnedAt.ToDateTime()
+                    : null,
             CreatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.CreatedAt),
             UpdatedAt = ReadTimestamp(snapshot, FirestoreConversationSchema.UpdatedAt)
         };

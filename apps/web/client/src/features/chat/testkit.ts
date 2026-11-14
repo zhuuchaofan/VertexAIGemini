@@ -52,6 +52,8 @@ export class FakeRunApi implements RunApi {
   renamed: { id: string; title: string }[] = [];
   deleted: string[] = [];
   async renameConversation(id: string, title: string) { this.renamed.push({ id, title }); }
+  pins: { id: string; pinned: boolean }[] = [];
+  async setPinned(id: string, pinned: boolean) { this.pins.push({ id, pinned }); }
   async deleteConversation(id: string) { this.deleted.push(id); }
   async exportConversation() { return { blob: new Blob(["x"]), fileName: "c.md" }; }
   defaults: import("../../api/types").StoredSettings | null = null;

@@ -154,6 +154,9 @@ var tests = new (string Name, Action Test)[]
     ("Export endpoints enforce ownership and include attachments", ExportEndpointTests.EnforcesOwnershipAndIncludesAttachments),
     ("Export: JSON lists attachments and adds content only when asked", ExportEndpointTests.JsonExportListsAttachmentsAndAddsContentOnlyWhenAsked),
     ("Conversation delete endpoint passes authenticated owner to store", ConversationEndpointTests.DeletePassesAuthenticatedOwnerToStore),
+    ("Pinning: only the owner can pin, and unpinning works", PinTests.OnlyTheOwnerCanPinAndUnpinningWorks),
+    ("Pinning: the number of pinned conversations is capped", PinTests.TheNumberOfPinnedConversationsIsCapped),
+    ("Pinning: the first page of the list carries the pinned conversations", PinTests.TheFirstPageCarriesThePinnedConversations),
     ("Admin quota usage endpoint requires admin", AdminEndpointTests.QuotaUsageRequiresAdmin),
     ("Admin quota usage endpoint returns daily usage", AdminEndpointTests.QuotaUsageReturnsDailyUsage),
     ("Quota status: counts estimated and actual tokens and resets at midnight UTC", QuotaStatusTests.CountsEstimatedAndActualTokensAndResetsAtMidnight),
@@ -1620,6 +1623,24 @@ internal sealed class FakeConversationStore : IConversationStore
 
     public Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit) =>
         Task.FromResult(new List<Conversation>());
+
+    public Task<List<Conversation>> GetPinnedConversationsAsync(AuthenticatedUser user, int limit) =>
+        Task.FromResult(Conversations.Values
+            .Where(conversation => conversation.UserId == user.LocalUserId && conversation.PinnedAt != null)
+            .OrderByDescending(conversation => conversation.PinnedAt)
+            .Take(limit)
+            .ToList());
+
+    public Task<bool> SetPinnedAsync(Guid conversationId, AuthenticatedUser user, bool pinned)
+    {
+        if (!Conversations.TryGetValue(conversationId, out var conversation) || conversation.UserId != user.LocalUserId)
+        {
+            return Task.FromResult(false);
+        }
+
+        conversation.PinnedAt = pinned ? DateTime.UtcNow : null;
+        return Task.FromResult(true);
+    }
 
     public bool? LastIncludeAttachmentData { get; private set; }
 
