@@ -33,6 +33,15 @@ public interface IConversationStore
 
     Task UpdateTitleAsync(Guid conversationId, AuthenticatedUser user, string title);
 
+    /// <summary>The person's pinned conversations, most recently pinned first.</summary>
+    Task<List<Conversation>> GetPinnedConversationsAsync(AuthenticatedUser user, int limit);
+
+    /// <summary>
+    /// Pins or unpins one of the person's conversations. Does not change when it was last updated, so pinning does
+    /// not reorder the recent list. False when it is not theirs (or does not exist).
+    /// </summary>
+    Task<bool> SetPinnedAsync(Guid conversationId, AuthenticatedUser user, bool pinned);
+
     Task DeleteConversationAsync(Guid conversationId, AuthenticatedUser user);
 
     Task UpdateTokenCountAsync(Guid conversationId, AuthenticatedUser user, int tokenCount);

@@ -154,6 +154,9 @@ var tests = new (string Name, Action Test)[]
     ("Export endpoints enforce ownership and include attachments", ExportEndpointTests.EnforcesOwnershipAndIncludesAttachments),
     ("Export: JSON lists attachments and adds content only when asked", ExportEndpointTests.JsonExportListsAttachmentsAndAddsContentOnlyWhenAsked),
     ("Conversation delete endpoint passes authenticated owner to store", ConversationEndpointTests.DeletePassesAuthenticatedOwnerToStore),
+    ("Pinning: only the owner can pin, and unpinning works", PinTests.OnlyTheOwnerCanPinAndUnpinningWorks),
+    ("Pinning: the number of pinned conversations is capped", PinTests.TheNumberOfPinnedConversationsIsCapped),
+    ("Pinning: the first page of the list carries the pinned conversations", PinTests.TheFirstPageCarriesThePinnedConversations),
     ("Admin quota usage endpoint requires admin", AdminEndpointTests.QuotaUsageRequiresAdmin),
     ("Admin quota usage endpoint returns daily usage", AdminEndpointTests.QuotaUsageReturnsDailyUsage),
     ("Quota status: counts estimated and actual tokens and resets at midnight UTC", QuotaStatusTests.CountsEstimatedAndActualTokensAndResetsAtMidnight),
@@ -342,11 +345,15 @@ internal static class GeminiAdvancedTests
     {
         var settings = new GeminiSettings();
         var models = GeminiCatalog.CreateModelOptions(settings);
-        Assert.Equal(2, models.Count);
-        Assert.True(models.Any(model => model.ModelName == "gemini-3.8-flash"));
+        Assert.Equal(3, models.Count);
+        Assert.Equal("gemini-4-hydrogen", models[0].ModelName);
+        Assert.True(models.Any(model => model.ModelName == "gemini-4-carbon"));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-argon"));
-        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName(settings.ModelName, models));
-        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName("gemini-3.5-flash", models));
+        Assert.False(models.Any(model => model.ModelName == "gemini-3.8-flash"));
+        Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName(settings.ModelName, models));
+        // A conversation or saved setting naming a retired model uses the default.
+        Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName("gemini-3.8-flash", models));
+        Assert.Equal("gemini-4-carbon", GeminiCatalog.ResolveModelName("gemini-4-carbon", models));
         foreach (var model in models)
         {
             Assert.True(model.SupportsThinking);
@@ -1620,6 +1627,24 @@ internal sealed class FakeConversationStore : IConversationStore
 
     public Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit) =>
         Task.FromResult(new List<Conversation>());
+
+    public Task<List<Conversation>> GetPinnedConversationsAsync(AuthenticatedUser user, int limit) =>
+        Task.FromResult(Conversations.Values
+            .Where(conversation => conversation.UserId == user.LocalUserId && conversation.PinnedAt != null)
+            .OrderByDescending(conversation => conversation.PinnedAt)
+            .Take(limit)
+            .ToList());
+
+    public Task<bool> SetPinnedAsync(Guid conversationId, AuthenticatedUser user, bool pinned)
+    {
+        if (!Conversations.TryGetValue(conversationId, out var conversation) || conversation.UserId != user.LocalUserId)
+        {
+            return Task.FromResult(false);
+        }
+
+        conversation.PinnedAt = pinned ? DateTime.UtcNow : null;
+        return Task.FromResult(true);
+    }
 
     public bool? LastIncludeAttachmentData { get; private set; }
 

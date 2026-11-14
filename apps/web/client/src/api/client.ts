@@ -126,6 +126,15 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       return (await response.json()) as WorkspaceConfig;
     },
 
+    async setPinned(conversationId: string, pinned: boolean): Promise<void> {
+      const response = await request(`/api/conversations/${conversationId}/pin`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pinned })
+      });
+      if (!response.ok) await fail(response);
+    },
+
     async renameConversation(conversationId: string, title: string): Promise<void> {
       const response = await request(`/api/conversations/${conversationId}/title`, {
         method: "PATCH",

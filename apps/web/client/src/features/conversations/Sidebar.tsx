@@ -34,6 +34,7 @@ interface Props {
 
 export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, quota, accent, onAccent, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
+  const [pinned, setPinnedItems] = useState<ConversationSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,6 +50,7 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, qu
       .then(page => {
         if (cancelled) return;
         setItems(page.items);
+        setPinnedItems(page.pinned ?? []);
         setCursor(page.nextCursor);
         setHasMore(page.hasMore);
         setFailed(false);
@@ -105,7 +107,31 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, qu
     const older = remote?.query === needle ? remote.items.filter(item => !local.some(known => known.id === item.id)) : [];
     return [...local, ...older].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }, [items, needle, remote]);
-  const groups = useMemo(() => groupByDay(shown), [shown]);
+  // Pinned conversations sit in their own group on top and are left out of the day groups below them. A search
+  // shows every match by day, pinned or not.
+  const groups = useMemo(() => {
+    if (needle) return groupByDay(shown);
+    const pinnedIds = new Set(pinned.map(item => item.id));
+    const days = groupByDay(shown.filter(item => !pinnedIds.has(item.id)));
+    return pinned.length > 0 ? [{ label: "📌 置顶", items: pinned }, ...days] : days;
+  }, [shown, pinned, needle]);
+
+  const isPinned = (id: string) => pinned.some(item => item.id === id);
+  const togglePin = async (item: ConversationSummary) => {
+    const next = !isPinned(item.id);
+    await api.setPinned(item.id, next);
+    if (next) {
+      setPinnedItems(current => [{ ...item, pinned: true }, ...current.filter(entry => entry.id !== item.id)]);
+    } else {
+      setPinnedItems(current => current.filter(entry => entry.id !== item.id));
+      // Back among the recent ones, even if it was older than what is loaded.
+      setItems(current =>
+        current.some(entry => entry.id === item.id)
+          ? current
+          : [...current, { ...item, pinned: false }].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      );
+    }
+  };
 
   return (
     <>
@@ -159,6 +185,7 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, qu
                           try {
                             await api.renameConversation(item.id, title);
                             setItems(current => current.map(entry => (entry.id === item.id ? { ...entry, title } : entry)));
+                            setPinnedItems(current => current.map(entry => (entry.id === item.id ? { ...entry, title } : entry)));
                             setEditingId(null);
                             setRenameError(null);
                           } catch {
@@ -193,7 +220,10 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, qu
                           variant="sidebar"
                           label={`会话操作：${item.title || "未命名对话"}`}
                           onRename={() => setEditingId(item.id)}
+                          pinned={isPinned(item.id)}
+                          onTogglePin={() => togglePin(item)}
                           onDeleted={() => {
+                            setPinnedItems(current => current.filter(entry => entry.id !== item.id));
                             setItems(current => current.filter(entry => entry.id !== item.id));
                             onDeleted(item.id);
                           }}

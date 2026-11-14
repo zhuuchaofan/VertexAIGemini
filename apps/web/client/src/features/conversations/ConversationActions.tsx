@@ -13,6 +13,9 @@ interface Props {
   /** "sidebar" is the small "…" on a list row, "header" the one beside the title. */
   variant: "sidebar" | "header";
   label: string;
+  /** Offered where the pinned state is known (the list). */
+  pinned?: boolean;
+  onTogglePin?: () => Promise<void>;
 }
 
 type Step = "menu" | "confirm-delete";
@@ -21,7 +24,7 @@ type Step = "menu" | "confirm-delete";
  * Rename, export and delete for one conversation. Deleting asks for a second press in the same place, says what will
  * go with it, and reports it plainly if the server refuses.
  */
-export function ConversationActions({ api, conversationId, busy, onRename, onDeleted, variant, label }: Props) {
+export function ConversationActions({ api, conversationId, busy, onRename, onDeleted, variant, label, pinned, onTogglePin }: Props) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("menu");
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,20 @@ export function ConversationActions({ api, conversationId, busy, onRename, onDel
       close();
     } catch {
       setError("导出失败，请稍后再试。");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const togglePin = async () => {
+    if (!onTogglePin) return;
+    setWorking(true);
+    setError(null);
+    try {
+      await onTogglePin();
+      close();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "操作失败，请稍后再试。");
     } finally {
       setWorking(false);
     }
@@ -89,6 +106,11 @@ export function ConversationActions({ api, conversationId, busy, onRename, onDel
       <div className="menu" role="menu" aria-label="会话操作">
         {step === "menu" ? (
           <>
+            {onTogglePin && (
+              <button type="button" role="menuitem" className="menu-item" disabled={working} onClick={() => void togglePin()}>
+                {pinned ? "取消置顶" : "📌 置顶"}
+              </button>
+            )}
             <button type="button" role="menuitem" className="menu-item" onClick={() => {
                 close();
                 // After the menu has handed focus back to its button, so the rename field keeps the focus it asks for.

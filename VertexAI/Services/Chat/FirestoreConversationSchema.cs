@@ -31,6 +31,8 @@ internal static class FirestoreConversationSchema
     public const string ActiveRunId = "activeRunId";
     public const string SettingsMap = "settings";
     public const string LastRunId = "lastRunId";
+    public const string Pinned = "pinned";
+    public const string PinnedAt = "pinnedAt";
 
     public static string UserDocumentId(AuthenticatedUser user) =>
         FirestoreDocumentIds.UserDocumentId(user.LocalUserId, user.FirebaseUid);

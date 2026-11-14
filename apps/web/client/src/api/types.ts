@@ -133,12 +133,15 @@ export interface ConversationSummary {
   providerId?: string;
   modelName: string;
   updatedAt: string;
+  pinned?: boolean;
 }
 
 export interface ConversationPage {
   items: ConversationSummary[];
   hasMore: boolean;
   nextCursor: string | null;
+  /** On the first page only: the pinned conversations, most recently pinned first. */
+  pinned?: ConversationSummary[] | null;
 }
 
 /** Per-run options, in the shape the v2 run endpoint takes. Only what the chosen model supports is ever set. */
@@ -307,6 +310,7 @@ export interface RunApi {
   getQuota(): Promise<QuotaStatus>;
   getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob>;
   renameConversation(conversationId: string, title: string): Promise<void>;
+  setPinned(conversationId: string, pinned: boolean): Promise<void>;
   deleteConversation(conversationId: string): Promise<void>;
   exportConversation(conversationId: string, format: "markdown" | "json"): Promise<{ blob: Blob; fileName: string }>;
   getDefaults(): Promise<StoredSettings | null>;

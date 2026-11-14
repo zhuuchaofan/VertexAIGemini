@@ -3,8 +3,8 @@
 The sidebar includes a Gemini-only **高级设置** panel. It sends per-request
 temperature (0–2), Top-P (>0–1), maximum output tokens (1–65536), and safety
 threshold overrides. Blank values follow server defaults (1, 0.9, 8192).
-Actual output limits still depend on the selected model. Gemini 3.8 Flash and
-4 Argon ignore temperature and Top-P, so those controls are hidden and the
+Actual output limits still depend on the selected model. The Gemini 4 models
+ignore temperature and Top-P, so those controls are hidden and the
 parameters are omitted from generation requests for these models.
 Preferences are retained in this browser, not written to Firestore conversations.
 They apply on each send, including existing conversations; changing them does
@@ -27,33 +27,32 @@ This change does not grant any account administrator access.
 Provider-enforced restrictions remain in effect even when configurable filters
 are disabled.
 
-## Verified model specifications
+## Built-in Gemini models
 
-The requested `google/gemini-3.8-flash` and `google/gemini-4-argon` entries
-use the Google publisher's Vertex AI model IDs `gemini-3.8-flash` and
-`gemini-4-argon`. These are the only two built-in Gemini entries; the default is
-3.8 Flash. Old saved model selections fall back to the new default. Conversation
-history is retained.
+The built-in Gemini entries are the three Gemini 4 models, in this order (the first is the default):
 
-The official display name is **Gemini 4 Argon**, not "Gemini 4 Pro (Argon)".
-The application pins Google.GenAI **1.26.1**; Google's Argon guide requires
-at least **1.26.0** for .NET. The 1.x SDK's typed string values replace the
-older uppercase enum members. Filtering configuration continues to use the
-wire names (for example `BLOCK_MEDIUM_AND_ABOVE`) through explicit mapping.
-Required model thinking cannot be disabled through a request override.
-The retired civic-integrity filter is no longer sent.
+| Entry | Vertex AI model ID | Shown as |
+|---|---|---|
+| Gemini 4 Hydrogen (default) | `gemini-4-hydrogen` | 性价比最高，日常与编程首选 |
+| Gemini 4 Carbon | `gemini-4-carbon` | 综合能力最强，适合复杂架构和疑难问题 |
+| Gemini 4 Argon | `gemini-4-argon` | 能力与 Hydrogen 相近，价格更高 |
 
-Google's official guides confirm both model IDs and LOW, MEDIUM (default),
-and HIGH thinking levels. Both entries expose only those three levels.
-3.8 Flash has a 1,048,576-token context window; 4 Argon has a unified
-1,048,576-token input/output budget. The application continues to use its
-configured 32000-token history budget and caps a streaming response at 65536
-tokens. It does not implement Argon's long-output continuation protocol.
-Live authenticated model access in this particular project remains unverified.
+Gemini 3.8 Flash was removed. A conversation or saved setting that names a model no longer listed uses the default
+model; its other choices (preset, role, search, thinking where valid) are kept. Conversation history is retained.
 
-Sources:
-- https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash
-- https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon
+What was checked, and how: the three IDs were listed from `publishers/google/models` in this project, and each answered
+a `generateContent` call on the `global` location with `thinkingLevel: LOW`. LOW, MEDIUM (default) and HIGH are offered
+for all three, as before for Argon; MEDIUM and HIGH were not separately called for Carbon and Hydrogen. The 1,048,576
+token figure is carried over from Argon's guide and was not confirmed for Carbon and Hydrogen; the application's own
+32000-token history budget and 65536-token streaming cap are unchanged. The positioning text comes from the project
+owner's summary of published comparisons, not from Google's model pages.
+
+Note: in that check Hydrogen spent a 64-token output limit on thinking at LOW and returned no text, while the other two
+answered. Real requests use much larger limits, so this does not affect normal use.
+
+The application pins Google.GenAI **1.26.1**; Google's Argon guide requires at least **1.26.0** for .NET.
+Required model thinking cannot be disabled through a request override. The retired civic-integrity filter is no longer
+sent. The application does not implement the long-output continuation protocol.
 
 Deploy both the API and web images to expose the new controls and catalog.
 Existing Cloud Run `VertexAI__ModelName` / `VertexAI__Models__*` overrides

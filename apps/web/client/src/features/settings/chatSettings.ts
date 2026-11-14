@@ -165,14 +165,18 @@ function clean<T extends object>(value: T): T | undefined {
 }
 
 /**
- * Reads a stored layer on top of a fallback. A layer written by an older version, or one naming a model that no
- * longer exists, never breaks the page: whatever is missing or unknown comes from the fallback.
+ * Reads a stored layer on top of a fallback. A layer written by an older version never breaks the page: whatever is
+ * missing or unknown comes from the fallback. A model that no longer exists becomes the provider's default model.
  */
 export function fromStored(workspace: WorkspaceConfig, stored: StoredSettings | null | undefined, fallback: ChatSettings): ChatSettings {
-  if (!stored || !findModel(workspace, stored.providerId, stored.modelName)) return fallback;
-  const model = findModel(workspace, stored.providerId, stored.modelName);
+  if (!stored) return fallback;
   const provider = findProvider(workspace, stored.providerId);
-  const base = withModel(workspace, fallback, provider?.provider.id ?? stored.providerId, stored.modelName);
+  if (!provider) return fallback;
+  // A model that has since been retired is replaced by the provider's default; the rest of the choices still apply.
+  const modelName = findModel(workspace, stored.providerId, stored.modelName) ? stored.modelName : provider.defaultModelName;
+  const model = findModel(workspace, stored.providerId, modelName);
+  if (!model) return fallback;
+  const base = withModel(workspace, fallback, provider.provider.id, modelName);
 
   const thinking: ThinkingChoice = {
     ...(stored.thinking?.level ? { level: stored.thinking.level } : {}),

@@ -14,6 +14,9 @@ public sealed class Conversation
     /// <summary>The conversation's own settings layer. Absent on conversations created before settings were kept.</summary>
     public VertexAI.Services.Runs.ChatSettingsDocument? Settings { get; set; }
     public int TokenCount { get; set; }
+
+    /// <summary>When it was pinned to the top of the list; null when it is not pinned.</summary>
+    public DateTime? PinnedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public ICollection<Message> Messages { get; set; } = [];

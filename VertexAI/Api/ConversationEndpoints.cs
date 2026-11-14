@@ -14,9 +14,10 @@ public static class ConversationEndpoints
         group.MapGet("/{conversationId:guid}", GetAsync);
         group.MapPatch("/{conversationId:guid}/title", UpdateTitleAsync);
         group.MapDelete("/{conversationId:guid}", DeleteAsync);
+        group.MapPut("/{conversationId:guid}/pin", SetPinnedAsync);
     }
 
-    private static async Task<IResult> ListAsync(
+    internal static async Task<IResult> ListAsync(
         [FromQuery] int? offset,
         [FromQuery] int? limit,
         [FromQuery] string? cursor,
@@ -44,6 +45,11 @@ public static class ConversationEndpoints
         var items = offset is > 0
             ? await conversations.GetUserConversationsAsync(currentUser, pageOffset, pageLimit + 1)
             : await conversations.GetUserConversationsPageAsync(currentUser, cursor, pageLimit + 1);
+        // The first page also carries the pinned conversations, which sit above the recent list.
+        var pinned = offset is not > 0 && string.IsNullOrEmpty(cursor)
+            ? (await conversations.GetPinnedConversationsAsync(currentUser, MaxPinned)).Select(ToSummary).ToList()
+            : null;
+
         var hasMore = items.Count > pageLimit;
         var pageItems = items.Take(pageLimit).ToList();
         var nextCursor = hasMore
@@ -55,7 +61,8 @@ public static class ConversationEndpoints
             pageOffset,
             pageLimit,
             hasMore,
-            nextCursor));
+            nextCursor,
+            pinned));
     }
 
     private static async Task<IResult> GetAsync(
@@ -93,6 +100,32 @@ public static class ConversationEndpoints
         return Results.NoContent();
     }
 
+    public const int MaxPinned = 20;
+
+    internal static async Task<IResult> SetPinnedAsync(
+        Guid conversationId,
+        ConversationPinRequest request,
+        HttpContext context,
+        IUserContext users,
+        IConversationStore conversations)
+    {
+        var currentUser = await ApiUserContext.GetCurrentUserAsync(context, users);
+        if (currentUser == null) return Results.Unauthorized();
+
+        if (request.Pinned)
+        {
+            var pinned = await conversations.GetPinnedConversationsAsync(currentUser, MaxPinned + 1);
+            if (pinned.Count >= MaxPinned && pinned.All(item => item.Id != conversationId))
+            {
+                return Results.Conflict(new { error = new { code = "pin_limit", message = $"最多置顶 {MaxPinned} 个会话，请先取消一个。", retryable = false } });
+            }
+        }
+
+        return await conversations.SetPinnedAsync(conversationId, currentUser, request.Pinned)
+            ? Results.NoContent()
+            : Results.NotFound(new { error = "Conversation not found." });
+    }
+
     internal static async Task<IResult> DeleteAsync(
         Guid conversationId,
         HttpContext context,
@@ -115,7 +148,8 @@ public static class ConversationEndpoints
             conversation.PresetId,
             conversation.TokenCount,
             conversation.CreatedAt,
-            conversation.UpdatedAt);
+            conversation.UpdatedAt,
+            conversation.PinnedAt != null);
 
     private static ConversationDetailResponse ToDetail(Conversation conversation) =>
         new(
@@ -144,6 +178,8 @@ public static class ConversationEndpoints
 
     private sealed record ConversationTitleRequest(string Title);
 
+    internal sealed record ConversationPinRequest(bool Pinned);
+
     private sealed record ConversationSummaryResponse(
         Guid Id,
         string? Title,
@@ -152,14 +188,16 @@ public static class ConversationEndpoints
         string PresetId,
         int TokenCount,
         DateTime CreatedAt,
-        DateTime UpdatedAt);
+        DateTime UpdatedAt,
+        bool Pinned);
 
     private sealed record ConversationListResponse(
         IReadOnlyList<ConversationSummaryResponse> Items,
         int Offset,
         int Limit,
         bool HasMore,
-        string? NextCursor);
+        string? NextCursor,
+        IReadOnlyList<ConversationSummaryResponse>? Pinned = null);
 
     private sealed record ConversationDetailResponse(
         Guid Id,

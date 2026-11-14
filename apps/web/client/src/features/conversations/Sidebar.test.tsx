@@ -6,11 +6,12 @@ import { Sidebar } from "./Sidebar";
 const iso = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 const item = (id: string, title: string, minutesAgo: number): ConversationSummary => ({ id, title, modelName: "m", updatedAt: iso(minutesAgo) });
 
-function setup(searchResult: ConversationSummary[]) {
+function setup(searchResult: ConversationSummary[], pinned: ConversationSummary[] = [], setPinned = vi.fn(async () => undefined)) {
   const search = vi.fn<(query: string) => Promise<{ items: ConversationSummary[]; hasMore: boolean; nextCursor: null }>>(async () => ({ items: searchResult, hasMore: false, nextCursor: null }));
   const api = {
-    listConversations: async () => ({ items: [item("a", "复利笔记", 1), item("b", "晚饭", 2)], hasMore: true, nextCursor: "c" }),
-    searchConversations: search
+    listConversations: async () => ({ items: [item("a", "复利笔记", 1), item("b", "晚饭", 2), ...pinned], hasMore: true, nextCursor: "c", pinned }),
+    searchConversations: search,
+    setPinned
   } as unknown as RunApi;
   render(
     <Sidebar
@@ -64,5 +65,28 @@ describe("Sidebar search", () => {
       await vi.advanceTimersByTimeAsync(350);
     });
     expect(await screen.findByText("没有匹配的会话。")).toBeTruthy();
+  });
+});
+
+describe("Sidebar pinning", () => {
+  it("shows pinned conversations in their own group on top, once", async () => {
+    setup([], [{ ...item("p", "旅行计划", 60 * 24 * 30), pinned: true }]);
+    const pinnedGroup = await screen.findByRole("region", { name: "📌 置顶" });
+    expect(pinnedGroup.textContent).toContain("旅行计划");
+    expect(screen.getAllByText("旅行计划")).toHaveLength(1);
+  });
+
+  it("pins from the row menu and moves the conversation up", async () => {
+    const setPinned = vi.fn(async () => undefined);
+    setup([], [], setPinned);
+    await screen.findByText("晚饭");
+    expect(screen.queryByRole("region", { name: "📌 置顶" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "会话操作：晚饭" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /置顶/ }));
+
+    expect(setPinned).toHaveBeenCalledWith("b", true);
+    const pinnedGroup = await screen.findByRole("region", { name: "📌 置顶" });
+    expect(pinnedGroup.textContent).toContain("晚饭");
   });
 });
