@@ -201,6 +201,8 @@ export interface ModelOption {
   supportsSampling: boolean;
   thinking: ThinkingConfig | null;
   maxTokens: number;
+  /** Answers with pictures: no web search, its own daily allowance. */
+  generatesImages?: boolean;
 }
 
 export interface PromptPreset {
@@ -256,6 +258,8 @@ export interface QuotaStatus {
   tokens: QuotaMeter;
   searches: QuotaMeter;
   attachmentBytes: QuotaMeter;
+  /** Absent from an API older than the picture model. */
+  images?: QuotaMeter;
 }
 
 /** Something the person asked the assistant to remember. */

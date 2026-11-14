@@ -17,10 +17,11 @@ public sealed record QuotaStatus(
     QuotaMeter Requests,
     QuotaMeter Tokens,
     QuotaMeter Searches,
-    QuotaMeter AttachmentBytes)
+    QuotaMeter AttachmentBytes,
+    QuotaMeter Images)
 {
     public static QuotaStatus Unlimited(DateTime nowUtc) =>
-        new(false, DateKey(nowUtc), NextReset(nowUtc), new(0, 0), new(0, 0), new(0, 0), new(0, 0));
+        new(false, DateKey(nowUtc), NextReset(nowUtc), new(0, 0), new(0, 0), new(0, 0), new(0, 0), new(0, 0));
 
     /// <summary>The status for a day's recorded usage (null: nothing used yet). Tokens count estimated and actual, as the check does.</summary>
     public static QuotaStatus From(QuotaUsageEntry? usage, QuotaSettings settings, DateTime nowUtc) =>
@@ -31,7 +32,8 @@ public sealed record QuotaStatus(
             new(usage?.Requests ?? 0, settings.DailyRequestLimit),
             new((long)(usage?.EstimatedTokens ?? 0) + (usage?.ActualTokens ?? 0), settings.DailyTokenLimit),
             new(usage?.Searches ?? 0, settings.DailySearchLimit),
-            new(usage?.AttachmentBytes ?? 0, settings.DailyAttachmentBytesLimit));
+            new(usage?.AttachmentBytes ?? 0, settings.DailyAttachmentBytesLimit),
+            new(usage?.Images ?? 0, settings.DailyImageLimit));
 
     private static string DateKey(DateTime nowUtc) => nowUtc.ToString("yyyyMMdd");
 

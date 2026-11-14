@@ -402,7 +402,9 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
       case "sending":
         return "正在发送…";
       case "streaming":
-        return `正在生成 · ${clock(elapsed)} · 已收到 ${state.content.length} 字`;
+        return model?.generatesImages
+          ? `正在画图 · ${clock(elapsed)}（一张大约 20 秒）`
+          : `正在生成 · ${clock(elapsed)} · 已收到 ${state.content.length} 字`;
       case "stopping":
         return "正在停止…";
       case "reconciling":
@@ -634,6 +636,11 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
                     }
                     onRegenerate={source ? () => void controller.regenerate(source, toRunOptions(workspace, settings)) : undefined}
                     versions={count > 1 ? { index, count, onPrev: () => choose(index - 1), onNext: () => choose(index + 1) } : undefined}
+                    attachments={
+                      version && version.message.attachments && version.message.attachments.length > 0 ? (
+                        <AttachmentList api={api} conversationId={conversationId} messageId={version.message.id} items={version.message.attachments} />
+                      ) : undefined
+                    }
                   />
                 );
               })()}

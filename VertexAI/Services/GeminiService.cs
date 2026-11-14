@@ -286,6 +286,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         var responseBuilder = new System.Text.StringBuilder();
         var thinkingBuilder = new System.Text.StringBuilder();
         FinishReason? blockedFinishReason = null;
+        var images = 0;
 
         // 动态克隆或构建本次请求的 Config，不污染全局的 _config 实例，保障线程安全性
         var requestConfig = new GenerateContentConfig
@@ -298,7 +299,12 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
             SafetySettings = _config.SafetySettings
         };
 
-        if (enableSearch)
+        if (GeneratesImages)
+        {
+            // Ask for pictures as well as words. A picture model is never given web search.
+            requestConfig.ResponseModalities = new List<string> { "TEXT", "IMAGE" };
+        }
+        else if (enableSearch)
         {
             requestConfig.Tools = new List<Tool>
             {
@@ -307,11 +313,16 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
         }
 
         Telemetry.GenerateCalls++;
-        await foreach (var response in _client.Models.GenerateContentStreamAsync(
-            model: _modelName,
-            contents: contentsToSend,
-            config: requestConfig,
-            cancellationToken: cancellationToken))
+        // A picture arrives whole, so a picture model is called without streaming: the same call that was checked
+        // against this project, answered as one response. Chat models stream as before.
+        var responses = GeneratesImages
+            ? Once(_client.Models.GenerateContentAsync(_modelName, contentsToSend, requestConfig, cancellationToken))
+            : _client.Models.GenerateContentStreamAsync(
+                model: _modelName,
+                contents: contentsToSend,
+                config: requestConfig,
+                cancellationToken: cancellationToken);
+        await foreach (var response in responses.WithCancellation(cancellationToken))
         {
             if (response.UsageMetadata is { } usage)
             {
@@ -367,6 +378,13 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
             foreach (var part in parts)
             {
+                if (FinalImage(part, images + 1) is { } image)
+                {
+                    images++;
+                    yield return new ChatChunk { Text = "", Image = image };
+                    continue;
+                }
+
                 if (string.IsNullOrEmpty(part.Text) && citations == null) continue;
 
                 // 累积内容
@@ -393,7 +411,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         // 构建完整的 AI 回复并加入历史
         var responseText = responseBuilder.ToString();
-        if (string.IsNullOrWhiteSpace(responseText))
+        if (string.IsNullOrWhiteSpace(responseText) && images == 0)
         {
             throw blockedFinishReason == null
                 ? new InvalidOperationException("Gemini response was empty.")
@@ -491,6 +509,28 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     /// <summary>
     /// 构建生成配置
     /// </summary>
+    private bool GeneratesImages => ModelOptions.FirstOrDefault(model => model.ModelName == _modelName)?.GeneratesImages == true;
+
+    /// <summary>
+    /// The picture in one part of the answer, or null. Pictures inside the model's thinking are drafts and are dropped,
+    /// as is anything that is not an image.
+    /// </summary>
+    internal static ChatAttachment? FinalImage(Part part, int number)
+    {
+        if (part.Thought == true || part.InlineData is not { Data: { Length: > 0 } data } blob) return null;
+        var mime = string.IsNullOrWhiteSpace(blob.MimeType) ? "image/png" : blob.MimeType;
+        if (!mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) return null;
+        return new ChatAttachment(
+            Convert.ToBase64String(data), mime,
+            $"image-{number}{VertexAI.Services.Attachments.AttachmentNames.Extension(null, mime)}",
+            SizeBytes: data.Length);
+    }
+
+    private static async IAsyncEnumerable<GenerateContentResponse> Once(Task<GenerateContentResponse> response)
+    {
+        yield return await response;
+    }
+
     private ChatThinkingConfig? GetCurrentThinking() =>
         ModelOptions.FirstOrDefault(model => model.ModelName == _modelName)?.Thinking;
 

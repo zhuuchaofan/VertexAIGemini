@@ -488,6 +488,7 @@ public sealed class FirestoreRunStore : IRunStore
                     CreatedAt = now,
                     RunId = record.RunId,
                     CitationsJson = request.Citations is { Count: > 0 } ? JsonSerializer.Serialize(request.Citations) : null,
+                    AttachmentsJson = request.Attachments is { Count: > 0 } ? ChatAttachmentSerializer.Serialize(request.Attachments) : null,
                     Status = request.Status == RunStatus.Completed ? "final" : "partial"
                 };
                 transaction.Create(
@@ -802,7 +803,8 @@ public sealed class FirestoreRunStore : IRunStore
         ["requests"] = quota.RequestCount,
         ["estimatedTokens"] = quota.EstimatedTokens,
         ["searches"] = quota.SearchCount,
-        ["attachmentBytes"] = quota.AttachmentBytes
+        ["attachmentBytes"] = quota.AttachmentBytes,
+        ["images"] = quota.ImageCount
     };
 
     private static Dictionary<string, object> ErrorToMap(RunError error)
@@ -845,7 +847,8 @@ public sealed class FirestoreRunStore : IRunStore
                 Convert.ToInt32(quotaMap.GetValueOrDefault("requests") ?? 0),
                 Convert.ToInt32(quotaMap.GetValueOrDefault("estimatedTokens") ?? 0),
                 Convert.ToInt32(quotaMap.GetValueOrDefault("searches") ?? 0),
-                Convert.ToInt64(quotaMap.GetValueOrDefault("attachmentBytes") ?? 0L));
+                Convert.ToInt64(quotaMap.GetValueOrDefault("attachmentBytes") ?? 0L),
+                Convert.ToInt32(quotaMap.GetValueOrDefault("images") ?? 0));
         }
 
         return new RunRecord

@@ -159,7 +159,8 @@ export function Composer(props: Props) {
             />
           )}
           <ThinkingPicker model={model} value={settings.thinking} onChange={thinking => onSettings({ ...settings, thinking })} />
-          <SearchPicker value={settings.searchMode} onChange={searchMode => onSettings({ ...settings, searchMode })} />
+          {/* A picture model never searches the web. */}
+          {!model?.generatesImages && <SearchPicker value={settings.searchMode} onChange={searchMode => onSettings({ ...settings, searchMode })} />}
           <span className="spacer" />
           <span className="keys" aria-hidden="true">↵ 发送 · ⇧↵ 换行</span>
           {running ? (

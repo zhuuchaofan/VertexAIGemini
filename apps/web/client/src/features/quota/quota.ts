@@ -3,7 +3,7 @@ import type { QuotaMeter, QuotaStatus } from "../../api/types";
 export type QuotaLevel = "ok" | "warn" | "full";
 
 export interface QuotaLine {
-  key: "requests" | "tokens" | "searches" | "attachments";
+  key: "requests" | "tokens" | "searches" | "attachments" | "images";
   label: string;
   used: string;
   limit: string;
@@ -40,7 +40,8 @@ export function summarize(status: QuotaStatus | null): QuotaSummary | null {
     { key: "requests", label: "对话", used: String(status.requests.used), limit: String(status.requests.limit), ratio: ratio(status.requests) },
     { key: "tokens", label: "内容量", used: formatCount(status.tokens.used), limit: formatCount(status.tokens.limit), ratio: ratio(status.tokens) },
     { key: "searches", label: "联网", used: String(status.searches.used), limit: String(status.searches.limit), ratio: ratio(status.searches) },
-    { key: "attachments", label: "附件", used: formatBytes(status.attachmentBytes.used), limit: formatBytes(status.attachmentBytes.limit), ratio: ratio(status.attachmentBytes) }
+    { key: "attachments", label: "附件", used: formatBytes(status.attachmentBytes.used), limit: formatBytes(status.attachmentBytes.limit), ratio: ratio(status.attachmentBytes) },
+    ...(status.images ? [{ key: "images" as const, label: "画图", used: String(status.images.used), limit: String(status.images.limit), ratio: ratio(status.images) }] : [])
   ];
   const fullest = lines.reduce((best, line) => (line.ratio > best.ratio ? line : best));
   const percent = Math.min(100, Math.round(fullest.ratio * 100));

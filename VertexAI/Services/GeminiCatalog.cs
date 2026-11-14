@@ -84,9 +84,22 @@ internal static class GeminiCatalog
                 Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
                 SupportsSampling = false,
                 MaxTokens = 1048576
-            }
+            },
+            ImageModel()
         ]);
     }
+
+    /// <summary>The built-in picture model. Never the default: a conversation only uses it when it is chosen.</summary>
+    public static ChatModelOption ImageModel() => new()
+    {
+        Name = "Nano Banana 画图",
+        ModelName = "gemini-nano-banana-2.1",
+        Description = "Nano Banana 2.1：用文字描述想要的画面，一张约 20 秒；接着说“改成…”会按新的描述重画",
+        SupportsThinking = false,
+        SupportsSampling = false,
+        GeneratesImages = true,
+        MaxTokens = 32768
+    };
 
     public static string ResolveModelName(string? modelName, IReadOnlyList<ChatModelOption> models) =>
         models.Any(m => m.ModelName == modelName)

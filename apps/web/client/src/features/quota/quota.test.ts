@@ -33,6 +33,14 @@ describe("summarize", () => {
     expect(summarize(null)).toBeNull();
   });
 
+  it("lists pictures when the API reports them, and does without them from an older API", () => {
+    expect(summarize(status())!.lines.map(line => line.key)).not.toContain("images");
+    const withPictures = summarize(status({ images: { used: 18, limit: 20 } }))!;
+    expect(withPictures.lines.find(line => line.key === "images")).toMatchObject({ label: "画图", used: "18", limit: "20" });
+    expect(withPictures.fullest.key).toBe("images");
+    expect(withPictures.level).toBe("warn");
+  });
+
   it("does not divide by a missing limit", () => {
     expect(summarize(status({ requests: { used: 5, limit: 0 } }))!.lines[0]!.ratio).toBe(0);
   });

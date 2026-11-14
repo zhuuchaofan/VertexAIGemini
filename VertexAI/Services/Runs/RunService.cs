@@ -145,6 +145,8 @@ public sealed class RunService
             request.Options.ThinkingBudget,
             request.Options.Advanced);
 
+        var generatesImages = model.ModelOptions.FirstOrDefault(option => option.ModelName == model.CurrentModelName)?.GeneratesImages == true;
+
         // Planning only reads the request: nothing is written to storage before admission has chosen a winner.
         var planned = AttachmentPlanner.Plan(request.RunId, request.ConversationId, request.Attachments, _attachments.IsEnabled);
         var retryOf = request.RetryOfRunId;
@@ -168,8 +170,10 @@ public sealed class RunService
                 request.User,
                 RequestCount: 1,
                 EstimatedTokens: Math.Max(1, request.Message.Length / 4) + planned.Sum(p => (int)Math.Min(int.MaxValue / 8, p.Recorded.SizeBytes ?? 0) / 4),
-                SearchCount: SearchModes.EnablesWebSearch(requested.SearchMode) ? 1 : 0,
-                AttachmentBytes: planned.Sum(p => p.Recorded.SizeBytes ?? 0)),
+                // A picture model never searches; it uses a picture from the daily picture allowance instead.
+                SearchCount: !generatesImages && SearchModes.EnablesWebSearch(requested.SearchMode) ? 1 : 0,
+                AttachmentBytes: planned.Sum(p => p.Recorded.SizeBytes ?? 0),
+                ImageCount: generatesImages ? 1 : 0),
             retryAttachments ?? planned.Select(p => p.Recorded).ToList(),
             retryOf,
             request.Regenerate);
@@ -392,6 +396,7 @@ public sealed class RunService
             var modelRequest = new ChatModelRequest(messageForModel, outgoing, searchMode);
             await foreach (var chunk in model.StreamChatAsync(modelRequest, linked.Token))
             {
+                if (chunk.Image is { } image) state.AddImage(image);
                 var offset = state.Append(chunk.Text, chunk.IsThinking);
                 if (!string.IsNullOrEmpty(chunk.Text))
                 {
@@ -408,6 +413,8 @@ public sealed class RunService
             }
 
             linked.Token.ThrowIfCancellationRequested();
+
+            if (state.Images().Count > 0) await StoreGeneratedImagesAsync(run, state, linked.Token);
 
             if (string.IsNullOrWhiteSpace(state.Content))
             {
@@ -552,6 +559,50 @@ public sealed class RunService
         return failure;
     }
 
+    /// <summary>
+    /// Puts the pictures the model made into attachment storage, next to the reply they belong to, and records them for
+    /// the reply. A picture that cannot be stored is left out and the reply says so; the words of the reply are kept
+    /// either way. A reply that is only pictures gets a short line of text, so it counts as a reply.
+    /// </summary>
+    private async Task StoreGeneratedImagesAsync(AdmittedRun run, StreamState state, CancellationToken cancellationToken)
+    {
+        var images = state.Images();
+        if (!_attachments.IsEnabled)
+        {
+            state.Append("\n\n（生成了图片，但服务没有配置附件存储，无法保存。）", false);
+            return;
+        }
+
+        var stored = new List<ChatAttachment>();
+        var lost = 0;
+        for (var index = 0; index < images.Count; index++)
+        {
+            var image = images[index];
+            try
+            {
+                var bytes = Convert.FromBase64String(image.Base64Data ?? "");
+                var sha = AttachmentNames.Sha256Hex(bytes);
+                var fileName = AttachmentNames.CleanFileName(image.FileName);
+                var objectName = AttachmentNames.ObjectName(run.ConversationId, run.Record.AssistantMessageId, index, fileName, image.MimeType, sha);
+                await _attachments.SaveCreateOnlyAsync(objectName, image.MimeType, bytes, cancellationToken);
+                stored.Add(new ChatAttachment(null, image.MimeType, fileName, objectName, bytes.Length, sha, AttachmentStates.Stored));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lost++;
+                _logger.LogWarning(ex, "Run {RunId} could not store generated image {Index}", run.RunId, index);
+            }
+        }
+
+        state.StoredImages = stored;
+        if (lost > 0) state.Append($"\n\n（有 {lost} 张图片保存失败，可以点「重新生成」再试。）", false);
+        if (stored.Count > 0 && string.IsNullOrWhiteSpace(state.Content)) state.Append("🎨 图片画好了。", false);
+    }
+
     /// <summary>Earlier turns keep their attachments as context. One that cannot be read is left out, not fatal.</summary>
     private async Task<IReadOnlyList<ChatHistoryEntry>> WithAttachmentContentAsync(
         IReadOnlyList<ChatHistoryEntry> history, CancellationToken cancellationToken)
@@ -675,7 +726,8 @@ public sealed class RunService
         var request = new FinalizeRequest(
             run.User, run.RunId, FinalizeOrigin.Executor, run.ExecutorId,
             status, reason, content, thinking, error, tokens, state.Citations(),
-            BuildMeta(model, state, content, thinking));
+            BuildMeta(model, state, content, thinking),
+            state.StoredImages);
 
         for (var attempt = 0; ; attempt++)
         {
@@ -947,6 +999,22 @@ public sealed class RunService
         }
 
         private readonly List<SearchCitation> _citations = [];
+        private readonly List<ChatAttachment> _images = [];
+
+        /// <summary>The pictures once they are in storage, as the reply records them. Null when there were none.</summary>
+        public IReadOnlyList<ChatAttachment>? StoredImages { get; set; }
+
+        public void AddImage(ChatAttachment image)
+        {
+            lock (_gate)
+            {
+                _firstOutputAt ??= DateTime.UtcNow;
+                _images.Add(image);
+                _version++;
+            }
+        }
+
+        public IReadOnlyList<ChatAttachment> Images() { lock (_gate) return _images.ToList(); }
 
         private RunSearch? _search;
         private int _searchCalls;

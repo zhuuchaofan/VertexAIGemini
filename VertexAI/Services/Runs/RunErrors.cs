@@ -120,6 +120,7 @@ public static class RunErrors
 
     private static (string What, string Setting, string Example) QuotaKind(string? raw) => raw switch
     {
+        _ when Contains(raw, "image") => ("画图次数", "DailyImageLimit", "40"),
         _ when Contains(raw, "request") => ("请求次数", "DailyRequestLimit", "200"),
         _ when Contains(raw, "token") => ("Token 额度", "DailyTokenLimit", "500000"),
         _ when Contains(raw, "search") => ("联网搜索次数", "DailySearchLimit", "60"),

@@ -56,7 +56,8 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
     public string CurrentModelName => _model;
     public string CurrentPresetId => _preset;
     public string CurrentCustomPrompt => _custom;
-    public IReadOnlyList<ChatModelOption> ModelOptions { get; } = [new() { Name = "Scripted", ModelName = "scripted" }];
+    public IReadOnlyList<ChatModelOption> ModelOptions { get; } =
+        [new() { Name = "Scripted", ModelName = "scripted" }, new() { Name = "Scripted Picture", ModelName = "scripted-image", GeneratesImages = true }];
     public IReadOnlyList<PromptPresetConfig> Presets { get; } = [new() { Id = "default", Name = "Default" }];
 
     public Task ConfigureAsync(ChatSessionOptions? options)
@@ -138,6 +139,15 @@ internal sealed class ScriptedModelClient(ModelProbe probe) : IChatModelClient, 
                 Telemetry.ResponseId = "resp-1";
                 yield break;
 
+            case "/image":
+                yield return new ChatChunk { Text = "Here is your cat." };
+                yield return new ChatChunk { Text = "", Image = ScriptedPicture.Attachment() };
+                yield break;
+
+            case "/image-only":
+                yield return new ChatChunk { Text = "", Image = ScriptedPicture.Attachment() };
+                yield break;
+
             case "/cite":
                 yield return new ChatChunk { Text = "According to the sources." };
                 yield return new ChatChunk
@@ -171,6 +181,7 @@ internal sealed class ScriptedProvider : IChatModelProvider
     public IReadOnlyList<ChatModelOption> ModelOptions { get; } =
     [
         new() { Name = "Scripted", ModelName = "scripted", MaxTokens = 4096 },
+        new() { Name = "Scripted Picture", ModelName = "scripted-image", GeneratesImages = true, SupportsSampling = false, MaxTokens = 4096 },
         new()
         {
             Name = "Scripted Levels", ModelName = "scripted-levels", SupportsSampling = false, SupportsThinking = true, MaxTokens = 8192,
@@ -225,7 +236,7 @@ internal sealed class RunHarness
 
     public FakeAttachmentStore Attachments { get; }
 
-    public RunHarness(int dailyRequestLimit = 1000, Action<RunSettings>? configure = null, bool attachmentStorage = true)
+    public RunHarness(int dailyRequestLimit = 1000, Action<RunSettings>? configure = null, bool attachmentStorage = true, int dailyImageLimit = 1000)
     {
         Attachments = new FakeAttachmentStore(attachmentStorage);
         if (string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("FIRESTORE_EMULATOR_HOST")))
@@ -257,6 +268,7 @@ internal sealed class RunHarness
             DailyTokenLimit = 10_000_000,
             DailySearchLimit = 1000,
             DailyAttachmentBytesLimit = 1L << 40,
+            DailyImageLimit = dailyImageLimit,
             AdminBypassEnabled = false
         }));
         Store = new FirestoreRunStore(Db, Quota, Options.Create(Settings));
@@ -287,16 +299,16 @@ internal sealed class RunHarness
 
     public static string NewRunId() => Guid.NewGuid().ToString("D");
 
-    public RunStartRequest Request(string message, string? runId = null, Guid? conversationId = null, AuthenticatedUser? user = null) =>
-        new(user ?? User, runId ?? NewRunId(), conversationId ?? Guid.NewGuid(), message, null, new ChatSessionOptions());
+    public RunStartRequest Request(string message, string? runId = null, Guid? conversationId = null, AuthenticatedUser? user = null, string? modelName = null) =>
+        new(user ?? User, runId ?? NewRunId(), conversationId ?? Guid.NewGuid(), message, null, new ChatSessionOptions(ModelName: modelName));
 
     /// <summary>Admits and, if admitted, executes to the end, collecting every emitted event.</summary>
     public async Task<RunOutcome> SendAsync(
         string message, string? runId = null, Guid? conversationId = null,
-        CancellationToken connection = default, AuthenticatedUser? user = null, RunService? service = null)
+        CancellationToken connection = default, AuthenticatedUser? user = null, RunService? service = null, string? modelName = null)
     {
         service ??= Service;
-        var admission = await service.AdmitAsync(Request(message, runId, conversationId, user), connection);
+        var admission = await service.AdmitAsync(Request(message, runId, conversationId, user, modelName), connection);
         var events = new List<RunEvent>();
         if (admission.Result is AdmitResult.Admitted)
         {
@@ -460,4 +472,14 @@ internal sealed class SlowSseHandler : HttpMessageHandler
 internal sealed class SingleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
 {
     public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+}
+
+/// <summary>A tiny real PNG (1x1), as the picture model would return one.</summary>
+internal static class ScriptedPicture
+{
+    public static readonly byte[] Bytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+    public static ChatAttachment Attachment() =>
+        new(Convert.ToBase64String(Bytes), "image/png", "image-1.png", SizeBytes: Bytes.Length);
 }

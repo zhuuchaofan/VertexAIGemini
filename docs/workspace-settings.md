@@ -37,6 +37,13 @@ The built-in Gemini entries are the three Gemini 4 models, in this order (the fi
 | Gemini 4 Carbon | `gemini-4-carbon` | 综合能力最强，适合复杂架构和疑难问题 |
 | Gemini 4 Argon | `gemini-4-argon` | 能力与 Hydrogen 相近，价格更高 |
 
+A fourth entry, **Nano Banana 画图** (`gemini-nano-banana-2.1`), answers with pictures. It is never the default. It asks
+Gemini for text and image output, gets no web search, keeps only final pictures (drafts inside the model's thinking are
+dropped), stores them in the attachment bucket next to the reply, and counts against `Quota:DailyImageLimit`
+(default 20 a day, `Quota__DailyImageLimit` on Cloud Run). In this project it answered a test prompt in about 20 seconds
+with a PNG of about 1.4 MB. A follow-up such as "改成蓝色" is answered from the words of the conversation: earlier
+pictures are not sent back to the model.
+
 Gemini 3.8 Flash was removed. A conversation or saved setting that names a model no longer listed uses the default
 model; its other choices (preset, role, search, thinking where valid) are kept. Conversation history is retained.
 

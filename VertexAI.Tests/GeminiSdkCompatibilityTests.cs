@@ -54,7 +54,8 @@ internal static class GeminiSdkCompatibilityTests
 
     public static void KeepsRequiredThinkingEnabled()
     {
-        foreach (var model in GeminiCatalog.CreateModelOptions(new GeminiSettings()))
+        // Chat models only: the picture model has no thinking settings of its own.
+        foreach (var model in GeminiCatalog.CreateModelOptions(new GeminiSettings()).Where(model => !model.GeneratesImages))
         {
             Assert.True(model.ModelName.StartsWith("gemini-4-", StringComparison.Ordinal));
             Assert.Equal("Gemini 4 " + char.ToUpperInvariant(model.ModelName["gemini-4-".Length]) + model.ModelName["gemini-4-".Length..][1..], model.Name);
