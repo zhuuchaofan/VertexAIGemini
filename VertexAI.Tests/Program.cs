@@ -345,11 +345,15 @@ internal static class GeminiAdvancedTests
     {
         var settings = new GeminiSettings();
         var models = GeminiCatalog.CreateModelOptions(settings);
-        Assert.Equal(2, models.Count);
-        Assert.True(models.Any(model => model.ModelName == "gemini-3.8-flash"));
+        Assert.Equal(3, models.Count);
+        Assert.Equal("gemini-4-hydrogen", models[0].ModelName);
+        Assert.True(models.Any(model => model.ModelName == "gemini-4-carbon"));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-argon"));
-        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName(settings.ModelName, models));
-        Assert.Equal("gemini-3.8-flash", GeminiCatalog.ResolveModelName("gemini-3.5-flash", models));
+        Assert.False(models.Any(model => model.ModelName == "gemini-3.8-flash"));
+        Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName(settings.ModelName, models));
+        // A conversation or saved setting naming a retired model uses the default.
+        Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName("gemini-3.8-flash", models));
+        Assert.Equal("gemini-4-carbon", GeminiCatalog.ResolveModelName("gemini-4-carbon", models));
         foreach (var model in models)
         {
             Assert.True(model.SupportsThinking);

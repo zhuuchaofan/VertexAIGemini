@@ -55,13 +55,23 @@ internal static class GeminiCatalog
             return NormalizeThinking(config.Models);
         }
 
+        // The first entry is the default: a conversation or saved setting naming a model that is no longer listed uses it.
         return NormalizeThinking(
         [
             new()
             {
-                Name = "Gemini 3.8 Flash",
-                ModelName = "gemini-3.8-flash",
-                Description = "快速多模态模型，支持低、中、高思考级别",
+                Name = "Gemini 4 Hydrogen",
+                ModelName = "gemini-4-hydrogen",
+                Description = "性价比最高，日常与编程首选；支持低、中、高思考级别",
+                Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
+                SupportsSampling = false,
+                MaxTokens = 1048576
+            },
+            new()
+            {
+                Name = "Gemini 4 Carbon",
+                ModelName = "gemini-4-carbon",
+                Description = "综合能力最强，适合复杂架构和疑难问题；支持低、中、高思考级别",
                 Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
                 SupportsSampling = false,
                 MaxTokens = 1048576
@@ -70,7 +80,7 @@ internal static class GeminiCatalog
             {
                 Name = "Gemini 4 Argon",
                 ModelName = "gemini-4-argon",
-                Description = "Gemini 4 Argon，支持低、中、高思考级别及统一上下文",
+                Description = "能力与 Hydrogen 相近，价格更高；支持低、中、高思考级别",
                 Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
                 SupportsSampling = false,
                 MaxTokens = 1048576

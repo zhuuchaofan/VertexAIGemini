@@ -83,7 +83,15 @@ describe("chat settings", () => {
 import { differences, fromStored, resetSetting, toStored } from "./chatSettings";
 
 describe("stored layers", () => {
-  it("reads a stored layer over the fallback, and falls back wholesale for a model that no longer exists", () => {
+  it("keeps the other choices when the stored model has been retired, using the provider's default model", () => {
+    const fallback = defaultSettings(workspace);
+    const read = fromStored(workspace, {
+      providerId: "other", modelName: "retired-model", presetId: "custom", customPrompt: "be brief", searchMode: "force"
+    }, fallback);
+    expect(read).toMatchObject({ providerId: "other", modelName: "q", presetId: "custom", customPrompt: "be brief", searchMode: "force" });
+  });
+
+  it("reads a stored layer over the fallback, and falls back wholesale for a provider that no longer exists", () => {
     const fallback = defaultSettings(workspace);
     expect(fromStored(workspace, { providerId: "gone", modelName: "x" }, fallback)).toBe(fallback);
     expect(fromStored(workspace, null, fallback)).toBe(fallback);

@@ -56,7 +56,8 @@ internal static class GeminiSdkCompatibilityTests
     {
         foreach (var model in GeminiCatalog.CreateModelOptions(new GeminiSettings()))
         {
-            Assert.Equal(model.ModelName == "gemini-4-argon" ? "Gemini 4 Argon" : "Gemini 3.8 Flash", model.Name);
+            Assert.True(model.ModelName.StartsWith("gemini-4-", StringComparison.Ordinal));
+            Assert.Equal("Gemini 4 " + char.ToUpperInvariant(model.ModelName["gemini-4-".Length]) + model.ModelName["gemini-4-".Length..][1..], model.Name);
             var config = GeminiService.BuildConfig("", model.Thinking,
                 thinkingEnabled: false, thinkingLevel: "medium", thinkingBudget: 0, safetySettings: []);
             Assert.NotNull(config.ThinkingConfig);
