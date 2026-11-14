@@ -51,6 +51,7 @@ public static class WebApplicationExtensions
         app.MapExportEndpoints();
         app.MapAdminEndpoints();
         app.MapQuotaEndpoints();
+        app.MapMemoryEndpoints();
 
         return app;
     }

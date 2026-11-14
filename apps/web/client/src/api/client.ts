@@ -5,6 +5,8 @@ import {
   type Citation,
   type AuthStatus,
   type QuotaStatus,
+  type MemoryItem,
+  type MemoryState,
   type ConversationDetail,
   type ConversationPage,
   type CreateRunRequest,
@@ -229,6 +231,37 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
     async deleteRole(id: string): Promise<void> {
       const response = await request(`/api/v2/me/roles/${id}`, { method: "DELETE" });
       if (!response.ok) await fail(response);
+    },
+
+    async getMemory(): Promise<MemoryState> {
+      const response = await request("/api/v2/me/memory");
+      if (!response.ok) await fail(response);
+      return (await response.json()) as MemoryState;
+    },
+
+    async addMemoryItem(text: string): Promise<MemoryItem> {
+      const response = await request("/api/v2/me/memory/items", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      if (!response.ok) await fail(response);
+      return ((await response.json()) as { item: MemoryItem }).item;
+    },
+
+    async removeMemoryItem(id: string): Promise<void> {
+      const response = await request(`/api/v2/me/memory/items/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!response.ok) await fail(response);
+    },
+
+    async setMemoryEnabled(enabled: boolean): Promise<MemoryState> {
+      const response = await request("/api/v2/me/memory", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled })
+      });
+      if (!response.ok) await fail(response);
+      return (await response.json()) as MemoryState;
     },
 
     async getQuota(): Promise<QuotaStatus> {

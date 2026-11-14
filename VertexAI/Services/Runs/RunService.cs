@@ -52,6 +52,7 @@ public sealed class RunService
     private readonly KeyedLock _admissions = new();
     private readonly IWebSearchService? _webSearch;
     private readonly TimeProvider _clock;
+    private readonly VertexAI.Services.Memory.IUserMemoryStore? _memory;
 
     public RunService(
         IChatProviderCatalog providers,
@@ -64,8 +65,10 @@ public sealed class RunService
         RunTestHooks? hooks = null,
         IChatAttachmentStore? attachments = null,
         IWebSearchService? webSearch = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        VertexAI.Services.Memory.IUserMemoryStore? memory = null)
     {
+        _memory = memory;
         _hooks = hooks;
         _webSearch = webSearch;
         _clock = clock ?? TimeProvider.System;
@@ -82,6 +85,21 @@ public sealed class RunService
     }
 
     // ------------------------------------------------------------------------------------------------ admission
+
+    /// <summary>The memory text for this person, or null. A memory that cannot be read never stops a run.</summary>
+    private async Task<string?> MemoryAddendumAsync(AuthenticatedUser user, CancellationToken cancellationToken)
+    {
+        if (_memory is null) return null;
+        try
+        {
+            return VertexAI.Services.Memory.MemoryRules.ToSystemAddendum(await _memory.GetAsync(user, cancellationToken));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Memory could not be read; the run goes ahead without it");
+            return null;
+        }
+    }
 
     public async Task<RunAdmission> AdmitAsync(RunStartRequest request, CancellationToken cancellationToken)
     {
@@ -109,8 +127,10 @@ public sealed class RunService
             userAware.SetAuthenticatedUser(request.User);
         }
 
-        // Configuring only resolves names and validates options; it makes no provider request.
-        await model.ConfigureAsync(request.Options);
+        // Configuring only resolves names and validates options; it makes no provider request. The person's saved
+        // memory goes after the system prompt for this request only.
+        var addendum = await MemoryAddendumAsync(request.User, cancellationToken);
+        await model.ConfigureAsync(addendum is null ? request.Options : request.Options with { SystemAddendum = addendum });
 
         var requested = new RunRequested(
             providerId,

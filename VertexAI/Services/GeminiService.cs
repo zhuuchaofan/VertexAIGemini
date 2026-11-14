@@ -23,6 +23,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
     // 当前系统提示词状态
     private string _currentSystemPrompt;
+    private string? _systemAddendum;
     private string _currentPresetId = "default";
     private bool? _thinkingEnabled;
     private string? _thinkingLevel;
@@ -89,7 +90,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         // 配置生成参数
         _config = BuildConfig(
-            _currentSystemPrompt,
+            VertexAI.Services.Memory.MemoryRules.Combine(_currentSystemPrompt, _systemAddendum),
             GetCurrentThinking(),
             _thinkingEnabled,
             _thinkingLevel,
@@ -146,6 +147,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     public Task ConfigureAsync(ChatSessionOptions? options)
     {
         _advanced = options?.Advanced;
+        _systemAddendum = options?.SystemAddendum;
         if (_advanced?.Validate() is { } error)
             throw new ArgumentException(error);
         if (options == null)

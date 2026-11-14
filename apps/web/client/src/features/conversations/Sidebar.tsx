@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ConversationSummary, RunApi } from "../../api/types";
 import { QuotaBar } from "../quota/QuotaBar";
+import { MemoryPanel } from "../memory/MemoryPanel";
 import type { QuotaStatus } from "../../api/types";
 import { ACCENTS, themeLabels, type Accent, type ThemeChoice } from "../../theme/useTheme";
 import { ConversationActions } from "./ConversationActions";
@@ -242,6 +243,7 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, qu
           )}
         </div>
 
+        <MemoryPanel api={api} />
         <QuotaBar status={quota ?? null} />
 
         <div className="accent-row" role="group" aria-label="主题色">

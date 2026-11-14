@@ -376,6 +376,11 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
 
   const persona = personaFor(workspace, settings, roles.roles);
 
+  // "记住这条" on one of the person's own messages: kept as typed, cut to what one memory may hold.
+  const remember = async (text: string) => {
+    await api.addMemoryItem(text.trim().slice(0, 300));
+  };
+
   // Start a reply from a quoted message. Focus first, in the same tap, so a phone raises its keyboard.
   const quote = (text: string) => {
     document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
@@ -563,7 +568,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
           {thread.map((item, position) => (
             <article key={item.key} className="turn">
               {item.user && (
-                <UserMessage message={item.user} onQuote={quote}>
+                <UserMessage message={item.user} onQuote={quote} onRemember={remember}>
                   {item.user.attachments && item.user.attachments.length > 0 && (
                     <AttachmentList api={api} conversationId={conversationId} messageId={item.user.id} items={item.user.attachments} />
                   )}
