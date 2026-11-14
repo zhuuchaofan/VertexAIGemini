@@ -162,6 +162,7 @@ function ReadyWorkbench({ api, email, onSignOut, route, theme, accent, fresh, on
           onDraftsChanged={() => setDraftsVersion(version => version + 1)}
           onListChanged={bumpList}
           onDeleted={onNew}
+          addressed={route.conversationId !== null}
           onRunAdmitted={() => {
             if (!route.conversationId) route.openConversation(conversationId);
           }}
