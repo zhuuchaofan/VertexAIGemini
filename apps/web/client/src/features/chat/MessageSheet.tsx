@@ -7,14 +7,17 @@ interface Props {
   onClose: () => void;
   onQuote?: (text: string) => void;
   onInspect?: () => void;
+  /** Saves the message (cut to what fits) to the person's memory. */
+  onRemember?: (text: string) => Promise<void>;
 }
 
 /** What can be done with one message, as a bottom sheet on a phone and a small card on a wide screen. */
-export function MessageSheet({ text, onClose, onQuote, onInspect }: Props) {
+export function MessageSheet({ text, onClose, onQuote, onInspect, onRemember }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"menu" | "select">("menu");
   const [copied, setCopied] = useState<"idle" | "ok" | "failed">("idle");
   const [speaking, setSpeaking] = useState(false);
+  const [remembered, setRemembered] = useState<"idle" | "saving" | "ok" | "failed">("idle");
   // The finger that opened this sheet is still on the screen. Its lift sends a click to whatever is under it now,
   // so clicks are ignored for a moment.
   const armed = useRef(false);
@@ -87,6 +90,28 @@ export function MessageSheet({ text, onClose, onQuote, onInspect }: Props) {
               >
                 <span aria-hidden="true">💬</span>
                 <span>引用回复</span>
+              </button>
+            )}
+            {onRemember && (
+              <button
+                type="button"
+                className="msg-sheet-item"
+                disabled={remembered === "saving" || remembered === "ok"}
+                onClick={async () => {
+                  setRemembered("saving");
+                  try {
+                    await onRemember(text);
+                    setRemembered("ok");
+                    setTimeout(onClose, 700);
+                  } catch {
+                    setRemembered("failed");
+                  }
+                }}
+              >
+                <span aria-hidden="true">🧠</span>
+                <span aria-live="polite">
+                  {remembered === "ok" ? "已记住" : remembered === "failed" ? "没记住，再试一次" : remembered === "saving" ? "正在记住…" : "记住这条"}
+                </span>
               </button>
             )}
             <button type="button" className="msg-sheet-item" onClick={() => setMode("select")}>

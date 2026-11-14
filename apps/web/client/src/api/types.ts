@@ -256,6 +256,20 @@ export interface QuotaStatus {
   attachmentBytes: QuotaMeter;
 }
 
+/** Something the person asked the assistant to remember. */
+export interface MemoryItem {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface MemoryState {
+  enabled: boolean;
+  items: MemoryItem[];
+  maxItems: number;
+  maxChars: number;
+}
+
 export interface AuthStatus {
   email: string;
   safetyThresholds: string[];
@@ -308,6 +322,10 @@ export interface RunApi {
   getWorkspace(): Promise<WorkspaceConfig>;
   getAuthStatus(): Promise<AuthStatus>;
   getQuota(): Promise<QuotaStatus>;
+  getMemory(): Promise<MemoryState>;
+  addMemoryItem(text: string): Promise<MemoryItem>;
+  removeMemoryItem(id: string): Promise<void>;
+  setMemoryEnabled(enabled: boolean): Promise<MemoryState>;
   getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob>;
   renameConversation(conversationId: string, title: string): Promise<void>;
   setPinned(conversationId: string, pinned: boolean): Promise<void>;

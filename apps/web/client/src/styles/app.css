@@ -402,3 +402,16 @@ a.cite-ref:hover, a.cite-ref:active { background: var(--accent); color: var(--ac
 .quota-lines > div[data-fullest] { color: var(--ink); font-weight: 600; }
 .quota-reset { margin: 6px 0 2px; color: var(--ink-3); }
 @media (prefers-reduced-motion: reduce) { .quota-fill { transition: none; } }
+
+/* ---- memory ---- */
+.memory { display: block; margin: 8px 4px 0; }
+.memory-btn { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink-2); font-size: 14px; text-align: left; }
+.memory-btn:hover { border-color: var(--accent-line); color: var(--ink); }
+.memory-body { gap: 10px; }
+.memory-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40dvh; overflow: auto; }
+.memory-list li { display: flex; align-items: flex-start; gap: 6px; padding: 8px 4px 8px 12px; border-radius: 12px; background: var(--panel-2); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.memory-list li span { flex: 1; min-width: 0; padding-top: 2px; }
+.memory-list .icon-btn { width: 32px; height: 32px; flex: none; }
+.memory-add { display: flex; gap: 8px; }
+.memory-add input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; }
+@media (min-width: 761px) { .memory .overlay-panel { width: 340px; } }

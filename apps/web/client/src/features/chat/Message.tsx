@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useLongPress } from "../../ui/useLongPress";
 import { MessageSheet } from "./MessageSheet";
 
-export function UserMessage({ message, children, onQuote }: { message: Pick<StoredMessage, "content" | "createdAt">; children?: React.ReactNode; onQuote?: (text: string) => void }) {
+export function UserMessage({ message, children, onQuote, onRemember }: { message: Pick<StoredMessage, "content" | "createdAt">; children?: React.ReactNode; onQuote?: (text: string) => void; onRemember?: (text: string) => Promise<void> }) {
   const [menu, setMenu] = useState(false);
   const press = useLongPress(() => message.content && setMenu(true));
   return (
@@ -25,7 +25,7 @@ export function UserMessage({ message, children, onQuote }: { message: Pick<Stor
         </div>
         {children}
         {message.content && <div className="bubble user" {...press}>{message.content}</div>}
-        {menu && <MessageSheet text={message.content} onClose={() => setMenu(false)} onQuote={onQuote} />}
+        {menu && <MessageSheet text={message.content} onClose={() => setMenu(false)} onQuote={onQuote} onRemember={onRemember} />}
       </div>
     </div>
   );

@@ -172,9 +172,10 @@ public sealed class OpenAICompatibleChatModelClient : IChatModelClient, IChatRun
     {
         var messages = new List<object>();
 
-        if (!string.IsNullOrWhiteSpace(_currentSystemPrompt))
+        var systemPrompt = VertexAI.Services.Memory.MemoryRules.Combine(_currentSystemPrompt, _options?.SystemAddendum);
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            messages.Add(new { role = "system", content = _currentSystemPrompt });
+            messages.Add(new { role = "system", content = systemPrompt });
         }
 
         messages.AddRange(_history.Select(message => new

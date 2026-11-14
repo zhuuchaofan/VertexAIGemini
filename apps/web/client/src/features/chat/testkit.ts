@@ -44,6 +44,15 @@ export class FakeRunApi implements RunApi {
   async searchConversations() { return { items: [], hasMore: false, nextCursor: null }; }
   async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
   async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
+  memory: import("../../api/types").MemoryState = { enabled: true, items: [], maxItems: 50, maxChars: 300 };
+  async getMemory() { return this.memory; }
+  async addMemoryItem(text: string) {
+    const item = { id: String(this.memory.items.length + 1).padStart(32, "0"), text, createdAt: new Date().toISOString() };
+    this.memory = { ...this.memory, items: [...this.memory.items, item] };
+    return item;
+  }
+  async removeMemoryItem(id: string) { this.memory = { ...this.memory, items: this.memory.items.filter(item => item.id !== id) }; }
+  async setMemoryEnabled(enabled: boolean) { this.memory = { ...this.memory, enabled }; return this.memory; }
   async getQuota() {
     const none = { used: 0, limit: 0 };
     return { limited: false, date: "20260101", resetsAtUtc: "2026-01-02T00:00:00Z", requests: none, tokens: none, searches: none, attachmentBytes: none };
