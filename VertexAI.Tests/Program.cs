@@ -173,6 +173,7 @@ var tests = new (string Name, Action Test)[]
     ("Memory: rules validate and build the system text", MemoryTests.RulesValidateAndBuildTheSystemText),
     ("Memory: endpoints are the caller's own and enforce the limits", MemoryTests.EndpointsAreTheCallersOwnAndEnforceTheLimits),
     ("Memory: the system prompt sent to the provider carries the memory", MemoryTests.TheSystemPromptSentToTheProviderCarriesTheMemory),
+    ("Memory: the Gemini system instruction carries the memory after every rebuild", MemoryTests.TheGeminiSystemInstructionCarriesTheMemoryAfterEveryRebuild),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),

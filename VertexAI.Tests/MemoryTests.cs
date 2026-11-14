@@ -82,6 +82,29 @@ internal static class MemoryTests
         Assert.Equal("你是助手", client.CurrentCustomPrompt);
     }
 
+    public static void TheGeminiSystemInstructionCarriesTheMemoryAfterEveryRebuild()
+    {
+        using var credentials = FakeGoogleCredentials.Use();
+        var service = new GeminiService(
+            Microsoft.Extensions.Options.Options.Create(new GeminiSettings { ProjectId = "test-project" }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<GeminiService>.Instance,
+            new GeminiSafetyPolicy(Microsoft.Extensions.Options.Options.Create(new GeminiSettings())));
+
+        // Model, preset and thinking each rebuild the config: the memory must survive all of them.
+        service.ConfigureAsync(new ChatSessionOptions(
+            ModelName: "gemini-4-carbon", PresetId: "custom", CustomPrompt: "你是助手", ThinkingLevel: "high",
+            SystemAddendum: "- 我的猫叫布丁")).GetAwaiter().GetResult();
+
+        var text = string.Concat(service.CurrentConfig.SystemInstruction!.Parts!.Select(part => part.Text));
+        Assert.Contains("你是助手", text);
+        Assert.Contains("我的猫叫布丁", text);
+        Assert.Equal("你是助手", service.CurrentCustomPrompt);
+
+        // A later request without memory does not keep the old one.
+        service.ConfigureAsync(new ChatSessionOptions(ModelName: "gemini-4-carbon", PresetId: "custom", CustomPrompt: "你是助手")).GetAwaiter().GetResult();
+        Assert.False(string.Concat(service.CurrentConfig.SystemInstruction!.Parts!.Select(part => part.Text)).Contains("布丁"));
+    }
+
     private static ExecutedResult Add(IUserMemoryStore store, string text) =>
         ResultTestHelpers.Execute(MemoryEndpoints.AddAsync(new MemoryEndpoints.MemoryAddBody(text), new DefaultHttpContext(), new FakeUserContext(Me), store));
 }
@@ -114,5 +137,47 @@ internal sealed class InMemoryUserMemoryStore : IUserMemoryStore
     {
         _byUser[user.FirebaseUid] = _byUser.GetValueOrDefault(user.FirebaseUid, UserMemory.Empty) with { Enabled = enabled };
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A throwaway service-account key so the Vertex client can be constructed in a test. It is only parsed locally; the
+/// tests that use it never send a request.
+/// </summary>
+internal sealed class FakeGoogleCredentials : IDisposable
+{
+    private readonly string _path;
+    private readonly string? _previous;
+
+    private FakeGoogleCredentials(string path, string? previous)
+    {
+        _path = path;
+        _previous = previous;
+    }
+
+    public static FakeGoogleCredentials Use()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var key = new
+        {
+            type = "service_account",
+            project_id = "test-project",
+            private_key_id = "test",
+            private_key = rsa.ExportPkcs8PrivateKeyPem(),
+            client_email = "test@test-project.iam.gserviceaccount.com",
+            client_id = "1",
+            token_uri = "https://oauth2.googleapis.com/token"
+        };
+        var path = Path.Combine(Path.GetTempPath(), $"fake-sa-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(key));
+        var previous = Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
+        Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", path);
+        return new FakeGoogleCredentials(path, previous);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _previous);
+        File.Delete(_path);
     }
 }

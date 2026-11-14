@@ -24,6 +24,12 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     // 当前系统提示词状态
     private string _currentSystemPrompt;
     private string? _systemAddendum;
+
+    /// <summary>The preset or custom prompt, with the person's memory after it. Every config is built from this.</summary>
+    private string SystemPromptWithMemory => VertexAI.Services.Memory.MemoryRules.Combine(_currentSystemPrompt, _systemAddendum);
+
+    /// <summary>The config the next request starts from (tests read its system instruction).</summary>
+    internal GenerateContentConfig CurrentConfig => _config;
     private string _currentPresetId = "default";
     private bool? _thinkingEnabled;
     private string? _thinkingLevel;
@@ -90,7 +96,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
 
         // 配置生成参数
         _config = BuildConfig(
-            VertexAI.Services.Memory.MemoryRules.Combine(_currentSystemPrompt, _systemAddendum),
+            SystemPromptWithMemory,
             GetCurrentThinking(),
             _thinkingEnabled,
             _thinkingLevel,
@@ -514,7 +520,7 @@ public class GeminiService : IChatModelClient, IAuthenticatedUserAwareChatModelC
     private void RebuildConfig()
     {
         _config = BuildConfig(
-            _currentSystemPrompt,
+            SystemPromptWithMemory,
             GetCurrentThinking(),
             _thinkingEnabled,
             _thinkingLevel,
