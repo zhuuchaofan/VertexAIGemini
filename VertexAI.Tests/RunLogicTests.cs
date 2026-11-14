@@ -58,6 +58,16 @@ internal static class RunLogicTests
         Assert.SequenceEqual(new[] { "old q", "old a" }, Texts(history));
     }
 
+    public static void ARegeneratedQuestionCountsOnceWithItsNewestReply()
+    {
+        var history = RunContextSelector.Select(
+        [
+            M("user", "q1", "r1"), M("model", "first try", "r1"), M("model", "second try", "r2"),
+            M("user", "q2", "r3"), M("model", "a2", "r3")
+        ], maxTurns: 10);
+        Assert.SequenceEqual(new[] { "q1", "second try", "q2", "a2" }, Texts(history));
+    }
+
     public static void ThinkingTextTravelsWithTheReply()
     {
         var reply = M("model", "answer");

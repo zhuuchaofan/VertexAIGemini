@@ -173,6 +173,8 @@ export interface CreateRunRequest extends RunOptions {
   attachments?: OutgoingAttachment[];
   /** Answers the stored question of this failed run instead of sending a new message. */
   retryOfRunId?: string;
+  /** With retryOfRunId: answer that question again although it already has a reply. */
+  regenerate?: boolean;
 }
 
 export interface ThinkingOption {

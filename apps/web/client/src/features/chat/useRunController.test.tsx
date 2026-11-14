@@ -67,6 +67,21 @@ describe("useRunController", () => {
     expect(result.current.state.phase).toBe("finished");
   });
 
+  test("a regenerate answers the stored question again: the source run, the regenerate flag and no message", async () => {
+    const api = new FakeRunApi();
+    api.script = async (_request, handlers) => {
+      handlers.onRun(snapshot());
+      handlers.onDone(snapshot({ status: "completed", hasAssistantMessage: true, outputChars: 2 }));
+      return { started: true, done: true };
+    };
+    const { result } = setup(api);
+
+    await act(() => result.current.regenerate("answered-run", { modelName: "m" }));
+
+    expect(api.createCalls).toEqual([{ runId: "run-1", conversationId: "conv-1", message: "", modelName: "m", retryOfRunId: "answered-run", regenerate: true }]);
+    expect(result.current.state.retryOf).toBe("answered-run");
+  });
+
   test("two clicks in the same tick create exactly one run", async () => {
     const api = new FakeRunApi();
     let release!: () => void;
