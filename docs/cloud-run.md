@@ -35,6 +35,17 @@ request timeout. `scripts/deploy-cloud-run.sh` and the GitHub workflow take the 
 The old page and its `WEB_DEFAULT_UI` switch are gone: `/` always redirects to `/app/`. A leftover
 `WEB_DEFAULT_UI` variable on a deployed service is ignored.
 
+## Releasing the API (image only)
+
+For an API change that needs no new index or setting, `scripts/deploy-api.sh` builds an image from a commit (default
+`origin/main`) and swaps it into the existing `vertex-ai-api` service; everything else on the service stays as it is.
+It shows the current revision, asks before deploying, and prints the command that goes back. `DRY_RUN=1` only prints
+what it would run. Run it from Cloud Shell in a clean checkout:
+
+```bash
+bash scripts/deploy-api.sh
+```
+
 ## Automatic web deployment
 
 `cloudbuild-web.yaml` builds `apps/web` and replaces only the image of the existing `vertex-ai-web` service, so
