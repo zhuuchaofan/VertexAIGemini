@@ -4,6 +4,7 @@ import {
   NetworkError,
   type Citation,
   type AuthStatus,
+  type QuotaStatus,
   type ConversationDetail,
   type ConversationPage,
   type CreateRunRequest,
@@ -113,6 +114,12 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
       return (await response.json()) as ConversationPage;
     },
 
+    async searchConversations(query: string): Promise<ConversationPage> {
+      const response = await request(`/api/conversations?${new URLSearchParams({ q: query, limit: "50" })}`);
+      if (!response.ok) await fail(response);
+      return (await response.json()) as ConversationPage;
+    },
+
     async getWorkspace(): Promise<WorkspaceConfig> {
       const response = await request("/api/workspace/config");
       if (!response.ok) await fail(response);
@@ -213,6 +220,12 @@ export function createApiClient(authHeaders: AuthHeaders, fetchImpl: typeof fetc
     async deleteRole(id: string): Promise<void> {
       const response = await request(`/api/v2/me/roles/${id}`, { method: "DELETE" });
       if (!response.ok) await fail(response);
+    },
+
+    async getQuota(): Promise<QuotaStatus> {
+      const response = await request("/api/me/quota");
+      if (!response.ok) await fail(response);
+      return (await response.json()) as QuotaStatus;
     },
 
     async getAuthStatus(): Promise<AuthStatus> {

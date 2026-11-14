@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ConversationSummary, RunApi } from "../../api/types";
+import { QuotaBar } from "../quota/QuotaBar";
+import type { QuotaStatus } from "../../api/types";
 import { ACCENTS, themeLabels, type Accent, type ThemeChoice } from "../../theme/useTheme";
 import { ConversationActions } from "./ConversationActions";
 import { formatWhen, groupByDay } from "./groupByDay";
@@ -13,6 +15,7 @@ interface Props {
   email: string | null;
   theme: ThemeChoice;
   onCycleTheme: () => void;
+  quota?: QuotaStatus | null;
   accent: Accent;
   onAccent: (accent: Accent) => void;
   onOpen: (id: string) => void;
@@ -29,7 +32,7 @@ interface Props {
   draftIds?: ReadonlySet<string>;
 }
 
-export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, accent, onAccent, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
+export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, quota, accent, onAccent, onOpen, onNew, onSignOut, open, onClose, busyIds, onDeleted, draftIds }: Props) {
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -72,10 +75,36 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, ac
     }
   };
 
+  // Typing filters what is loaded at once; after a pause the server is asked too, so older conversations are found.
+  const [remote, setRemote] = useState<{ query: string; items: ConversationSummary[] } | null>(null);
+  const needle = query.trim();
+  useEffect(() => {
+    if (!needle) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api
+        .searchConversations(needle)
+        .then(page => {
+          if (!cancelled) setRemote({ query: needle, items: page.items });
+        })
+        .catch(() => {
+          if (!cancelled) setRemote({ query: needle, items: [] });
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, needle, version]);
+  const searching = Boolean(needle) && remote?.query !== needle;
+
   const shown = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle ? items.filter(item => (item.title ?? "未命名对话").toLowerCase().includes(needle)) : items;
-  }, [items, query]);
+    if (!needle) return items;
+    const lower = needle.toLowerCase();
+    const local = items.filter(item => (item.title ?? "未命名对话").toLowerCase().includes(lower));
+    const older = remote?.query === needle ? remote.items.filter(item => !local.some(known => known.id === item.id)) : [];
+    return [...local, ...older].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [items, needle, remote]);
   const groups = useMemo(() => groupByDay(shown), [shown]);
 
   return (
@@ -110,7 +139,7 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, ac
           {loading && <p className="muted pad">正在读取会话…</p>}
           {failed && <p className="muted pad" role="alert">会话列表读取失败。</p>}
           {!loading && !failed && shown.length === 0 && (
-            <p className="muted pad">{query ? "没有匹配的会话。" : "还没有会话。"}</p>
+            <p className="muted pad">{query ? (searching ? "正在搜索…" : "没有匹配的会话。") : "还没有会话。"}</p>
           )}
           {groups.map(group => (
             <section key={group.label} aria-label={group.label}>
@@ -182,6 +211,8 @@ export function Sidebar({ api, activeId, version, email, theme, onCycleTheme, ac
             </button>
           )}
         </div>
+
+        <QuotaBar status={quota ?? null} />
 
         <div className="accent-row" role="group" aria-label="主题色">
           {ACCENTS.map(item => (

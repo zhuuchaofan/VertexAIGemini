@@ -8,7 +8,11 @@ public interface IConversationStore
 
     Task<List<Conversation>> GetUserConversationsPageAsync(AuthenticatedUser user, string? cursor, int limit);
 
-    Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user);
+    /// <param name="includeAttachmentData">
+    /// False reads only the attachments' details (name, type, size); the content stays in storage. An export that
+    /// only lists attachments, or a page that does not show them, then does not download every file first.
+    /// </param>
+    Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user, bool includeAttachmentData = true);
 
     Task<Conversation?> CreateConversationAsync(
         AuthenticatedUser user,

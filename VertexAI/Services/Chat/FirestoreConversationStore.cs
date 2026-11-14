@@ -61,7 +61,7 @@ public sealed class FirestoreConversationStore : IConversationStore
             .ToList();
     }
 
-    public async Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user)
+    public async Task<Conversation?> GetConversationAsync(Guid conversationId, AuthenticatedUser user, bool includeAttachmentData = true)
     {
         var conversationSnapshot = await GetConversationDocument(conversationId).GetSnapshotAsync();
         var conversation = FirestoreConversationMapper.ToConversation(conversationSnapshot);
@@ -83,9 +83,12 @@ public sealed class FirestoreConversationStore : IConversationStore
             .Cast<Message>()
             .ToList();
 
-        foreach (var message in messages)
+        if (includeAttachmentData)
         {
-            message.AttachmentsJson = await LoadAttachmentsJsonAsync(message.AttachmentsJson);
+            foreach (var message in messages)
+            {
+                message.AttachmentsJson = await LoadAttachmentsJsonAsync(message.AttachmentsJson);
+            }
         }
 
         conversation.Messages = messages;

@@ -236,6 +236,23 @@ export interface UserRole {
   prompt: string;
 }
 
+/** One kind of daily allowance. */
+export interface QuotaMeter {
+  used: number;
+  limit: number;
+}
+
+/** What this person may still do today. `limited` is false when no quota applies (an admin, or quotas are off). */
+export interface QuotaStatus {
+  limited: boolean;
+  date: string;
+  resetsAtUtc: string;
+  requests: QuotaMeter;
+  tokens: QuotaMeter;
+  searches: QuotaMeter;
+  attachmentBytes: QuotaMeter;
+}
+
 export interface AuthStatus {
   email: string;
   safetyThresholds: string[];
@@ -283,8 +300,11 @@ export interface RunApi {
   getRun(runId: string): Promise<RunSnapshot | null>;
   getConversation(conversationId: string): Promise<ConversationDetail | null>;
   listConversations(cursor?: string | null): Promise<ConversationPage>;
+  /** Conversations whose title has the words in it, searched on the server (the most recent few hundred). */
+  searchConversations(query: string): Promise<ConversationPage>;
   getWorkspace(): Promise<WorkspaceConfig>;
   getAuthStatus(): Promise<AuthStatus>;
+  getQuota(): Promise<QuotaStatus>;
   getAttachment(conversationId: string, messageId: string, index: number): Promise<Blob>;
   renameConversation(conversationId: string, title: string): Promise<void>;
   deleteConversation(conversationId: string): Promise<void>;

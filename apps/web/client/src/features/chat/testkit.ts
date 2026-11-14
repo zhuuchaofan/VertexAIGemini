@@ -41,8 +41,13 @@ export class FakeRunApi implements RunApi {
   async getRun() { this.getRunCalls += 1; return this.onGetRun(this.getRunCalls); }
   async getConversation() { return this.conversation; }
   async listConversations() { return { items: [], hasMore: false, nextCursor: null }; }
+  async searchConversations() { return { items: [], hasMore: false, nextCursor: null }; }
   async getWorkspace() { return { providers: [], defaultProviderId: "" }; }
   async getAuthStatus() { return { email: "t@example.com", safetyThresholds: [] }; }
+  async getQuota() {
+    const none = { used: 0, limit: 0 };
+    return { limited: false, date: "20260101", resetsAtUtc: "2026-01-02T00:00:00Z", requests: none, tokens: none, searches: none, attachmentBytes: none };
+  }
   async getAttachment() { return new Blob(["x"]); }
   renamed: { id: string; title: string }[] = [];
   deleted: string[] = [];
