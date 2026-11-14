@@ -52,6 +52,8 @@ interface Props {
   onListChanged?: () => void;
   /** The conversation was deleted from here; the page should leave it. */
   onDeleted?: () => void;
+  /** The id came from the address bar (an existing conversation), not from a new, not yet sent one. */
+  addressed?: boolean;
   pending?: PendingStore;
 }
 
@@ -85,10 +87,13 @@ function useElapsed(startedAt: number | null, running: boolean): number {
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-export function ChatView({ api, conversationId, workspace, defaults, initial, roles, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, draftKey, onDraftsChanged, onListChanged, onDeleted, pending = localPendingStore }: Props) {
+export function ChatView({ api, conversationId, workspace, defaults, initial, roles, onSaveDefaults, safetyThresholds, onRunEnded, onRunAdmitted, onMenu, draftKey, onDraftsChanged, onListChanged, onDeleted, addressed = false, pending = localPendingStore }: Props) {
   const mobile = useIsMobile();
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // An address that names no conversation of this account: deleted, or made while signed in as someone else.
+  // Sending into it would be refused, so it is said plainly and sending is held back.
+  const [missing, setMissing] = useState(false);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
@@ -153,6 +158,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
         if (cancelled) return;
         setDetail(loaded);
         setLoadError(null);
+        setMissing(addressed && loaded === null);
         // An existing conversation opens on its own settings, unless the person already changed something here.
         if (loaded) {
           setSessionState("saved");
@@ -173,7 +179,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
     return () => {
       cancelled = true;
     };
-  }, [api, conversationId, reloadKey, workspace]);
+  }, [api, conversationId, reloadKey, workspace, addressed]);
 
   const controller = useRunController({ api, conversationId, pending });
   const { state, reset } = controller;
@@ -321,7 +327,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
   const submit = async (override?: string) => {
     const text = (override ?? composerText).trim();
     const files = override === undefined ? shownAttachments : [];
-    if ((!text && files.length === 0) || preparing > 0 || !canSend(state)) return;
+    if ((!text && files.length === 0) || preparing > 0 || !canSend(state) || missing) return;
     setDraft("");
     setAttachments([]);
     setRejections([]);
@@ -546,7 +552,13 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
       >
         <div className="thread" role="log" aria-live="polite">
           {loadError && <div className="note err">{loadError}</div>}
-          {!detail && !live && !loadError && thread.length === 0 && (
+          {missing && !live && (
+            <div className="note warn missing" role="alert">
+              <strong>找不到这个会话。</strong>它可能已被删除，或者是用另一个账号创建的。
+              <button type="button" className="primary" onClick={onDeleted}>开始新对话</button>
+            </div>
+          )}
+          {!detail && !live && !loadError && !missing && thread.length === 0 && (
             <div className="empty">
               <PersonaFace persona={persona} large />
               <h2>{persona.emoji ? persona.name : "有什么可以帮你？"}</h2>
@@ -675,7 +687,7 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
         onStop={() => void controller.stop()}
         running={running}
         stopping={state.phase === "stopping"}
-        canSend={canSend(state)}
+        canSend={canSend(state) && !missing}
         workspace={workspace}
         settings={settings}
         onSettings={updateSettings}
