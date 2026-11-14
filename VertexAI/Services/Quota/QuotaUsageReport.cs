@@ -8,7 +8,8 @@ public sealed record QuotaUsageEntry(
     int ActualTokens,
     int Searches,
     long AttachmentBytes,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    int Images = 0);
 
 public sealed record QuotaUsageTotals(
     int Requests,

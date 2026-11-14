@@ -422,3 +422,9 @@ a.cite-ref:hover, a.cite-ref:active { background: var(--accent); color: var(--ac
 .versions .act:disabled { opacity: .35; cursor: default; }
 
 .note.missing { display: grid; gap: 10px; justify-items: start; }
+
+/* ---- pictures from the picture model ---- */
+.bar .title-model { white-space: nowrap; }
+/* A picture the assistant made is the answer itself: shown large and whole, not as a cropped thumbnail. */
+.msg.model .att-thumb { width: min(100%, 360px); height: auto; aspect-ratio: 1 / 1; }
+.msg.model .att-thumb img { object-fit: contain; background: var(--panel-2); }

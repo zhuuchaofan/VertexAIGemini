@@ -9,6 +9,9 @@ public sealed class ChatModelOption
     public bool SupportsSampling { get; set; } = true;
     public ChatThinkingConfig? Thinking { get; set; }
     public int MaxTokens { get; set; } = 1048576;
+
+    /// <summary>Answers with pictures (and a little text) instead of a conversation: no web search, its own daily allowance.</summary>
+    public bool GeneratesImages { get; set; }
 }
 
 public sealed class ChatThinkingConfig

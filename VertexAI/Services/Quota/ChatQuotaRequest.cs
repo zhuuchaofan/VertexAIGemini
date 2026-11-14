@@ -7,4 +7,5 @@ public sealed record ChatQuotaRequest(
     int RequestCount,
     int EstimatedTokens,
     int SearchCount,
-    long AttachmentBytes);
+    long AttachmentBytes,
+    int ImageCount = 0);

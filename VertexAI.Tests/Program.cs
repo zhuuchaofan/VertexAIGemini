@@ -174,6 +174,11 @@ var tests = new (string Name, Action Test)[]
     ("Memory: endpoints are the caller's own and enforce the limits", MemoryTests.EndpointsAreTheCallersOwnAndEnforceTheLimits),
     ("Memory: the system prompt sent to the provider carries the memory", MemoryTests.TheSystemPromptSentToTheProviderCarriesTheMemory),
     ("Memory: the Gemini system instruction carries the memory after every rebuild", MemoryTests.TheGeminiSystemInstructionCarriesTheMemoryAfterEveryRebuild),
+    ("Images: only final pictures are kept from a Gemini answer", ImageTests.OnlyFinalPicturesAreKept),
+    ("Images: a picture is stored with the reply, served back and counted", ImageTests.APictureIsStoredWithTheReplyServedBackAndCounted),
+    ("Images: a picture without words still makes a reply", ImageTests.APictureWithoutWordsStillMakesAReply),
+    ("Images: a picture that cannot be stored is left out and said so", ImageTests.APictureThatCannotBeStoredIsLeftOutAndSaidSo),
+    ("Images: the daily picture allowance is enforced and chat is not counted", ImageTests.TheDailyPictureAllowanceIsEnforcedAndChatIsNotCounted),
     ("ChatProviderCatalog selects registered provider", ChatProviderCatalogTests.SelectsRegisteredProvider),
     ("ChatProviderCatalog falls back from invalid default provider", ChatProviderCatalogTests.FallsBackFromInvalidDefaultProvider),
     ("MockChatModelClient streams local multimodal response", MockChatModelClientTests.StreamsMultimodalResponse),
@@ -353,8 +358,12 @@ internal static class GeminiAdvancedTests
     {
         var settings = new GeminiSettings();
         var models = GeminiCatalog.CreateModelOptions(settings);
-        Assert.Equal(3, models.Count);
+        Assert.Equal(4, models.Count);
         Assert.Equal("gemini-4-hydrogen", models[0].ModelName);
+        // The picture model is listed but is never the default.
+        Assert.Equal("gemini-nano-banana-2.1", models[^1].ModelName);
+        Assert.True(models[^1].GeneratesImages);
+        Assert.Equal(1, models.Count(model => model.GeneratesImages));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-carbon"));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-argon"));
         Assert.False(models.Any(model => model.ModelName == "gemini-3.8-flash"));
@@ -362,7 +371,7 @@ internal static class GeminiAdvancedTests
         // A conversation or saved setting naming a retired model uses the default.
         Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName("gemini-3.8-flash", models));
         Assert.Equal("gemini-4-carbon", GeminiCatalog.ResolveModelName("gemini-4-carbon", models));
-        foreach (var model in models)
+        foreach (var model in models.Where(model => !model.GeneratesImages))
         {
             Assert.True(model.SupportsThinking);
             Assert.False(model.SupportsSampling);

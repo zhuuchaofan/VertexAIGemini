@@ -17,6 +17,7 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
     public const string ActualTokens = "actualTokens";
     public const string Searches = "searches";
     public const string AttachmentBytes = "attachmentBytes";
+    public const string Images = "images";
     public const string UpdatedAt = "updatedAt";
 
     private readonly FirestoreDb _db;
@@ -131,6 +132,7 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
             delta[EstimatedTokens] = FieldValue.Increment(-refund.EstimatedTokens);
             delta[Searches] = FieldValue.Increment(-refund.SearchCount);
             delta[AttachmentBytes] = FieldValue.Increment(-refund.AttachmentBytes);
+            if (refund.ImageCount != 0) delta[Images] = FieldValue.Increment(-refund.ImageCount);
         }
 
         return delta;
@@ -180,7 +182,8 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
             ReadInt(snapshot, ActualTokens),
             ReadInt(snapshot, Searches),
             ReadLong(snapshot, AttachmentBytes),
-            ReadTimestamp(snapshot, UpdatedAt)?.ToDateTime());
+            ReadTimestamp(snapshot, UpdatedAt)?.ToDateTime(),
+            ReadInt(snapshot, Images));
 
     private static string ResolveUserIdFromDocumentId(string documentId)
     {
@@ -217,6 +220,11 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
         {
             throw new InvalidOperationException("Daily attachment quota exceeded.");
         }
+
+        if (usage.Images > _settings.DailyImageLimit)
+        {
+            throw new InvalidOperationException("Daily image quota exceeded.");
+        }
     }
 
     public sealed record QuotaDecision(bool Allowed, string? Error, Dictionary<string, object>? Reservation, bool Reserved);
@@ -226,7 +234,8 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
         int EstimatedTokens,
         int ActualTokens,
         int Searches,
-        long AttachmentBytes)
+        long AttachmentBytes,
+        int Images)
     {
         public static DailyUsage From(DocumentSnapshot snapshot) =>
             snapshot.Exists
@@ -235,8 +244,9 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
                     ReadInt(snapshot, FirestoreChatQuotaService.EstimatedTokens),
                     ReadInt(snapshot, FirestoreChatQuotaService.ActualTokens),
                     ReadInt(snapshot, FirestoreChatQuotaService.Searches),
-                    ReadLong(snapshot, FirestoreChatQuotaService.AttachmentBytes))
-                : new DailyUsage(0, 0, 0, 0, 0);
+                    ReadLong(snapshot, FirestoreChatQuotaService.AttachmentBytes),
+                    ReadInt(snapshot, FirestoreChatQuotaService.Images))
+                : new DailyUsage(0, 0, 0, 0, 0, 0);
 
         public DailyUsage Add(ChatQuotaRequest request) =>
             this with
@@ -244,7 +254,8 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
                 Requests = Requests + request.RequestCount,
                 EstimatedTokens = EstimatedTokens + request.EstimatedTokens,
                 Searches = Searches + request.SearchCount,
-                AttachmentBytes = AttachmentBytes + request.AttachmentBytes
+                AttachmentBytes = AttachmentBytes + request.AttachmentBytes,
+                Images = Images + request.ImageCount
             };
 
         public Dictionary<string, object> ToDocument(ChatQuotaRequest request) => new()
@@ -256,6 +267,7 @@ public sealed class FirestoreChatQuotaService : IChatQuotaService, IQuotaStatusR
             [FirestoreChatQuotaService.ActualTokens] = ActualTokens,
             [FirestoreChatQuotaService.Searches] = Searches,
             [FirestoreChatQuotaService.AttachmentBytes] = AttachmentBytes,
+            [FirestoreChatQuotaService.Images] = Images,
             [UpdatedAt] = Timestamp.FromDateTime(DateTime.UtcNow)
         };
 

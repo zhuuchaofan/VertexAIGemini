@@ -52,6 +52,8 @@ interface ModelProps {
   onInspect?: () => void;
   /** Offered on the newest answered turn: answer the question again. */
   onRegenerate?: () => void;
+  /** Pictures that came with the reply (from a picture model). */
+  attachments?: React.ReactNode;
   /** Shown when the question has more than one answer. `index` is 0-based. */
   versions?: { index: number; count: number; onPrev: () => void; onNext: () => void };
 }
@@ -62,7 +64,7 @@ const badge: Record<string, { text: string; tone: "warn" | "err" | "info" }> = {
   failed: { text: "失败", tone: "err" }
 };
 
-export function ModelMessage({ persona, onQuote, onRegenerate, versions, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
+export function ModelMessage({ persona, onQuote, onRegenerate, versions, attachments, modelLabel, content, thinking, citations, createdAt, status, run, live = false, thinkingLive = false, onSync, onRetry, onInspect }: ModelProps) {
   const [menu, setMenu] = useState(false);
   const press = useLongPress(() => !live && content && setMenu(true));
   const note = runNote(run);
@@ -89,6 +91,7 @@ export function ModelMessage({ persona, onQuote, onRegenerate, versions, modelLa
           </div>
         )}
         {menu && <MessageSheet text={content} onClose={() => setMenu(false)} onQuote={onQuote} onInspect={run && onInspect ? onInspect : undefined} onRegenerate={onRegenerate} />}
+        {attachments}
         {citations && citations.length > 0 && <Citations items={citations} />}
         {note && (
           <div className={`note ${note.tone}`} role="status" data-run-status={run?.status}>

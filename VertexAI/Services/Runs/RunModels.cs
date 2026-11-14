@@ -223,6 +223,8 @@ public sealed record FinalizeRequest(
     RunError? Error,
     int TokenCount,
     IReadOnlyList<SearchCitation>? Citations = null,
-    RunMeta? Meta = null);
+    RunMeta? Meta = null,
+    // Pictures the model made, already in attachment storage; recorded on the reply.
+    IReadOnlyList<ChatAttachment>? Attachments = null);
 
 public sealed record FinalizeResult(bool Won, RunRecord Record);
