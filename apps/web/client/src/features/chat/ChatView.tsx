@@ -179,7 +179,9 @@ export function ChatView({ api, conversationId, workspace, defaults, initial, ro
     return () => {
       cancelled = true;
     };
-  }, [api, conversationId, reloadKey, workspace, addressed]);
+    // addressed flips false -> true when the first send gets an address; re-fetching mid-stream would show the reply twice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, conversationId, reloadKey, workspace]);
 
   const controller = useRunController({ api, conversationId, pending });
   const { state, reset } = controller;
