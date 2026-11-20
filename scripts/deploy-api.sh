@@ -40,7 +40,7 @@ main() {
   # "origin/claude/..."), and nothing else is needed for the default. Any other REF must already be known locally.
   git fetch -q origin main || die "拉取 main 失败。可以先运行 git remote prune origin 再试。"
   git checkout -q --detach "${REF}" || die "找不到 ${REF}。如果是别的分支，先运行 git fetch origin <分支名>。"
-  COMMIT="$(git rev-parse --short HEAD)"
+  COMMIT="$(git rev-parse HEAD)"
   IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/vertex-ai-api:${COMMIT}"
   git log --oneline -1
 
@@ -72,7 +72,7 @@ INFO
     echo "== 镜像已存在，跳过构建"
   else
     echo "== 构建镜像（几分钟）"
-    run gcloud builds submit VertexAI --project="${PROJECT_ID}" --tag="${IMAGE}"
+    run gcloud builds submit VertexAI --project="${PROJECT_ID}" --region="${REGION}" --tag="${IMAGE}"
   fi
 
   echo "== 部署"

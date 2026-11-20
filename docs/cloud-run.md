@@ -49,16 +49,18 @@ bash scripts/deploy-api.sh
 ## Automatic web deployment
 
 `cloudbuild-web.yaml` builds `apps/web` and replaces only the image of the existing `vertex-ai-web` service, so
-its environment, secrets and scaling are untouched. Connect it once in the Google Cloud console:
+its environment, secrets and scaling are untouched. In `zhumyproject`, this is wired to the Cloud Build trigger
+`deploy-web` in `asia-east1`. To set up the same trigger in the Google Cloud console:
 
-1. Cloud Build > Triggers > Create trigger. Connect the GitHub repository (Cloud Build GitHub App).
+1. Cloud Build > Triggers > Create trigger (`asia-east1`, name `deploy-web`). Connect the GitHub repository (Cloud Build GitHub App).
 2. Event: push to branch `^main$`. Included files filter: `apps/web/**` and `cloudbuild-web.yaml`.
 3. Configuration: Cloud Build configuration file, `cloudbuild-web.yaml`.
 4. The trigger's service account needs Cloud Run Admin, Service Account User on the web service's runtime
    service account, and Artifact Registry Writer on the `vertex-ai` repository.
 
 Each deploy takes all traffic at once; roll back by sending traffic to the previous revision in Cloud Run.
-The API is not deployed this way: it needs the staged release in `docs/refactor/cloud-shell-release.md`.
+The API is not deployed this way: deploy it manually with `scripts/deploy-api.sh` (or use the staged release in
+`docs/refactor/cloud-shell-release.md` when indexes or settings change).
 
 ## Scripted Deployment
 
@@ -166,9 +168,11 @@ FIREBASE_API_KEY
 FIREBASE_APP_ID
 ```
 
-The workflow runs automatically on pushes to `main` or `master`. It can also be
-started manually from GitHub Actions with a deploy target of `all`, `api`, or
-`web`.
+This workflow is manual-only (`workflow_dispatch`) and does not run automatically
+on pushes to `main` or `master`. Start it manually from GitHub Actions with a
+deploy target of `all`, `api`, or `web`. In production (`zhumyproject`), web
+auto-deployment uses the Cloud Build trigger `deploy-web` (`asia-east1`), and
+backend releases are run manually with `scripts/deploy-api.sh`.
 
 After the web service URL is created, add its host to Firebase Authentication
 authorized domains. Without that Firebase setting, browser login can fail even

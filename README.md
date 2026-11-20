@@ -39,24 +39,24 @@ Important settings:
 
 ## Deployment
 
-Cloud Run deployment is documented in [docs/cloud-run.md](docs/cloud-run.md).
-The deployment script builds and deploys both services, ensures Artifact
-Registry and the private attachment bucket exist, grants the Cloud Run runtime
-service account bucket object access, and wires the web service to the API URL.
+Cloud Run deployment is documented in [docs/cloud-run.md](docs/cloud-run.md) (project `zhumyproject`, region `asia-east1`):
 
-Manual deployment pattern:
+- **Web (`vertex-ai-web`)**: automatically deployed on pushes to `main` touching `apps/web/**` or `cloudbuild-web.yaml` via Cloud Build trigger `deploy-web` (`asia-east1`).
+- **API (`vertex-ai-api`)**: manually deployed via `bash scripts/deploy-api.sh` (image-only release to the existing service).
+
+Initial / full deployment script pattern:
 
 ```bash
-SERVICE_ACCOUNT=vertex-express@copper-affinity-467409-k7.iam.gserviceaccount.com \
-PROJECT_ID=copper-affinity-467409-k7 \
-FIREBASE_PROJECT_ID=my-agent-app-a5e42 \
-FIRESTORE_PROJECT_ID=my-agent-app-a5e42 \
+SERVICE_ACCOUNT=vertex-express@zhumyproject.iam.gserviceaccount.com \
+PROJECT_ID=zhumyproject \
+FIREBASE_PROJECT_ID=zhumyproject \
+FIRESTORE_PROJECT_ID=zhumyproject \
 FIREBASE_API_KEY=... \
 FIREBASE_APP_ID=... \
 ./scripts/deploy-cloud-run.sh
 ```
 
-CI deployment is configured in `.github/workflows/deploy-cloud-run.yml`.
+`.github/workflows/deploy-cloud-run.yml` is manual-only (`workflow_dispatch`) and does not deploy automatically on pushes to `main`.
 
 ## Checks
 
