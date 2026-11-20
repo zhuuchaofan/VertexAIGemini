@@ -72,7 +72,10 @@ internal static class VertexProviderTests
         {
             var grok = OpenAICompatibleCatalog.CreateEnabledProviderSettings(BuiltInSettings()).Single(p => p.ProviderId == "grok-vertex");
             Assert.Equal(OpenAICompatibleAuth.GoogleAdc, grok.AuthMode);
-            Assert.Equal("xai/grok-4.6", grok.ModelName);
+            Assert.Equal("xai/grok-4.7", grok.ModelName);
+            Assert.SequenceEqual(
+                ["xai/grok-4.7", "xai/grok-4.6", "xai/grok-4.20-reasoning", "xai/grok-4.20-non-reasoning"],
+                grok.Models.Select(m => m.ModelName).ToArray());
             Assert.Equal("https://aiplatform.googleapis.com/v1/projects/p1/locations/global/endpoints/openapi/chat/completions", grok.Endpoint);
             Assert.Equal("", grok.ApiKey); // no key anywhere
         });
@@ -102,7 +105,7 @@ internal static class VertexProviderTests
         Assert.Equal("hi", string.Concat(chunks.Select(c => c.Text)));
         Assert.Equal("Bearer token-1", handler.Authorization);
         Assert.Equal("https://aiplatform.googleapis.com/v1/projects/p1/locations/global/endpoints/openapi/chat/completions", handler.Uri);
-        Assert.Contains("\"model\":\"xai/grok-4.6\"", handler.Body ?? "");
+        Assert.Contains("\"model\":\"xai/grok-4.7\"", handler.Body ?? "");
         Assert.Equal(1, tokens.Requests);
     }
 
@@ -138,8 +141,8 @@ internal static class VertexProviderTests
     {
         Enabled = true, ProviderId = "grok-vertex", Name = "Grok (Vertex AI)", AuthMode = OpenAICompatibleAuth.GoogleAdc,
         Endpoint = "https://aiplatform.googleapis.com/v1/projects/p1/locations/global/endpoints/openapi/chat/completions",
-        ModelName = "xai/grok-4.6",
-        Models = [new ChatModelOption { Name = "Grok 4.6", ModelName = "xai/grok-4.6", MaxTokens = 128000 }]
+        ModelName = "xai/grok-4.7",
+        Models = [new ChatModelOption { Name = "Grok 4.7", ModelName = "xai/grok-4.7", MaxTokens = 524288 }]
     };
 
     private static T Run<T>(Task<T> task) => task.GetAwaiter().GetResult();
