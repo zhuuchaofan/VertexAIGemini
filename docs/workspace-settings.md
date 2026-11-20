@@ -29,15 +29,16 @@ are disabled.
 
 ## Built-in Gemini models
 
-The built-in Gemini entries are the three Gemini 4 models, in this order (the first is the default):
+The built-in Gemini entries are the four Gemini 4 models, in this order (the first is the default):
 
 | Entry | Vertex AI model ID | Shown as |
 |---|---|---|
 | Gemini 4 Hydrogen (default) | `gemini-4-hydrogen` | 性价比最高，日常与编程首选 |
+| Gemini 4 Neon | `gemini-4-neon` | 均衡主力，兼顾深度推理与速度，适合多文件编程与复杂分析 |
 | Gemini 4 Carbon | `gemini-4-carbon` | 综合能力最强，适合复杂架构和疑难问题 |
 | Gemini 4 Argon | `gemini-4-argon` | 能力与 Hydrogen 相近，价格更高 |
 
-A fourth entry, **Nano Banana 画图** (`gemini-nano-banana-2.1`), answers with pictures. It is never the default. It asks
+A fifth entry, **Nano Banana 画图** (`gemini-nano-banana-2.1`), answers with pictures. It is never the default. It asks
 Gemini for text and image output, gets no web search, keeps only final pictures (drafts inside the model's thinking are
 dropped), stores them in the attachment bucket next to the reply, and counts against `Quota:DailyImageLimit`
 (default 20 a day, `Quota__DailyImageLimit` on Cloud Run). In this project it answered a test prompt in about 20 seconds

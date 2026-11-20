@@ -69,6 +69,15 @@ internal static class GeminiCatalog
             },
             new()
             {
+                Name = "Gemini 4 Neon",
+                ModelName = "gemini-4-neon",
+                Description = "均衡主力，兼顾深度推理与速度，适合多文件编程与复杂分析；支持低、中、高思考级别",
+                Thinking = CreateGeminiThinking(["low", "medium", "high"], "medium", canDisable: false),
+                SupportsSampling = false,
+                MaxTokens = 1048576
+            },
+            new()
+            {
                 Name = "Gemini 4 Carbon",
                 ModelName = "gemini-4-carbon",
                 Description = "综合能力最强，适合复杂架构和疑难问题；支持低、中、高思考级别",

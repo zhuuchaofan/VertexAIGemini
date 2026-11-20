@@ -358,18 +358,20 @@ internal static class GeminiAdvancedTests
     {
         var settings = new GeminiSettings();
         var models = GeminiCatalog.CreateModelOptions(settings);
-        Assert.Equal(4, models.Count);
+        Assert.Equal(5, models.Count);
         Assert.Equal("gemini-4-hydrogen", models[0].ModelName);
         // The picture model is listed but is never the default.
         Assert.Equal("gemini-nano-banana-2.1", models[^1].ModelName);
         Assert.True(models[^1].GeneratesImages);
         Assert.Equal(1, models.Count(model => model.GeneratesImages));
+        Assert.True(models.Any(model => model.ModelName == "gemini-4-neon"));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-carbon"));
         Assert.True(models.Any(model => model.ModelName == "gemini-4-argon"));
         Assert.False(models.Any(model => model.ModelName == "gemini-3.8-flash"));
         Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName(settings.ModelName, models));
         // A conversation or saved setting naming a retired model uses the default.
         Assert.Equal("gemini-4-hydrogen", GeminiCatalog.ResolveModelName("gemini-3.8-flash", models));
+        Assert.Equal("gemini-4-neon", GeminiCatalog.ResolveModelName("gemini-4-neon", models));
         Assert.Equal("gemini-4-carbon", GeminiCatalog.ResolveModelName("gemini-4-carbon", models));
         foreach (var model in models.Where(model => !model.GeneratesImages))
         {
