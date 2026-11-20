@@ -2,7 +2,7 @@
 
 这份手册对应一个确定的提交。照着从上到下执行即可，不需要补代码、猜参数，也不需要重新输入已有的 Firebase 配置、模型密钥或 Secret 引用：脚本从线上的两个 Cloud Run 服务里读取现有配置，只新增必要的设置并替换镜像。
 
-- **分支**：`claude-ai-chat-redesign-f8o3rg`（PR #2，草稿；**不要合并到 `main`**，`main` 的推送会自动触发部署流水线）。
+- **分支**：`claude-ai-chat-redesign-f8o3rg`（PR #2，草稿；`main` 仅在改动 `apps/web/**` 或 `cloudbuild-web.yaml` 时由 Cloud Build 触发器 `deploy-web` 自动部署前端，后端需手动执行 `scripts/deploy-api.sh`）。
 - **提交**：以交付消息里给出的完整 SHA 为准（分支末端即该提交；下面的命令会核对 SHA，不一致就拒绝运行）。
 - 所有命令都可以失败后重跑；`DRY_RUN=1` 会只打印将要执行的变更命令。
 
